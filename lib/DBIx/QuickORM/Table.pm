@@ -3,40 +3,60 @@ use strict;
 use warnings;
 
 use Carp qw/croak/;
-use Scalar::Util qw/weaken/;
-use DBIx::QuickORM::Util qw/delegate/;
+use Storable qw/dclone/;
+use Scalar::Util qw/blessed/;
 
-use DBIx::QuickORM::Select;
-
-use DBIx::QuickORM::HashBase qw{
-    meta_table
-    db
-    schema
+use DBIx::QuickORM::Util::HashBase qw{
+    <name
+    <columns
+    <is_view
+    <is_temp
 };
 
-delegate name         => META_TABLE();
-delegate column_names => META_TABLE();
-delegate pk           => (META_TABLE(), "primary_key");
-delegate primary_key  => (META_TABLE(), "primary_key");
+use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
 
 sub init {
     my $self = shift;
 
-    croak "'meta_table' is a required attribute" unless $self->{+META_TABLE};
-    croak "'schema' is a required attribute"     unless $self->{+SCHEMA};
-    croak "'db' is a required attribute"         unless $self->{+DB};
+    croak "The 'name' attribute is required" unless $self->{+NAME};
 
-    weaken($self->{+SCHEMA});
+    my $cols = $self->{+COLUMNS} or croak "The 'columns' attribute is required";
+    croak "The 'columns' attribute must be a hashref" unless ref($cols) eq 'HASH';
+    croak "The 'columns' hash may not be empty" unless keys %$cols;
 
-    return $self;
+    for my $cname (sort keys %$cols) {
+        my $cval = $cols->{$cname} or croak "Column '$cname' is empty";
+        croak "Columns '$cname' is not an instance of 'DBIx::QuickORM::Table::Column', got: '$cval'" unless blessed($cval) && $cval->isa('DBIx::QuickORM::Table::Column');
+    }
+
+    $self->{+IS_VIEW} //= 0;
+    $self->{+IS_TEMP} //= 0;
 }
 
-sub search           { }    # Select
-sub find             { }    # One row
-sub insert           { }    # row
-sub find_or_insert   { }    # row
-sub update_or_insert { }    # row
-sub fetch            { }    # raw hashref
-sub fetch_all        { }    # iterator of hashrefs
+sub column {
+    my $self = shift;
+    my ($cname) = @_;
+
+    return $self->{+COLUMNS}->{$cname} // undef;
+}
+
+sub clone {
+    my $self   = shift;
+    my %params = @_;
+
+    my $class = blessed($self);
+
+    unless ($self->{+CREATED}) {
+        my @caller = caller(1);
+        $self->{+CREATED} = "$caller[1] line $caller[2]";
+    }
+
+    my $new = $class->new(
+        %$self,
+        columns  => dclone($self->{+COLUMNS}),
+        sql_spec => dclone($self->{+SQL_SPEC}),
+        %params,
+    );
+}
 
 1;

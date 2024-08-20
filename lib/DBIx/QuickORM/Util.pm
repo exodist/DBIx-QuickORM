@@ -3,10 +3,17 @@ use strict;
 use warnings;
 
 use Carp qw/croak/;
+use Scalar::Util qw/blessed/;
 
-our @EXPORT = qw/ mod2file delegate alias /;
+our @EXPORT = qw/ mod2file delegate alias parse_hash_arg /;
 
 use base 'Exporter';
+
+sub parse_hash_arg {
+    my $self = shift;
+    return $_[0] if @_ == 1 && ref($_[0]) eq 'HASH';
+    return {@_};
+}
 
 sub mod2file {
     my ($mod) = @_;

@@ -2,408 +2,682 @@ package DBIx::QuickORM;
 use strict;
 use warnings;
 
-our $VERSION = 0.001;
+use Carp qw/croak/;
+use List::Util qw/first/;
+use Scalar::Util qw/blessed/;
+use DBIx::QuickORM::Util qw/mod2file alias/;
+use DBIx::QuickORM::Util::Has Plugins => [qw/ordered_plugins/];
 
 use DBIx::QuickORM::DB;
-use DBIx::QuickORM::Row;
+use DBIx::QuickORM::Mixer;
+use DBIx::QuickORM::ORM;
+use DBIx::QuickORM::Relation::Member;
+use DBIx::QuickORM::Relation;
+use DBIx::QuickORM::Schema::RelationSet;
 use DBIx::QuickORM::Schema;
-use DBIx::QuickORM::Meta::Table;
-use DBIx::QuickORM::Meta::Column;
-use DBIx::QuickORM::Meta::Relation;
+use DBIx::QuickORM::Source::Join;
+use DBIx::QuickORM::Source;
+use DBIx::QuickORM::Table::Column;
+use DBIx::QuickORM::Table;
 
-use DBIx::QuickORM::Util qw/mod2file alias/;
+use Importer 'Importer' => 'import';
 
-use Carp qw/croak/;
-use Scalar::Util qw/blessed/;
-
-use Importer Importer => 'import';
-
-my @EXPORT_DB = qw{
-    attr attribute attributes attrs
-    db   db_type   dbd
-    dsn  connect
-    host hostname  socket
-    pass password
-    port
-    user username
+our @EXPORT = qw{
+    attributes autofill column_class column columns conflate connect db
+    db_class db_name default dsn host include index member member_class
+    meta_table mixer omit password plugin port primary_key orm relation
+    relation_class row_base_class schema socket sql_spec table table_class
+    source_class unique user is_temp is_view
 };
-
-my @EXPORT_COL = qw{
-    col cols         column        columns
-    pk  primary_key
-    unique
-    inflate
-
-    sql_type
-    sql_default
-    sql_serial sql_autoinc
-    not_null
-    nullable
-    on_delete
-};
-
-my @EXPORT_RELATION = qw{
-    relation
-    member
-};
-
-my @EXPORT_TABLE = (
-    qw/table row_class/,
-    @EXPORT_RELATION,
-    @EXPORT_COL,
-);
-
-my @EXPORT_META = (
-    qw/table_meta generate_methods/,
-    @EXPORT_RELATION,
-    @EXPORT_COL,
-);
-
-my @EXPORT_SCHEMA = (
-    qw/schema auto_fill/,
-    @EXPORT_TABLE,
-    @EXPORT_DB,
-);
-
-our @EXPORT_OK = @EXPORT_SCHEMA;
-
-our %EXPORT_TAGS = (
-    DB     => \@EXPORT_DB,
-    META   => \@EXPORT_META,
-    ROWS   => \@EXPORT_COL,
-    SCHEMA => \@EXPORT_SCHEMA,
-    TABLE  => \@EXPORT_TABLE,
-);
-
-sub unimport { Importer->new(from => $_[0])->do_unimport() }
-
-alias attr        => 'attribute';
-alias attr        => 'attributes';
-alias attr        => 'attrs';
-alias column      => 'col';
-alias column      => 'cols';
-alias column      => 'columns';
-alias host        => 'hostname';
-alias hostname    => 'socket';
-alias pass        => 'password';
-alias primary_key => 'pk';
-alias user        => 'username';
-alias sql_serial  => 'sql_autoinc';
 
 our %STATE;
 
-sub schema {
-    my $code = pop;
+alias columns => 'column';
+
+sub plugins { $STATE{PLUGINS} // {} }
+
+sub plugin {
+    my ($in, %params) = @_;
+
+    my $plugins = $STATE{PLUGINS} or croak "Must be used under a supported builder, no builder that accepts plugins found";
+
+    my ($class, $instance);
+    if ($class = blessed($in)) {
+        croak "'$in' is not an instance of 'DBIx::QuickORM::Plugin' or a subclass of it" unless $in->isa('DBIx::QuickORM::Plugin');
+        $instance = $in;
+    }
+    else {
+        $class = "DBIx::QuickORM::Plugin::$in" unless $in =~ s/^\+// || $in =~ m/^DBIx::QuickORM::Plugin::/;
+        eval { require(mod2file($class)); 1 } or croak "Could not load plugin '$in' ($class): $@";
+        croak "Plugin '$in' ($class) is not a subclass of 'DBIx::QuickORM::Plugin'" unless $class->isa('DBIx::QuickORM::Plugin');
+    }
+
+    unless ($params{clean}) {
+        if (my $have = $plugins->{$class}) {
+            croak "Already have a plugin of class '$class', and it is not the same instance (Pass in `clean => 1` to override)" if $instance && $instance != $have;
+            return $have;
+        }
+    }
+
+    push @{$plugins->{__ORDER__}} => $class;
+    return $plugins->{$class} = $instance // $class->new;
+}
+
+sub mixer {
+    my $cb = pop;
     my $name = shift;
 
-    local %STATE;
+    my @caller = caller;
 
-    unless ($name) {
-        my @caller = caller;
-        $name = "DBIx::QuickORM::Schema created at $caller[1] line $caller[2]";
-    }
+    my %params = (
+        name    => $name // 'orm mixer',
+        created => "$caller[1] line $caller[2]",
+        dbs     => {},
+        schemas => {},
+        plugins => _push_plugins(),
+    );
 
-    my $schema = DBIx::QuickORM::Schema->new(name => $name);
-    local $STATE{SCHEMA} = $schema;
+    local $STATE{PLUGINS} = $params{plugins};
+    local $STATE{MIXER}   = \%params;
+    local $STATE{STACK}   = ['MIXER', @{$STATE{STACK} // []}];
+    local $STATE{ORM};
 
-    $code->(%STATE);
+    $cb->(%STATE);
 
-    $schema->recompile() if $schema->db;
+    my $mixer = DBIx::QuickORM::Mixer->new(\%params);
 
-    __PACKAGE__->unimport_from(scalar caller);
+    croak "Cannot be called in void context without a symbol name"
+        unless defined($name) || defined(wantarray);
 
-    return $schema;
-}
-
-sub auto_fill {
-    my $schema = $STATE{SCHEMA} or croak "Must be called inside of a schema builder";
-    $schema->set_auto_fill;
-}
-
-sub table_class {
-    my ($class) = @_;
-    eval { require(mod2file($class)); 1 } or croak "Could not load table class '$class': $@";
-    my $schema = $STATE{SCHEMA} or croak "Must be inside a schema builder";
-    $schema->set_table_class($class);
-}
-
-sub table_meta {
-    my $caller = caller;
-    my $table = table(@_);
-
-    {
+    if ($name) {
         no strict 'refs';
-        *{"$caller\::orm_tiny_table_meta"} = sub { $table };
-        push @{"$caller\::ISA"} => 'DBIx::QuickORM::Row';
+        *{"$caller[0]\::$name"} = sub { $mixer };
     }
 
-    $table->set_row_class($caller);
-
-    $table->inject_methods;
-
-    return $table;
+    return $mixer;
 }
 
-sub row_class {
-    my ($class, %params) = @_;
-
-    my $schema = $STATE{SCHEMA} or croak "Must be used inside a schema builder";
-    my $table  = $STATE{TABLE}  or croak "Must be used inside a table builder";
-
-    my $file = mod2file($class);
-    unless (eval { require($file); 1 }) {
-        my $err = $@;
-        croak "Could not load row class '$class': $err"
-            unless $params{generate} && $err =~ m{^Can't locate \Q$file\E in \@INC};
-
-        $INC{$file} ||= 1;
+sub _push_plugins {
+    if (my $parent = $STATE{PLUGINS}) {
+        return {
+            %$parent,
+            __ORDER__ => [@{$parent->{__ORDER__} // []}],
+        };
     }
 
-    $table->set_row_class($class);
-
-    if ($class->can('orm_tiny_table_meta')) {
-        my $merge = $class->orm_tiny_table_meta;
-        $table->fill(schema => $schema, from_db => $table);
-    }
-
-    $table->inject_methods unless $params{no_inject};
-
-    return $class;
+    return {__ORDER__ => []};
 }
 
-sub table {
-    my ($name, $code_or_class) = @_;
-    my $type = ref($code_or_class);
+sub orm {
+    my $cb       = ref($_[-1]) eq 'CODE' ? pop : undef;
+    my $new_args = ref($_[-1]) eq 'HASH' ? pop : {};
+    my ($name, $db, $schema) = @_;
 
-    my $schema = $STATE{SCHEMA};
+    my @caller = caller;
 
-    my $table;
-    if ($type && $type eq 'CODE') {
-        my $tc = $schema ? $schema->table_class // 'DBIx::QuickORM::Meta::Table' : 'DBIx::QuickORM::Meta::Table';
-        eval { require(mod2file($tc)); 1 } or croak "Could not load table class '$tc': $@";
-        $table = $tc->new(name => $name);
+    my %params = (
+        name    => $name // 'orm',
+        created => "$caller[1] line $caller[2]",
+        plugins => _push_plugins(),
+    );
 
-        my $code = $code_or_class;
-        local $STATE{TABLE} = $table;
-        $code->(%STATE);
+    if ($db || $schema) {
+        my $mixer = $STATE{MIXER} or croak "The `orm(name, db, schema)` from can only be used under a mixer builder";
+
+        if ($db) {
+            $params{db} = $mixer->db($db) or croak "The '$db' database is not defined";
+        }
+        if ($schema) {
+            $params{schema} = $mixer->schema($schema) or croak "The '$schema' schema is not defined";
+        }
+    }
+
+    local $STATE{PLUGINS} = $params{plugins};
+    local $STATE{ORM}    = \%params;
+    local $STATE{STACK}   = ['ORM', @{$STATE{STACK} // []}];
+
+    $cb->(%STATE);
+
+    my $orm = DBIx::QuickORM::ORM->new(%params, %$new_args);
+
+    if (my $mixer = $STATE{MIXER}) {
+        $mixer->{orms}->{$name} = $orm;
     }
     else {
-        my $class = $code_or_class;
-        eval { require(mod2file($class)); 1 } or croak "Could not load row class '$class': $@";
+        croak "Cannot be called in void context outside of a mixer without a symbol name"
+            unless defined($name) || defined(wantarray);
 
-        croak "Class '$class' cannot be used here as it does not implement orm_tiny_table_meta()"
-            unless $class->can('orm_tiny_table_meta');
-
-        $table = $class->orm_tiny_table_meta->clone;
+        if ($name) {
+            no strict 'refs';
+            *{"$caller[0]\::$name"} = sub { $orm };
+        }
     }
 
-    return $schema->add_table($table) if $schema;
-    return $table;
+    return $orm;
 }
 
-sub column {
-    my $code = pop if @_ && ref($_[-1]) eq 'CODE';
-    my @names = @_;
+sub autofill {
+    my ($val) = @_;
+    $val //= 1;
 
-    croak "Must provide at least 1 column name" unless @names;
+    my $orm = $STATE{ORM} or croak "This can only be used inside a orm builder";
 
-    my @out;
-    for my $name (@names) {
-        my $col = DBIx::QuickORM::Meta::Column->new(name => $name);
-
-        next unless $code;
-
-        local $STATE{COL} = $col;
-        $code->(%STATE);
-
-        if (my $table = $STATE{TABLE}) {
-            push @out => $table->add_column($col);
-        }
-        else {
-            push @out => $col;
-        }
-    }
-
-    return @out;
+    $orm->{autofill} = $val;
 }
-
-sub primary_key {
-    my @cols = @_;
-
-    if (my $col = $STATE{COL}) {
-        croak "primary_key() does not take arguments inside a column builder" if @cols;
-        $col->set_primary_key(1);
-        return;
-    }
-
-    my $table = $STATE{TABLE} or croak "Must be used inside a table or column builder";
-
-    for my $name (@cols) {
-        if (my $col = $table->has_column($name)) {
-            $col->set_primary_key(1);
-        }
-        else {
-            $table->add_column(DBIx::QuickORM::Meta::Column->new(name => $name, primary_key => 1));
-        }
-    }
-}
-
-sub unique {
-    my @cols = @_;
-    if (my $col = $STATE{COL}) {
-        croak "unique() does not take arguments inside a column builder" if @cols;
-        $col->set_unqiue(1);
-
-        if (my $table = $STATE{TABLE}) {
-            $table->add_unique($col->name);
-        }
-
-        return;
-    }
-
-    my $table = $STATE{TABLE} or croak "Must be used inside a table or column builder";
-
-    for my $name (@cols) {
-        next if $table->has_column($name);
-        $table->add_column(DBIx::QuickORM::Meta::Column->new(name => $name));
-    }
-
-    $table->add_unique(@cols);
-}
-
-sub inflate {
-    my $type = pop or croak "Must specify an inflation type as the final argument to inflate()";
-    my @cols = @_;
-
-    $type =~ s/^::/DBIx::QuickORM::Inflate::/;
-    eval { require(mod2file($type)); 1 } or croak "Invalid inflation type '$type': $@";
-    croak "Type '$type' does not implement the orm_tiny_inflate() class method" unless $type->can('orm_tiny_inflate');
-    croak "Type '$type' does not implement the orm_tiny_deflate() class method" unless $type->can('orm_tiny_deflate');
-
-    if (my $col = $STATE{COL}) {
-        croak "unique() does not take column names inside a column builder" if @cols;
-        $col->set_inflate($type);
-        return;
-    }
-
-    my $table = $STATE{TABLE} or croak "Must be used inside a table or column builder";
-
-    for my $name (@cols) {
-        if (my $col = $table->has_column($name)) {
-            $col->set_inflate($type);
-        }
-        else {
-            $table->add_column(DBIx::QuickORM::Meta::Column->new(name => $name, inflate => $type));
-        }
-    }
-}
-
-sub relation {
-    my ($name, $code_or_name2) = @_;
-
-    my ($code, $name2);
-    if (ref($code_or_name2) eq 'CODE') {
-        $code = $code_or_name2;
-    }
-    else {
-        $name2 = $code_or_name2;
-    }
-
-    my $rel = DBIx::QuickORM::Meta::Relation->new(name => $name);
-
-    if (my $table = $STATE{TABLE}) {
-        if (my $col = $STATE{col}) {
-            $rel->add_member(table => $table->name, columns => [$col->name], name => $name2 || $name);
-        }
-        else {
-            croak "A relation may be added in a schema builder, or in a column builder, but not directly in a table builder";
-        }
-
-        $table->add_relation($rel);
-    }
-    elsif($name2) {
-        croak "Second argument must be a coderef unless used inside a column builder";
-    }
-
-    local $STATE{RELATION} = $rel;
-
-    $code->($rel) if $code;
-
-    $STATE{SCHEMA}->add_relation($rel) if $STATE{SCHEMA};
-
-    return $rel;
-}
-
-sub member {
-    my ($table, $cols, $name) = @_;
-
-    $cols = [$cols] unless ref($cols);
-    my $m = {table => $table, columns => $cols, name => $name};
-
-    if (my $rel = $STATE{RELATION}) {
-        $rel->add_member($m);
-
-        if (my $schema = $STATE{SCHEMA}) {
-            if (my $table = $schema->meta_table($table)) {
-                $table->add_relation($rel);
-            }
-            else {
-                croak "Table '$table' has not been defined yet";
-            }
-        }
-    }
-
-    return $m;
-}
-
-sub not_null { $STATE{COL} ? $STATE{COL}->set_nullable(0)                        : croak "Must be called inside a column builder" }
-sub nullable { $STATE{COL} ? $STATE{COL}->set_nullable(@_ ? ($_[0] ? 1 : 0) : 1) : croak "Must be called inside a column builder" }
-
-# sql_type can also take a hashref {DRIVER => TYPE} or a function sub($driver) { return TYPE }
-sub sql_type    { $STATE{COL} ? $STATE{COL}->set_sql_type(@_)    : croak "Must be called inside a column builder" }
-sub sql_default { $STATE{COL} ? $STATE{COL}->set_sql_default(@_) : croak "Must be called inside a column builder" }
-sub sql_serial  { $STATE{COL} ? $STATE{COL}->set_sql_serial(@_)  : croak "Must be called inside a column builder" }
-sub on_delete   { $STATE{COL} ? $STATE{COL}->set_on_delete(@_)   : croak "Must be called inside a column builder" }
 
 sub db {
-    if (@_ == 1 && blessed($_[0]) && $_[0]->isa('DBIx::QuickORM::DB')) {
-        croak "Must be inside a schema builder" unless $STATE{SCHEMA};
-        $STATE{SCHEMA}->set_db($_[0]);
-        return $_[0];
+    my ($name, $cb) = @_;
+
+    my @caller = caller;
+
+    my %params = (
+        name       => $name,
+        created    => "$caller[1] line $caller[2]",
+        db_name    => $name,
+        attributes => {},
+        plugins => _push_plugins(),
+    );
+
+    local $STATE{PLUGINS} = $params{plugins};
+    local $STATE{DB}      = \%params;
+    local $STATE{STACK}   = ['DB', @{$STATE{STACK} // []}];
+
+    $cb->(%STATE);
+
+    my $class = delete($params{db_class}) or croak "You must specify a db class such as: PostgreSQL, MariaDB, Percona, MySQL, or SQLite";
+    $class = "DBIx::QuickORM::DB::$class" unless $class =~ s/^\+// || $class =~ m/^DBIx::QuickORM::DB::/;
+
+    eval { require(mod2file($class)); 1 } or croak "Could not load $class: $@";
+    my $db = $class->new(%params);
+
+    if (my $orm = $STATE{ORM}) {
+        croak "Quick ORM instance already has a db"
+            if $orm->{db};
+        $orm->{db} = $db;
     }
-
-    my ($name, $code) = @_;
-
-    my $db = DBIx::QuickORM::DB->new(name => $name);
-
-    local $STATE{DB} = $db;
-    $code->(%STATE);
-
-    $db->set_type($1) if $name =~ m/(PostgreSQL|Pg|MySQL|MariaDB|Percona|SQLite)/ && !$db->type;
-    $db->set_dbd($1)  if $name =~ m/^(DBD::\S+)/                                  && !$db->dbd;
-
-    $db->recompile();
-
-    if ($STATE{SCHEMA}) {
-        $STATE{SCHEMA}->set_db($db);
+    elsif (my $mixer = $STATE{MIXER}) {
+        croak "Quick ORM mixer already has a db named '$name'"
+            if $mixer->{dbs}->{$name};
+        $mixer->{dbs}->{$name} = $db;
     }
 
     return $db;
 }
 
-sub db_type    { $STATE{DB} ? $STATE{DB}->set_type(@_)     : croak "Must be inside a DB builder" }
-sub dbd        { $STATE{DB} ? $STATE{DB}->set_dbd(@_)      : croak "Must be inside a DB builder" }
-sub port       { $STATE{DB} ? $STATE{DB}->set_port(@_)     : croak "Must be inside a DB builder" }
-sub host       { $STATE{DB} ? $STATE{DB}->set_hostname(@_) : croak "Must be inside a DB builder" }
-sub dsn        { $STATE{DB} ? $STATE{DB}->set_dsn(@_)      : croak "Must be inside a DB builder" }
-sub user       { $STATE{DB} ? $STATE{DB}->set_username(@_) : croak "Must be inside a DB builder" }
-sub pass       { $STATE{DB} ? $STATE{DB}->set_password(@_) : croak "Must be inside a DB builder" }
-sub connect(&) { $STATE{DB} ? $STATE{DB}->set_connect(@_)  : croak "Must be inside a DB builder" }
+sub attributes {
+    my %attrs = @_ == 1 ? (%{$_[0]}) : (@_);
 
-sub attr {
-    my $db = $STATE{DB} or croak "Not inside a DB builder";
-    my $attrs = $db->attributes;
-    %$attrs = (%$attrs, @_);
+    my $db = $STATE{DB} or croak "attributes() must be called inside of a db builer";
+    %{$db->{attributes} //= {}} = (%{$db->{attributes} // {}}, %attrs);
+
+    return $db->{attributes};
+}
+
+sub connect {
+    my ($in) = @_;
+
+    my $db = $STATE{DB} or croak "connect() must be called inside of a db builer";
+
+    if (ref($in) eq 'CODE') {
+        return $db->{connect} = $in;
+    }
+
+    my $code = do { no strict 'refs'; \&{$in} };
+    croak "'$in' does not appear to be a defined subroutine" unless defined(&$code);
+    return $db->{connect} = $code;
+}
+
+BEGIN {
+    for my $db_field (qw/db_class db_name dsn host socket port user password/) {
+        my $name = $db_field;
+        my $sub  = sub {
+            my $db = $STATE{DB} or croak "$name() must be called inside of a db builer";
+            $db->{$name} = $_[0];
+        };
+
+        no strict 'refs';
+        *{$name} = $sub;
+    }
+}
+
+sub schema {
+    my ($name, $cb) = @_;
+
+    my @caller = caller;
+
+    my @relations;
+    my %params = (
+        name      => $name,
+        created   => "$caller[1] line $caller[2]",
+        relations => \@relations,
+        plugins => _push_plugins(),
+    );
+
+    local $STATE{SOURCES}   = {};
+    local $STATE{PLUGINS}   = $params{plugins};
+    local $STATE{SCHEMA}    = \%params;
+    local $STATE{RELATIONS} = \@relations;
+    local $STATE{STACK}     = ['SCHEMA', @{$STATE{STACK} // []}];
+
+    local $STATE{COLUMN};
+    local $STATE{RELATION};
+    local $STATE{MEMBER};
+    local $STATE{TABLE};
+
+    $cb->(%STATE);
+
+    $params{relations} = DBIx::QuickORM::Schema::RelationSet->new(@relations);
+
+    my $class = delete($params{schema_class}) // first { $_ } (map { $_->schema_class(%params, %STATE) } ordered_plugins($params{plugins})), 'DBIx::QuickORM::Schema';
+    eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
+    my $schema = $class->new(%params);
+
+    if (my $orm = $STATE{ORM}) {
+        croak "This orm instance already has a schema" if $orm->{schema};
+        $orm->{schema} = $schema;
+    }
+    elsif (my $mixer = $STATE{MIXER}) {
+        croak "A schema with name '$name' is already defined" if $mixer->{schemas}->{$name};
+        $mixer->{schemas}->{$name} = $schema;
+    }
+
+    return $schema;
+}
+
+sub include {
+    my @schemas = @_;
+
+    my $schema = $STATE{SCHEMA} or croak "include() can only be used inside a schema builder";
+
+    for my $item (@schemas) {
+        if (blessed($item) && $item->isa('DBIx::QuickORM::Schema')) {
+            push @{$schema->{include} //= []} => $item;
+        }
+        else {
+            my $mixer = $STATE{MIXER} or croak "include cannot take bare schema names outside of a mixer builder";
+            my $it = $mixer->{schemas}->{$item} or croak "the '$item' schema is not defined";
+            push @{$schema->{include} //= []} => $it;
+        }
+    }
+
+    return;
+}
+
+sub _table {
+    my ($name, $cb, %params) = @_;
+
+    my @caller = caller(1);
+    $params{name} = $name;
+    $params{created} //= "$caller[1] line $caller[2]";
+    $params{plugins} = _push_plugins();
+
+    local $STATE{PLUGINS} = $params{plugins};
+    local $STATE{TABLE}   = \%params;
+    local $STATE{STACK}   = ['TABLE', @{$STATE{STACK} // []}];
+
+    $cb->(%STATE);
+
+    for my $cname (keys %{$params{columns}}) {
+        my $spec = $params{columns}{$cname};
+        my $class = delete($spec->{column_class}) || $params{column_class} || ($STATE{SCHEMA} ? $STATE{SCHEMA}->{column_class} : undef ) || 'DBIx::QuickORM::Table::Column';
+        $params{columns}{$cname} = $class->new(%$spec);
+    }
+
+    my $class = delete($params{table_class}) // first { $_ } (map { $_->table_class(%params, %STATE) } ordered_plugins( $params{plugins} )), 'DBIx::QuickORM::Table';
+    eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
+    return $class->new(%params);
+}
+
+sub table {
+    return _member_table(@_) if $STATE{MEMBER};
+
+    my $schema = $STATE{SCHEMA} or croak "table() can only be used inside a schema or member builder";
+
+    my ($name, $cb) = @_;
+
+    my %params;
+
+    local $STATE{COLUMN};
+    local $STATE{RELATION};
+    local $STATE{MEMBER};
+
+    my $table = _table($name, $cb, %params);
+
+    if (my $names = $STATE{NAMES}) {
+        if (my $have = $names->{$name}) {
+            croak "There is already a source named '$name' ($have) from " . ($have->created // '');
+        }
+
+        $names->{$name} = $table;
+    }
+
+    croak "Table '$table' is already defined" if $schema->{tables}->{$name};
+    $schema->{tables}->{$name} = $table;
+
+    return $table;
+}
+
+sub meta_table {
+    my ($name, $cb) = @_;
+
+    my $caller = caller;
+
+    local %STATE;
+
+    my @relations;
+    local $STATE{RELATIONS} = \@relations;
+    my $table = _table($name, $cb, row_base_class => $caller);
+
+    my $relations = DBIx::QuickORM::Schema::RelationSet->new(@relations);
+
+    {
+        no strict 'refs';
+        *{"$caller\::orm_table"}     = sub { $table };
+        *{"$caller\::orm_relations"} = sub { $relations };
+        push @{"$caller\::ISA"} => 'DBIx::QuickORM::Row';
+    }
+
+    return $table;
+}
+
+BEGIN {
+    my @CLASS_SELECTORS = (
+        ['column_class',   'COLUMN',   'TABLE',    'SCHEMA'],
+        ['member_class',   'MEMBER',   'RELATION', 'SCHEMA'],
+        ['relation_class', 'RELATION', 'SCHEMA'],
+        ['row_base_class', 'TABLE',    'SCHEMA'],
+        ['table_class',    'TABLE',    'SCHEMA'],
+        ['source_class',   'TABLE'],
+    );
+
+    for my $cs (@CLASS_SELECTORS) {
+        my ($name, @states) = @$cs;
+
+        my $code = sub {
+            my ($class) = @_;
+            eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
+
+            for my $state (@states) {
+                my $params = $STATE{$state} or next;
+                return $params->{$name} = $class;
+            }
+
+            croak "$name() must be called inside one of the following builders: " . join(', ' => map { lc($_) } @states);
+        };
+
+        no strict 'refs';
+        *{$name} = $code;
+    }
+}
+
+sub sql_spec {
+    my %hash = @_ == 1 ? %{$_[0]} : (@_);
+
+    my ($state) = @{$STATE{STACK} // []};
+    croak "Must be called inside a builder" unless $state;
+
+    my $params = $STATE{$state} or croak "Must be called inside a builder";
+
+    my $specs = $params->{sql_spec} //= {};
+
+    %$specs = (%$specs, %hash);
+
+    return $specs;
+}
+
+sub relation {
+    my ($name, $cb, @extra) = @_;
+
+    croak "Too many arguments for relation" if @extra;
+
+    my $relations = $STATE{RELATIONS} or croak "No 'relations' store found, must be nested under a schema or meta_table builder";
+
+    my @caller = caller;
+    my %params = (
+        created => "$caller[1] line $caller[2]",
+        members => [],
+        plugins => _push_plugins(),
+    );
+
+    local $STATE{PLUGINS}  = $params{plugins};
+    local $STATE{RELATION} = \%params;
+    local $STATE{STACK}    = ['RELATION', @{$STATE{STACK} // []}];
+    local $STATE{MEMBER};
+
+    $cb->(%STATE);
+
+    if (my $member = $STATE{MEMBER}) {
+        my $class = first { $_ } (map { $_->member_class(%params, %STATE) } ordered_plugins($params{plugins})), 'DBIx::QuickORM::Relation::Member';
+        eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
+        my $mem = $class->new(%$member);
+        push @{$params{members}} => $mem;
+    }
+
+    my $class = delete($params{relation_class}) // first { $_ } (map { $_->relation_class(%params, %STATE) } ordered_plugins($params{plugins})), 'DBIx::QuickORM::Relation';
+    eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
+    my $rel = $class->new(%params);
+
+    if (my $names = $STATE{NAMES}) {
+        if (my $have = $names->{$name}) {
+            unless ($have->isa('DBIx::QuickORM::Relation') && $have->index eq $rel->index) {
+                croak "There is already a source named '$name' ($have) from " . ($have->created // '');
+            }
+        }
+
+        $names->{$name} = $rel;
+    }
+
+    push @$relations => $rel;
+
+    return $rel;
+}
+
+sub member {
+    my (@specs) = @_;
+
+    my $relation = $STATE{RELATION} or croak "member() must be nested under a relation builder";
+
+    my ($cb);
+    my @caller = caller;
+    my %params = (
+        created => "$caller[1] line $caller[2]",
+        plugins => {__ORDER__ => []},
+    );
+
+    # @specs may contain these in any order:
+    # coderef  - callback to run
+    # arrayref - list of columns
+    # string   - table name
+    # hashref  - contains all of the above
+
+    for my $item (@specs) {
+        my $type = ref($item);
+        if ($type eq 'HASH') {
+            %params = (%params, %$item);
+        }
+        elsif ($type eq 'CODE') {
+            $cb = $item;
+        }
+        else {
+            croak "'$item' is not a valid argument for member()";
+        }
+    }
+
+    if ($cb) {
+        local $STATE{TABLE}; # Mask the table so that columns() cannot accidentally pick it up in here
+        local $STATE{MEMBER} = \%params;
+        local $STATE{STACK} = ['MEMBER', @{$STATE{STACK} // []}];
+
+        $cb->(%STATE);
+    }
+
+    my $class = delete($params{member_class}) // first { $_ } (map { $_->member_class(%params, %STATE) } ordered_plugins($params{plugins})), 'DBIx::QuickORM::Relation::Member';
+    eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
+    my $mem = $class->new(%params);
+
+    push @{$relation->{members} //= []} => $mem;
+
+    return $mem;
+}
+
+sub _member_table {
+    my ($name, @extra) = @_;
+    croak "Too many arguments for table under a member builder ($STATE{MEMBER}->{name}, $STATE{MEMBER}->{created})" if @extra;
+    my $member = $STATE{MEMBER}->{table};
+    $member->{table} = $name;
+}
+
+sub is_view {
+    my $table = $STATE{TABLE} or croak "is_view() may only be used in a table builder";
+    $table->{is_view} = 1;
+}
+
+sub is_temp {
+    my $table = $STATE{TABLE} or croak "is_temp() may only be used in a table builder";
+    $table->{is_temp} = 1;
+}
+
+sub columns {
+    my @specs = @_;
+
+    my @caller = caller;
+    my $created = "$caller[1] line $caller[2]";
+
+    my $member = $STATE{MEMBER};
+
+    my $table;
+    if ($member) {
+        if (my $schema = $STATE{SCHEMA}) {
+            $table = $schema->{tables}->{$member->{table}} if $member->{table};
+        }
+    }
+    else {
+        $table = $STATE{TABLE} or croak "columns may only be used in a table or member builder";
+    }
+
+    while (my $name = shift @specs) {
+        my $spec = @specs && ref($specs[0]) ? shift(@specs) : undef;
+        croak "Cannot specify column data or builder under a member builder" if $member && $spec;
+
+        push @{$member->{columns} //= []} => $name if $member;
+
+        if ($table) {
+            if ($spec) {
+                my $type = ref($spec);
+                if ($type eq 'HASH') {
+                    $table->{columns}->{$name}->{$_} = $spec->{$_} for keys %$spec;
+                }
+                elsif ($type eq 'CODE') {
+                    local $STATE{COLUMN} = $table->{columns}->{$name} //= {created => $created, name => $name};
+                    local $STATE{STACK}  = ['COLUMN', @{$STATE{STACK} // []}];
+                    eval { $spec->(%STATE); 1 } or croak "Failed to build column '$name': $@";
+                }
+            }
+            else {
+                $table->{columns}->{$name} //= {created => $created, name => $name};
+            }
+
+            $table->{columns}->{$name}->{name} //= $name;
+        }
+        elsif ($spec) {
+            croak "Cannot specify column data outside of a table builder";
+        }
+    }
+}
+
+BEGIN {
+    my @COL_ATTRS = (
+        [unique      => sub { @{$_[0]} > 1 ? undef : 1 }, {index => 'unique'}],
+        [primary_key => 1, {set => 'primary_key', index => 'unique'}],
+        [omit        => 1],
+        [
+            default => sub {
+                my $sub = shift(@{$_[0]});
+                croak "First argument to default() must be a coderef" unless ref($sub) eq 'CODE';
+                return $sub;
+            },
+        ],
+        [
+            conflate => sub {
+                my $class = shift(@{$_[0]});
+                eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
+                return $class;
+            },
+        ],
+    );
+    for my $col_attr (@COL_ATTRS) {
+        my ($attr, $val, $params) = @$col_attr;
+
+        my $code = sub {
+            my @cols = @_;
+
+            my $val = ref($val) ? $val->(\@cols) : $val;
+
+            my $table = $STATE{TABLE} or croak "$attr can only be used inside a column or table builder";
+
+            if (my $column = $STATE{COLUMN}) {
+                croak "Cannot provide a list of columns inside a column builder ($column->{created})" if @cols;
+                $column->{$attr} = $val;
+                @cols = ($column->{name});
+            }
+            else {
+                croak "Must provide a list of columns when used inside a table builder" unless @cols;
+
+                my @caller  = caller;
+                my $created = "$caller[1] line $caller[2]";
+
+                for my $cname (@cols) {
+                    my $col = $table->{columns}->{$cname} //= {created => $created};
+                    $col->{$attr} = $val if defined $val;
+                }
+            }
+
+            my $ordered;
+
+            if (my $key = $params->{set}) {
+                $ordered //= [sort @cols];
+                $table->{$key} = $ordered;
+            }
+
+            if (my $key = $params->{index}) {
+                $ordered //= [sort @cols];
+                my $index = join ', ' => @$ordered;
+                $table->{$key}->{$index} = $ordered;
+            }
+
+            return @cols;
+        };
+
+        no strict 'refs';
+        *{$attr} = $code;
+    }
+}
+
+sub index {
+    my $name = shift;
+    my $cols = pop;
+    my ($table_name) = @_;
+
+    croak "A name is required as the first argument" unless $name;
+    croak "A list of columns is required as the final argument" unless $cols && @$cols;
+
+    my $indexes = $STATE{INDEXES} or croak "Must be used under either a schema builder, or a meta_table builder";
+
+    if (my $table = $STATE{TABLE}) {
+        croak "Must not provide a table name (omit the second argument: `index($name, \@cols)`) when used under a table builder"
+            if $table_name;
+
+        $table_name = $table->name;
+    }
+    elsif (!$table_name) {
+        croak "You must specify a table name as the second argument unless used under a table or meta_table builder";
+    }
+
+    croak "Index '$name' is already defined on table" if $indexes->{$name};
+
+    my @caller  = caller;
+    my $created = "$caller[1] line $caller[2]";
+    $indexes->{$name} = {table => $table_name, columns => $cols, name => $name, created => $created};
 }
 
 1;

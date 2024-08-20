@@ -1,8 +1,8 @@
-package DBIx::QuickORM::HashBase;
+package DBIx::QuickORM::Util::HashBase;
 use strict;
 use warnings;
 
-our $VERSION = '0.013';
+our $VERSION = '0.014';
 
 #################################################################
 #                                                               #
@@ -16,11 +16,11 @@ our $VERSION = '0.013';
 
 {
     no warnings 'once';
-    $DBIx::QuickORM::HashBase::HB_VERSION = '0.013';
-    *DBIx::QuickORM::HashBase::ATTR_SUBS = \%Object::HashBase::ATTR_SUBS;
-    *DBIx::QuickORM::HashBase::ATTR_LIST = \%Object::HashBase::ATTR_LIST;
-    *DBIx::QuickORM::HashBase::VERSION   = \%Object::HashBase::VERSION;
-    *DBIx::QuickORM::HashBase::CAN_CACHE = \%Object::HashBase::CAN_CACHE;
+    $DBIx::QuickORM::Util::HashBase::HB_VERSION = '0.014';
+    *DBIx::QuickORM::Util::HashBase::ATTR_SUBS = \%Object::HashBase::ATTR_SUBS;
+    *DBIx::QuickORM::Util::HashBase::ATTR_LIST = \%Object::HashBase::ATTR_LIST;
+    *DBIx::QuickORM::Util::HashBase::VERSION   = \%Object::HashBase::VERSION;
+    *DBIx::QuickORM::Util::HashBase::CAN_CACHE = \%Object::HashBase::CAN_CACHE;
 }
 
 
@@ -77,16 +77,26 @@ sub do_import {
     my $into  = shift;
 
     # Make sure we list the OLDEST version used to create this class.
-    my $ver = $DBIx::QuickORM::HashBase::HB_VERSION || $DBIx::QuickORM::HashBase::VERSION;
-    $DBIx::QuickORM::HashBase::VERSION{$into} = $ver if !$DBIx::QuickORM::HashBase::VERSION{$into} || $DBIx::QuickORM::HashBase::VERSION{$into} > $ver;
+    my $ver = $DBIx::QuickORM::Util::HashBase::HB_VERSION || $DBIx::QuickORM::Util::HashBase::VERSION;
+    $DBIx::QuickORM::Util::HashBase::VERSION{$into} = $ver if !$DBIx::QuickORM::Util::HashBase::VERSION{$into} || $DBIx::QuickORM::Util::HashBase::VERSION{$into} > $ver;
 
     my $isa = _isa($into);
-    my $attr_list = $DBIx::QuickORM::HashBase::ATTR_LIST{$into} ||= [];
-    my $attr_subs = $DBIx::QuickORM::HashBase::ATTR_SUBS{$into} ||= {};
+    my $attr_list = $DBIx::QuickORM::Util::HashBase::ATTR_LIST{$into} ||= [];
+    my $attr_subs = $DBIx::QuickORM::Util::HashBase::ATTR_SUBS{$into} ||= {};
+
+    my @pre_init;
+    my @post_init;
+
+    my $add_new = 1;
+
+    if (my $have_new = $into->can('new')) {
+        my $new_lookup = $DBIx::QuickORM::Util::HashBase::NEW_LOOKUP //= {};
+        $add_new = 0 unless $new_lookup->{$have_new};
+    }
 
     my %subs = (
-        ($into->can('new') ? () : (new => $class->can('_new'))),
-        (map %{$DBIx::QuickORM::HashBase::ATTR_SUBS{$_} || {}}, @{$isa}[1 .. $#$isa]),
+        ($add_new ? ($class->_build_new($into, \@pre_init, \@post_init)) : ()),
+        (map %{$DBIx::QuickORM::Util::HashBase::ATTR_SUBS{$_} || {}}, @{$isa}[1 .. $#$isa]),
         ($class->args_to_subs($attr_list, $attr_subs, \@_, $into)),
     );
 
@@ -172,11 +182,11 @@ sub attr_list {
     my @list = grep { !$seen{$_}++ } map {
         my @out;
 
-        if (0.004 > ($DBIx::QuickORM::HashBase::VERSION{$_} || 0)) {
-            Carp::carp("$_ uses an inlined version of DBIx::QuickORM::HashBase too old to support attr_list()");
+        if (0.004 > ($DBIx::QuickORM::Util::HashBase::VERSION{$_} || 0)) {
+            Carp::carp("$_ uses an inlined version of DBIx::QuickORM::Util::HashBase too old to support attr_list()");
         }
         else {
-            my $list = $DBIx::QuickORM::HashBase::ATTR_LIST{$_};
+            my $list = $DBIx::QuickORM::Util::HashBase::ATTR_LIST{$_};
             @out = $list ? @$list : ()
         }
 
@@ -186,43 +196,70 @@ sub attr_list {
     return @list;
 }
 
-sub _new {
+sub _build_new {
     my $class = shift;
+    my ($into, $pre_init, $post_init) = @_;
 
-    my $self;
+    my $add_pre_init  = sub(&) { push @$pre_init  => $_[-1] };
+    my $add_post_init = sub(&) { push @$post_init => $_[-1] };
 
-    if (@_ == 1) {
-        my $arg = shift;
-        my $type = ref($arg);
+    my $__pre_init = $into->can('_pre_init');
+    my $_pre_init  = $__pre_init ? sub { ($__pre_init->(), @$pre_init) } : sub { @$pre_init };
 
-        if ($type eq 'HASH') {
-            $self = bless({%$arg}, $class)
+    my $__post_init = $into->can('_post_init');
+    my $_post_init  = $__post_init ? sub { ($__post_init->(), @$post_init) } : sub {  @$post_init };
+
+    my $new = sub {
+        my $class = shift;
+
+        my $self;
+
+        if (@_ == 1) {
+            my $arg  = shift;
+            my $type = ref($arg);
+
+            if ($type eq 'HASH') {
+                $self = bless({%$arg}, $class);
+            }
+            else {
+                Carp::croak("Not sure what to do with '$type' in $class constructor")
+                    unless $type eq 'ARRAY';
+
+                my %proto;
+                my @attributes = attr_list($class);
+                while (@$arg) {
+                    my $val = shift @$arg;
+                    my $key = shift @attributes or Carp::croak("Too many arguments for $class constructor");
+                    $proto{$key} = $val;
+                }
+
+                $self = bless(\%proto, $class);
+            }
         }
         else {
-            Carp::croak("Not sure what to do with '$type' in $class constructor")
-                unless $type eq 'ARRAY';
-
-            my %proto;
-            my @attributes = attr_list($class);
-            while (@$arg) {
-                my $val = shift @$arg;
-                my $key = shift @attributes or Carp::croak("Too many arguments for $class constructor");
-                $proto{$key} = $val;
-            }
-
-            $self = bless(\%proto, $class);
+            $self = bless({@_}, $class);
         }
-    }
-    else {
-        $self = bless({@_}, $class);
-    }
 
-    $DBIx::QuickORM::HashBase::CAN_CACHE{$class} = $self->can('init')
-        unless exists $DBIx::QuickORM::HashBase::CAN_CACHE{$class};
+        $DBIx::QuickORM::Util::HashBase::CAN_CACHE{$class} = $self->can('init')
+            unless exists $DBIx::QuickORM::Util::HashBase::CAN_CACHE{$class};
 
-    $self->init if $DBIx::QuickORM::HashBase::CAN_CACHE{$class};
+        $self->$_() for $_pre_init->();
+        $self->init() if $DBIx::QuickORM::Util::HashBase::CAN_CACHE{$class};
+        $self->$_() for reverse $_post_init->();
 
-    $self;
+        $self;
+    };
+
+    my $new_lookup = $DBIx::QuickORM::Util::HashBase::NEW_LOOKUP //= {};
+    $new_lookup->{$new} = 1;
+
+    return (
+        new           => $new,
+        add_pre_init  => $add_pre_init,
+        add_post_init => $add_post_init,
+        _pre_init     => $_pre_init,
+        _post_init    => $_post_init,
+    );
 }
 
 1;
@@ -235,7 +272,7 @@ __END__
 
 =head1 NAME
 
-DBIx::QuickORM::HashBase - Build hash based classes.
+DBIx::QuickORM::Util::HashBase - Build hash based classes.
 
 =head1 SYNOPSIS
 
@@ -246,7 +283,7 @@ A class:
     use warnings;
 
     # Generate 3 accessors
-    use DBIx::QuickORM::HashBase qw/foo -bar ^baz <bat >ban +boo/;
+    use DBIx::QuickORM::Util::HashBase qw/foo -bar ^baz <bat >ban +boo/;
 
     # Chance to initialize defaults
     sub init {
@@ -272,7 +309,7 @@ Subclass it
 
     # Note, you should subclass before loading HashBase.
     use base 'My::Class';
-    use DBIx::QuickORM::HashBase qw/bub/;
+    use DBIx::QuickORM::Util::HashBase qw/bub/;
 
     sub init {
         my $self = shift;
@@ -319,6 +356,52 @@ use it:
 
     $one->{+FOO} = 'xxx';
 
+Add pre_init and post-init:
+
+B<Note:> These are not provided if you define your own new() method (via a stub
+at the top).
+
+B<Note:> Single inheritence should work with child classes doing the pre/post
+init subs during construction, so long as all classes in the chain use a
+generated new(). This will probably explode badly in multiple-inheritence.
+
+    package My::Class;
+    use strict;
+    use warnings;
+
+    # Generate 3 accessors
+    use DBIx::QuickORM::Util::HashBase qw/foo -bar ^baz <bat >ban +boo/;
+
+    # Do more stuff before init, add as many as you like by calling this
+    # multiple times with a different code block each time
+    add_pre_init {
+        ...
+    };
+
+    # Chance to initialize defaults
+    sub init { ... }
+
+    # Do stuff after init, add as many as you want, they run in reverse order
+    add_post_init {
+        my $self = shift;
+        ...
+    };
+
+    sub print {
+        my $self = shift;
+        print join ", " => map { $self->{$_} } FOO, BAR, BAZ, BAT, BAN, BOO;
+    }
+
+You can also call add_pre_init and add_post_init as class methods from anywhere
+to add init and post-init to the class.
+
+B<Please note:> This will apply to all future instances of the object created,
+but not past ones. This is a form of meta-programming and it is easy to abuse.
+It is also helpful for extending DBIx::QuickORM::Util::HashBase.
+
+    My::Class->add_pre_init(sub { ... });
+    My::Class->add_post_init(sub { ... });
+
 =head1 DESCRIPTION
 
 This package is used to generate classes based on hashrefs. Using this class
@@ -346,7 +429,7 @@ because it broke a performance optimization in L<Test2::API>.
 
 You can request an accessor NOT be xs with the '~' prefix:
 
-    use DBIx::QuickORM::HashBase '~foo';
+    use DBIx::QuickORM::Util::HashBase '~foo';
 
 The sample above generates C<foo()> and C<set_foo()> and they are NOT
 implemented in XS.
@@ -376,14 +459,14 @@ HashBase will not export C<new()> if there is already a C<new()> method in your
 packages inheritance chain.
 
 B<If you do not want this method you can define your own> you just have to
-declare it before loading L<DBIx::QuickORM::HashBase>.
+declare it before loading L<DBIx::QuickORM::Util::HashBase>.
 
     package My::Package;
 
     # predeclare new() so that HashBase does not give us one.
     sub new;
 
-    use DBIx::QuickORM::HashBase qw/foo bar baz/;
+    use DBIx::QuickORM::Util::HashBase qw/foo bar baz/;
 
     # Now we define our own new method.
     sub new { ... }
@@ -418,7 +501,7 @@ attributes from parent classes will come before subclasses.
 This gives you the chance to set some default values to your fields. The only
 argument is C<$self> with its indexes already set from the constructor.
 
-B<Note:> DBIx::QuickORM::HashBase checks for an init using C<< $class->can('init') >>
+B<Note:> DBIx::QuickORM::Util::HashBase checks for an init using C<< $class->can('init') >>
 during construction. It DOES NOT call C<can()> on the created object. Also note
 that the result of the check is cached, it is only ever checked once, the first
 time an instance of your class is created. This means that adding an C<init()>
@@ -432,7 +515,7 @@ method AFTER the first construction will result in it being ignored.
 
 To generate accessors you list them when using the module:
 
-    use DBIx::QuickORM::HashBase qw/foo/;
+    use DBIx::QuickORM::Util::HashBase qw/foo/;
 
 This will generate the following subs in your namespace:
 
@@ -459,7 +542,7 @@ and similar typos. It will not help you if you forget to prefix the '+' though.
 
 =head2 READ ONLY
 
-    use DBIx::QuickORM::HashBase qw/-foo/;
+    use DBIx::QuickORM::Util::HashBase qw/-foo/;
 
 =over 4
 
@@ -472,7 +555,7 @@ override any active setters for the attribute in a parent class.
 
 =head2 DEPRECATED SETTER
 
-    use DBIx::QuickORM::HashBase qw/^foo/;
+    use DBIx::QuickORM::Util::HashBase qw/^foo/;
 
 =over 4
 
@@ -485,25 +568,25 @@ deprecated.
 
 =head2 NO SETTER
 
-    use DBIx::QuickORM::HashBase qw/<foo/;
+    use DBIx::QuickORM::Util::HashBase qw/<foo/;
 
 Only gives you a reader, no C<set_foo> method is defined at all.
 
 =head2 NO READER
 
-    use DBIx::QuickORM::HashBase qw/>foo/;
+    use DBIx::QuickORM::Util::HashBase qw/>foo/;
 
 Only gives you a write (C<set_foo>), no C<foo> method is defined at all.
 
 =head2 CONSTANT ONLY
 
-    use DBIx::QuickORM::HashBase qw/+foo/;
+    use DBIx::QuickORM::Util::HashBase qw/+foo/;
 
 This does not create any methods for you, it just adds the C<FOO> constant.
 
 =head2 NO XS
 
-    use DBIx::QuickORM::HashBase qw/~foo/;
+    use DBIx::QuickORM::Util::HashBase qw/~foo/;
 
 This enforces that the getter and setter generated for C<foo> will NOT use
 L<Class::XSAccessor> even if it is installed.
@@ -513,21 +596,21 @@ L<Class::XSAccessor> even if it is installed.
 You can subclass an existing HashBase class.
 
     use base 'Another::HashBase::Class';
-    use DBIx::QuickORM::HashBase qw/foo bar baz/;
+    use DBIx::QuickORM::Util::HashBase qw/foo bar baz/;
 
 The base class is added to C<@ISA> for you, and all constants from base classes
 are added to subclasses automatically.
 
 =head1 GETTING A LIST OF ATTRIBUTES FOR A CLASS
 
-DBIx::QuickORM::HashBase provides a function for retrieving a list of attributes for an
-DBIx::QuickORM::HashBase class.
+DBIx::QuickORM::Util::HashBase provides a function for retrieving a list of attributes for an
+DBIx::QuickORM::Util::HashBase class.
 
 =over 4
 
-=item @list = DBIx::QuickORM::HashBase::attr_list($class)
+=item @list = DBIx::QuickORM::Util::HashBase::attr_list($class)
 
-=item @list = $class->DBIx::QuickORM::HashBase::attr_list()
+=item @list = $class->DBIx::QuickORM::Util::HashBase::attr_list()
 
 Either form above will work. This will return a list of attributes defined on
 the object. This list is returned in the attribute definition order, parent

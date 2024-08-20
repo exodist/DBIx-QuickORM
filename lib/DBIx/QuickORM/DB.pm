@@ -3,126 +3,107 @@ use strict;
 use warnings;
 
 use Carp qw/confess croak/;
+use Scalar::Util qw/blessed/;
+use DBIx::QuickORM::Util qw/alias/;
 
-use DBIx::QuickORM::Util qw/alias mod2file/;
-
-use DBIx::QuickORM::HashBase qw{
-    name
-    username
-    password
-    attributes
-    hostname
-    port
-    <type
-    <dbd
-    +dsn
-    +connect
+use DBIx::QuickORM::Util::HashBase qw{
     +dbh
-    <txn_depth
+    +connect
+    <attributes
+    <db_name
+    +dsn
+    <host
+    <name
     <pid
-    <compiled
+    <port
+    <socket
+    <txn_depth
+    <user
+    password
 };
 
-alias txn_depth => 'transaction_depth';
+use DBIx::QuickORM::Util::Has qw/Plugins Created/;
+
+sub dbi_driver { croak "$_[0]->dbi_driver() is not implemented" }
+
+sub start_txn    { $_[0]->dbh->begin_work }
+sub commit_txn   { $_[0]->dbh->commit }
+sub rollback_txn { $_[0]->dbh->rollback }
+
+sub create_savepoint   { $_[0]->dbh->do("SAVEPOINT $_[1]") }
+sub commit_savepoint   { $_[0]->dbh->do("RELEASE SAVEPOINT $_[1]") }
+sub rollback_savepoint { $_[0]->dbh->do("ROLLBACK TO SAVEPOINT $_[1]") }
 
 sub init {
     my $self = shift;
-    $self->{+PID} //= $$;
+
+    croak "${ \__PACKAGE__ } cannot be used directly, use a subclass" if blessed($self) eq __PACKAGE__;
+
+    $self->{+PID}        //= $$;
     $self->{+ATTRIBUTES} //= {};
-    $self->{+TXN_DEPTH} = 0;
+
+    $self->{+ATTRIBUTES}->{RaiseError}          //= 1;
+    $self->{+ATTRIBUTES}->{PrintError}          //= 1;
+    $self->{+ATTRIBUTES}->{AutoCommit}          //= 1;
+    $self->{+ATTRIBUTES}->{AutoInactiveDestroy} //= 1;
+
+    $self->{+TXN_DEPTH} = $self->{+ATTRIBUTES}->{AutoCommit} ? 0 : 1;
+
+    croak "Cannot provide both a socket and a host" if $self->{+SOCKET} && $self->{+HOST};
 }
-
-sub recompile { die "FIXME" }
-sub build_dsn { die "FIXME" }
-
-sub transaction { shift->txn(@_) }
-
-sub get_table          { croak "$_[0]->get_table() is not implemented" }
-sub get_tables         { croak "$_[0]->get_tables() is not implemented" }
-sub start_txn          { croak "$_[0]->start_txn() is not implemented" }
-sub commit_txn         { croak "$_[0]->commit_txn() is not implemented" }
-sub rollback_txn       { croak "$_[0]->start_txn() is not implemented" }
-sub create_savepoint   { croak "$_[0]->create_savepoint() is not implemented" }
-sub commit_savepoint   { croak "$_[0]->commit_savepoint() is not implemented" }
-sub rollback_savepoint { croak "$_[0]->rollback_savepoint() is not implemented" }
-
-sub default_dbd { }
-
-sub set_dsn { $_[0]->{+DSN} = $_[1] }
 
 sub dsn {
     my $self = shift;
-    return $self->{+DSN} //= $self->build_dsn;
+    return $self->{+DSN} if $self->{+DSN};
+
+    my $driver = $self->dbi_driver;
+    my $db_name = $self->db_name;
+
+    my $dsn = "dbi:${driver}:database=${db_name};";
+
+    if (my $socket = $self->socket) {
+        $dsn .= "host=$socket;";
+    }
+    elsif (my $host = $self->host) {
+        $dsn .= "host=$host;";
+        if (my $port = $self->port) {
+            $dsn .= "port=$port;";
+        }
+    }
+    else {
+        croak "Cannot construct dsn without a host or socket";
+    }
+
+    return $self->{+DSN} = $dsn;
 }
 
-my %DBD_TO_TYPE = (
-    'DBD::Pg'      => 'DBIx::QuickORM::DB::PostgreSQL',
-    'DBD::mysql'   => 'DBIx::QuickORM::DB::MySQL',
-    'DBD::MariaDB' => 'DBIx::QuickORM::DB::MariaDB',
-    'DBD::SQLite'  => 'DBIx::QuickORM::DB::SQLite',
-);
-
-sub set_dbd {
+sub dbh {
     my $self = shift;
-    my ($driver) = @_;
 
-    $driver = "DBD::$driver" unless $driver =~ m/:/;
-    eval { require(mod2file($driver)); 1 } or croak "Could not load database driver '$driver': $@";
+    if ($$ != $self->{+PID}) {
+        confess "Database connection was forked inside a transaction block"
+            if $self->{+TXN_DEPTH};
 
-    $self->{+DBD} = $driver;
+        delete $self->{+DBH};
+        $self->{+PID} = $$;
+        $self->{+TXN_DEPTH} = 0;
+    }
 
-    $self->set_type($DBD_TO_TYPE{$driver}) if $DBD_TO_TYPE{$driver} && !$self->{+TYPE};
-
-    return $driver;
-}
-
-sub set_type {
-    my $self = shift;
-    my ($type) = @_;
-
-    $type = 'PostgreSQL' if $type eq 'Pg';
-    $type = "DBIx::QuickORM::DB::$type" unless $type =~ m/:/;
-    eval { require(mod2file($type)); 1 } or croak "Could not load database type '$type': $@";
-
-    croak "'$type' does not subclass 'DBIx::QuickORM::DB'" unless $type->isa('DBIx::QuickORM::DB');
-
-    $self->{+TYPE} = $type;
-
-    # Upgrade
-    bless($self, $type);
-
-    $self->set_dbd($self->default_dbd) if $type->default_dbd && !$self->{+DBD};
-
-    return $type;
-}
-
-sub set_connect {
-    my $self = shift;
-    my ($code) = @_;
-    $self->{+CONNECT} = $code;
+    return $self->{+DBH} //= $self->connect();
 }
 
 sub connect {
     my $self = shift;
 
-    if ($$ != $self->{+PID}) {
-        delete $self->{+DBH};
-        $self->{+PID} = $$;
-    }
-
-    return $self->{+DBH} //= $self->_connect();
-}
-
-sub _connect {
-    my $self = shift;
-
     return $self->{+CONNECT}->() if $self->{+CONNECT};
 
     require DBI;
-    return DBI->connect($self->dsn, $self->username, $self->password, $self->attributes // {});
+    my $dbh = DBI->connect($self->dsn, $self->username, $self->password, $self->attributes // {AutoInactiveDestroy => 1, AutoCommit => 1});
+
+    return $dbh;
 }
 
-sub txn {
+sub transaction {
     my $self = shift;
     my ($code) = @_;
 
@@ -152,6 +133,12 @@ sub txn {
     else       { $self->rollback_txn }
 
     die $err;
+}
+
+sub generate_schema {
+    my $self = shift;
+    require DBIx::QuickORM::Util::SchemaBuilder;
+    return DBIx::QuickORM::Util::SchemaBuilder->generate($self);
 }
 
 1;
