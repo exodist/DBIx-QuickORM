@@ -12,37 +12,36 @@ use DBIx::QuickORM::Util::HashBase qw{
     <table
     <join_order
     <joins
-    <orm
-    +db
-    +schema
+    <relations
+    <connection
+    <schema
     <as
 };
 
-use DBIx::QuickORM::Util::Has qw/Created/;
-use DBIx::QuickORM::Util::Has Plugins => [qw/PLUGINS add_plugin ordered_plugins/];
+use DBIx::QuickORM::Util::Has qw/Created Plugins/;
 
-sub db      { $_[0]->{+DB}      //= $_[0]->{+ORM}->db }
-sub schema  { $_[0]->{+SCHEMA}  //= $_[0]->{+ORM}->schema }
-sub plugins { $_[0]->{+PLUGINS} //= $_[0]->{+ORM}->plugins }
+sub find     { }
+sub fetch    { }
+sub select   { }
+sub insert   { }
+sub delete   { }
+sub drop     { }    # Only works for temp tables/views.
+sub truncate { }
 
-sub find   {  }
-sub fetch  {  }
-sub select {  }
-sub insert {  }
-sub delete {  }
-
+sub sql_for_select   { }    # returns sql and bind vars, use SQL::Abstract2
 sub formulate_search { }
 
 sub init {
     my $self = shift;
 
-    croak "The 'table' attribute must be provided" unless $self->{+TABLE};
-
+    croak "The 'connection' attribute must be provided" unless $self->{+CONNECTION};
+    croak "The 'schema' attribute must be provided"     unless $self->{+SCHEMA};
+    croak "The 'table' attribute must be provided"      unless $self->{+TABLE};
     croak "The 'table' attribute must be an instance of 'DBIx::QuickORM::Table'"
         unless $self->{+TABLE}->isa('DBIx::QuickORM::Table');
 
     my $jo = $self->{+JOIN_ORDER} //= [];
-    my $j = $self->{+JOINS} //= {};
+    my $j  = $self->{+JOINS}      //= {};
 
     my %seen;
     for my $join_name (@$jo) {

@@ -9,4 +9,6 @@ use DBIx::QuickORM::Util::HashBase;
 
 sub dbi_driver { 'DBD::MariaDB' }
 
+sub sql_spec_keys { qw/mariadb mysql/ }
+
 1;

@@ -10,6 +10,9 @@ sub import {
     my $class = shift;
     my $into = caller;
 
+    require DBIx::QuickORM::Util::HashBase;
+    DBIx::QuickORM::Util::HashBase->do_import($into);
+
     my $HAS;
     if ($into->can('QORM_HAS')) {
         $HAS = $into->QORM_HAS;

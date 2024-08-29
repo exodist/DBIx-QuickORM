@@ -10,11 +10,29 @@ use DBIx::QuickORM::Util::HashBase;
 
 sub dbi_driver { 'DBD::SQLite' }
 
+sub sql_spec_keys { 'sqlite' }
+
+sub temp_table_supported { 1 }
+sub temp_view_supported  { 1 }
+sub quote_index_columns  { 1 }
+
+sub start_txn    { $_[1]->begin_work }
+sub commit_txn   { $_[1]->commit }
+sub rollback_txn { $_[1]->rollback }
+
+sub create_savepoint   { $_[1]->do("SAVEPOINT $_[2]") }
+sub commit_savepoint   { $_[1]->do("RELEASE SAVEPOINT $_[2]") }
+sub rollback_savepoint { $_[1]->do("ROLLBACK TO SAVEPOINT $_[2]") }
+
+sub load_schema {
+    my $self = shift;
+    my ($dbh, $sql) = @_;
+    $dbh->do($_) or die "Error loading schema" for split /;/, $sql;
+}
+
 sub tables {
     my $self = shift;
-    my %params = @_;
-
-    my $dbh = $self->dbh;
+    my ($dbh, %params) = @_;
 
     my @queries = (
         "SELECT name, type, 0 FROM sqlite_schema      WHERE type IN ('table', 'view')",
@@ -42,36 +60,126 @@ sub tables {
     return @out;
 }
 
+sub table {
+    my $self = shift;
+    my ($dbh, $name, %params) = @_;
+
+    my @queries = (
+        "SELECT name, type, 0 FROM sqlite_schema      WHERE type IN ('table', 'view') AND name = ?",
+        "SELECT name, type, 1 FROM sqlite_temp_schema WHERE type IN ('table', 'view') AND name = ?",
+    );
+
+    my @out;
+
+    for my $q (@queries) {
+        my $sth = $dbh->prepare($q);
+        $sth->execute($name);
+
+        while (my ($table, $type, $temp) = $sth->fetchrow_array) {
+            return {name => $table, type => $type, temp => $temp};
+        }
+    }
+}
+
+sub indexes {
+    my $self = shift;
+    my ($dbh, $table) = @_;
+
+    my $sth = $dbh->prepare(<<"    EOT");
+        SELECT il.`name`   AS name,
+               il.`unique` AS u,
+               ii.`name`   AS column
+          FROM pragma_index_list(?)       AS il,
+               pragma_index_info(il.name) AS ii
+      ORDER BY il.name, ii.seqno
+    EOT
+
+    $sth->execute($table);
+
+    my %out;
+
+    while (my ($name, $u, $col) = $sth->fetchrow_array) {
+        my $idx = $out{$name} //= {name => $name, unique => $u ? 1 : 0, columns => []};
+        push @{$idx->{columns}} => $col;
+    }
+
+    if (my @pk = $self->_primary_key($dbh, $table)) {
+        $out{':pk'} = {name => ':pk', unique => 1, columns => \@pk};
+    }
+
+    return values %out;
+}
+
+sub column_type {
+    my $self = shift;
+    my ($dbh, $cache, $table, $column) = @_;
+
+    croak "A table name is required" unless $table;
+    croak "A column name is required" unless $column;
+
+    return $cache->{$table}->{$column} if $cache->{$table}->{$column};
+
+    my $sth = $dbh->prepare("SELECT type FROM pragma_table_info(?) WHERE name = ?");
+    $sth->execute($table, $column);
+
+    my ($sql_type) = $sth->fetchrow_array;
+    my $data_type = $sql_type;
+    $data_type =~ s/\(.*$//;
+
+    my $is_dt = $self->_is_datetime($sql_type) // $self->_is_datetime($data_type);
+
+    return $cache->{$table}->{$column} = {data_type => $data_type, sql_type => $sql_type, name => $column, is_datetime => $is_dt};
+}
+
+my %_IS_DATETIME = (
+    date        => 1,
+    datetime    => 1,
+    time        => 1,
+    timestamp   => 1,
+    timestamptz => 1,
+    year        => 1,
+);
+
+sub _is_datetime {
+    my $self = shift;
+    my ($type) = @_;
+
+    $type = lc($type);
+
+    return 1 if $_IS_DATETIME{$type};
+    return 1 if $type =~ m/(time|date|stamp|year)/i;
+    return 0;
+}
+
 sub columns {
     my $self = shift;
-    my ($table) = @_;
+    my ($dbh, $cache, $table) = @_;
 
     croak "A table name is required" unless $table;
 
-    my $dbh = $self->dbh;
-
-    my $sth = $dbh->prepare("SELECT name, type FROM pragma_table_info(?)");
+    my $sth = $dbh->prepare("SELECT name, type AS sql_type FROM pragma_table_info(?)");
 
     $sth->execute($table);
 
     my @out;
     while (my $col = $sth->fetchrow_hashref) {
-        $col->{is_datetime} = undef;
+        $col->{data_type} = $col->{sql_type};
+        $col->{data_type} =~ s/\(.*$//;
+        $col->{is_datetime} = $self->_is_datetime($col->{sql_type}) // $self->_is_datetime($col->{data_type});
+        $cache->{$table}->{$col->{name}} //= { %$col };
         push @out => $col;
     }
 
     return @out;
 }
 
-sub keys {
+sub db_keys {
     my $self = shift;
-    my ($table) = @_;
+    my ($dbh, $table) = @_;
 
     croak "A table name is required" unless $table;
 
     my %out;
-
-    my $dbh = $self->dbh;
 
     my $sth = $dbh->prepare(<<"    EOT");
         SELECT il.name AS grp,
@@ -97,18 +205,11 @@ sub keys {
     }
 
     unless ($out{pk} && @{$out{pk}}) {
-        $out{pk} //= [];
-        my $sth = $dbh->prepare("SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk ASC");
-        $sth->execute($table);
+        my @found = $self->_primary_key($dbh, $table);
 
-        my $found = 0;
-        while (my $row = $sth->fetchrow_hashref()) {
-            $found++;
-            push @{$out{pk}} => $row->{name};
-        }
-
-        if ($found) {
-            push @{$out{unique} //= []} => $out{pk};
+        if (@found) {
+            $out{pk} = \@found;
+            push @{$out{unique} //= []} => \@found;
         }
         else {
             delete $out{pk};
@@ -130,6 +231,47 @@ sub keys {
     $out{fk} = [values %index] if keys %index;
 
     return \%out;
+}
+
+sub _primary_key {
+    my $self = shift;
+    my ($dbh, $table) = @_;
+
+    my $sth = $dbh->prepare("SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk ASC");
+    $sth->execute($table);
+
+    my @out;
+    while (my $row = $sth->fetchrow_hashref()) {
+        push @out => $row->{name};
+    }
+
+    return @out;
+}
+
+sub generate_schema_sql_column_serial {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $col = $params{column};
+
+    return unless $col->serial;
+    return 'PRIMARY KEY AUTOINCREMENT';
+}
+
+sub generate_schema_sql_primary_key {
+    my $class_or_self = shift;
+    my %params        = @_;
+    my $key           = $params{key};
+    my $cols          = $params{columns};
+
+    return unless $key && @$key;
+
+    if (@$key == 1) {
+        my ($key_col) = grep { $_->{name} eq $key->[0] } @$cols;
+        return if $key_col->serial;
+    }
+
+    return "PRIMARY KEY(" . join(', ' => @$key) . ")";
 }
 
 1;

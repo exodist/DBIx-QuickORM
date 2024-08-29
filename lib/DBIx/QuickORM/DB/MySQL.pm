@@ -10,7 +10,26 @@ use DBIx::QuickORM::Util::HashBase;
 
 sub dbi_driver { 'DBD::mysql' }
 
+sub sql_spec_keys { 'mysql' }
+
 # MySQL/MariaDB do not (currently) support temporary views
+sub temp_table_supported { 1 }
+sub temp_view_supported  { 0 }
+sub quote_index_columns  { 1 }
+
+sub start_txn    { $_[1]->begin_work }
+sub commit_txn   { $_[1]->commit }
+sub rollback_txn { $_[1]->rollback }
+
+sub create_savepoint   { $_[1]->do("SAVEPOINT $_[2]") }
+sub commit_savepoint   { $_[1]->do("RELEASE SAVEPOINT $_[2]") }
+sub rollback_savepoint { $_[1]->do("ROLLBACK TO SAVEPOINT $_[2]") }
+
+sub load_schema {
+    my $self = shift;
+    my ($dbh, $sql) = @_;
+    $dbh->do($_) or die "Error loading schema" for split /;/, $sql;
+}
 
 my %TABLE_TYPES = (
     'BASE TABLE' => 'table',
@@ -26,9 +45,7 @@ my %TEMP_TYPES = (
 
 sub tables {
     my $self = shift;
-    my %params = @_;
-
-    my $dbh = $self->dbh;
+    my ($dbh, %params) = @_;
 
     my $sth = $dbh->prepare('SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = ?');
     $sth->execute($self->{+DB_NAME});
@@ -46,18 +63,55 @@ sub tables {
     return @out;
 }
 
+sub table {
+    my $self = shift;
+    my ($dbh, $name, %params) = @_;
+
+    my $sth = $dbh->prepare('SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = ? AND table_name = ?');
+    $sth->execute($self->{+DB_NAME}, $name);
+
+    my ($table, $type) = $sth->fetchrow_array;
+
+    return {name => $table, type => $TABLE_TYPES{$type}, temp => $TEMP_TYPES{$type}};
+}
+
+
+sub column_type {
+    my $self = shift;
+    my ($dbh, $cache, $table, $column) = @_;
+
+    croak "A table name is required" unless $table;
+    croak "A column name is required" unless $column;
+
+    return $cache->{$table}->{$column} if $cache->{$table}->{$column};
+
+    my $sth = $dbh->prepare(<<"    EOT");
+        SELECT column_name        AS name,
+               data_type          AS data_type,
+               column_type        AS sql_type,
+               datetime_precision AS is_datetime
+          FROM information_schema.columns
+         WHERE table_name   = ?
+           AND column_name  = ?
+           AND table_schema = ?
+    EOT
+
+    $sth->execute($table, $column, $self->{+DB_NAME});
+
+    return $cache->{$table}->{$column} = $sth->fetchrow_hashref;
+}
+
 sub columns {
     my $self = shift;
-    my ($table) = @_;
+    my ($dbh, $cache, $table) = @_;
 
     croak "A table name is required" unless $table;
 
-    my $dbh = $self->dbh;
-
     my $sth = $dbh->prepare(<<"    EOT");
-        SELECT column_name          AS name,
-               data_type            AS type,
-               datetime_precision   AS is_datetime
+        SELECT column_name         AS name,
+               data_type           AS data_type,
+               column_type         AS sql_type,
+               datetime_precision  AS is_datetime
           FROM information_schema.columns
          WHERE table_name    = ?
            AND table_schema  = ?
@@ -67,20 +121,45 @@ sub columns {
 
     my @out;
     while (my $col = $sth->fetchrow_hashref) {
-        $col->{is_datetime} = $col->{is_datetime} ? 1 : 0;
+        $cache->{$table}->{$col->{name}} = { %$col };
         push @out => $col;
     }
 
     return @out;
 }
 
-sub keys {
+sub indexes {
     my $self = shift;
-    my ($table) = @_;
+    my ($dbh, $table) = @_;
+
+    my $sth = $dbh->prepare(<<"    EOT");
+        SELECT index_name,
+               column_name,
+               non_unique,
+               index_type
+          FROM INFORMATION_SCHEMA.STATISTICS
+         WHERE table_name = ?
+           AND table_schema = ?
+      ORDER BY index_name, seq_in_index
+    EOT
+
+    $sth->execute($table, $self->{+DB_NAME});
+
+    my %out;
+
+    while (my ($name, $col, $nu, $type) = $sth->fetchrow_array) {
+        my $idx = $out{$name} //= {name => $name, unique => $nu ? 0 : 1, type => $type, columns => []};
+        push @{$idx->{columns}} => $col;
+    }
+
+    return values %out;
+}
+
+sub db_keys {
+    my $self = shift;
+    my ($dbh, $table) = @_;
 
     croak "A table name is required" unless $table;
-
-    my $dbh = $self->dbh;
 
     my $sth = $dbh->prepare(<<"    EOT");
         SELECT tco.constraint_name          AS con,
@@ -126,6 +205,16 @@ sub keys {
     }
 
     return \%out;
+}
+
+sub generate_schema_sql_column_serial {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $col = $params{column};
+
+    return unless $col->serial;
+    return 'AUTO_INCREMENT';
 }
 
 1;

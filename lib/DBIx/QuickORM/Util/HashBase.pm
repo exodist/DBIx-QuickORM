@@ -2,7 +2,7 @@ package DBIx::QuickORM::Util::HashBase;
 use strict;
 use warnings;
 
-our $VERSION = '0.014';
+our $VERSION = '0.015';
 
 #################################################################
 #                                                               #
@@ -16,7 +16,7 @@ our $VERSION = '0.014';
 
 {
     no warnings 'once';
-    $DBIx::QuickORM::Util::HashBase::HB_VERSION = '0.014';
+    $DBIx::QuickORM::Util::HashBase::HB_VERSION = '0.015';
     *DBIx::QuickORM::Util::HashBase::ATTR_SUBS = \%Object::HashBase::ATTR_SUBS;
     *DBIx::QuickORM::Util::HashBase::ATTR_LIST = \%Object::HashBase::ATTR_LIST;
     *DBIx::QuickORM::Util::HashBase::VERSION   = \%Object::HashBase::VERSION;
@@ -253,13 +253,18 @@ sub _build_new {
     my $new_lookup = $DBIx::QuickORM::Util::HashBase::NEW_LOOKUP //= {};
     $new_lookup->{$new} = 1;
 
-    return (
-        new           => $new,
-        add_pre_init  => $add_pre_init,
-        add_post_init => $add_post_init,
-        _pre_init     => $_pre_init,
-        _post_init    => $_post_init,
-    );
+    my %out;
+
+    {
+        no strict 'refs';
+        $out{new}           = $new           unless defined(&{"${into}\::new"});
+        $out{add_pre_init}  = $add_pre_init  unless defined(&{"${into}\::add_pre_init"});
+        $out{add_post_init} = $add_post_init unless defined(&{"${into}\::add_post_init"});
+        $out{_pre_init}     = $_pre_init     unless defined(&{"${into}\::_pre_init"});
+        $out{_post_init}    = $_post_init    unless defined(&{"${into}\::_post_init"});
+    }
+
+    return %out;
 }
 
 1;

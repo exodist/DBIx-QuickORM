@@ -3,11 +3,14 @@ use strict;
 use warnings;
 
 use Carp qw/confess croak/;
+use List::Util qw/first/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/alias/;
 
+require DBIx::QuickORM::Connection;
+require DBIx::QuickORM::Util::SchemaBuilder;
+
 use DBIx::QuickORM::Util::HashBase qw{
-    +dbh
     +connect
     <attributes
     <db_name
@@ -17,37 +20,54 @@ use DBIx::QuickORM::Util::HashBase qw{
     <pid
     <port
     <socket
-    <txn_depth
     <user
     password
+    <sql_spec
 };
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created/;
 
+sub start_txn          { croak "$_[0]->start_txn() is not implemented" }
+sub commit_txn         { croak "$_[0]->commit_txn() is not implemented" }
+sub rollback_txn       { croak "$_[0]->rollback_txn() is not implemented" }
+sub create_savepoint   { croak "$_[0]->create_savepoint() is not implemented" }
+sub commit_savepoint   { croak "$_[0]->commit_savepoint() is not implemented" }
+sub rollback_savepoint { croak "$_[0]->rollback_savepoint() is not implemented" }
+
 sub dbi_driver { croak "$_[0]->dbi_driver() is not implemented" }
 
-sub start_txn    { $_[0]->dbh->begin_work }
-sub commit_txn   { $_[0]->dbh->commit }
-sub rollback_txn { $_[0]->dbh->rollback }
+sub tables      { croak "$_[0]->tables() is not implemented" }
+sub table       { croak "$_[0]->table() is not implemented" }
+sub column_type { croak "$_[0]->column_type() is not implemented" }
+sub columns     { croak "$_[0]->columns() is not implemented" }
+sub db_keys     { croak "$_[0]->db_keys() is not implemented" }
+sub indexes     { croak "$_[0]->indexes() is not implemented" }
+sub load_schema { croak "$_[0]->load_schema() is not implemented" }
 
-sub create_savepoint   { $_[0]->dbh->do("SAVEPOINT $_[1]") }
-sub commit_savepoint   { $_[0]->dbh->do("RELEASE SAVEPOINT $_[1]") }
-sub rollback_savepoint { $_[0]->dbh->do("ROLLBACK TO SAVEPOINT $_[1]") }
+sub create_temp_view  { croak "$_[0]->create_temp_view() is not implemented" }
+sub create_temp_table { croak "$_[0]->create_temp_table() is not implemented" }
+
+sub quote_index_columns               { 1 }
+sub generate_schema_sql_header        { () }
+sub generate_schema_sql_footer        { () }
+sub generate_schema_sql_column_serial { croak "$_[0]->generate_schema_sql_column_serial() is not implemented" }
+
+sub sql_spec_keys {}
+
+sub temp_table_supported { 0 }
+sub temp_view_supported  { 0 }
 
 sub init {
     my $self = shift;
 
     croak "${ \__PACKAGE__ } cannot be used directly, use a subclass" if blessed($self) eq __PACKAGE__;
 
-    $self->{+PID}        //= $$;
     $self->{+ATTRIBUTES} //= {};
 
     $self->{+ATTRIBUTES}->{RaiseError}          //= 1;
     $self->{+ATTRIBUTES}->{PrintError}          //= 1;
     $self->{+ATTRIBUTES}->{AutoCommit}          //= 1;
     $self->{+ATTRIBUTES}->{AutoInactiveDestroy} //= 1;
-
-    $self->{+TXN_DEPTH} = $self->{+ATTRIBUTES}->{AutoCommit} ? 0 : 1;
 
     croak "Cannot provide both a socket and a host" if $self->{+SOCKET} && $self->{+HOST};
 }
@@ -77,68 +97,308 @@ sub dsn {
     return $self->{+DSN} = $dsn;
 }
 
-sub dbh {
-    my $self = shift;
-
-    if ($$ != $self->{+PID}) {
-        confess "Database connection was forked inside a transaction block"
-            if $self->{+TXN_DEPTH};
-
-        delete $self->{+DBH};
-        $self->{+PID} = $$;
-        $self->{+TXN_DEPTH} = 0;
-    }
-
-    return $self->{+DBH} //= $self->connect();
-}
-
 sub connect {
     my $self = shift;
 
-    return $self->{+CONNECT}->() if $self->{+CONNECT};
-
-    require DBI;
-    my $dbh = DBI->connect($self->dsn, $self->username, $self->password, $self->attributes // {AutoInactiveDestroy => 1, AutoCommit => 1});
-
-    return $dbh;
-}
-
-sub transaction {
-    my $self = shift;
-    my ($code) = @_;
-
-    my $start_depth = $self->{+TXN_DEPTH};
-    local $self->{+TXN_DEPTH} = $self->{+TXN_DEPTH} + 1;
-
-    my $sp;
-    if ($start_depth) {
-        $sp = "SAVEPOINT" . $start_depth;
-        $self->create_savepoint($sp);
+    my $dbh;
+    if ($self->{+CONNECT}) {
+        $dbh = $self->{+CONNECT}->();
     }
     else {
-        $self->start_txn;
+        require DBI;
+        $dbh = DBI->connect($self->dsn, $self->username, $self->password, $self->attributes // {AutoInactiveDestroy => 1, AutoCommit => 1});
     }
 
-    my ($ok, $out);
-    $ok = eval { $out = $code->(); 1 };
-    my $err = $@;
-
-    if ($ok) {
-        if   ($sp) { $self->commit_savepoint($sp) }
-        else       { $self->commit_txn }
-        return $out;
-    }
-
-    if   ($sp) { $self->rollback_savepoint($sp) }
-    else       { $self->rollback_txn }
-
-    die $err;
+    return DBIx::QuickORM::Connection->new(
+        dbh => $dbh,
+        db  => $self,
+    );
 }
 
-sub generate_schema {
-    my $self = shift;
-    require DBIx::QuickORM::Util::SchemaBuilder;
-    return DBIx::QuickORM::Util::SchemaBuilder->generate($self);
+sub generate_schema_sql_flatten_specs {
+    my $class_or_self = shift;
+    my ($sql_spec) = @_;
+
+    return {} unless $sql_spec;
+
+    my @keys = reverse $class_or_self->sql_spec_keys or return $sql_spec;
+
+    return {
+        %$sql_spec,
+        map { %{$sql_spec->{$_} // {}} } @keys,
+    };
+}
+
+sub generate_and_load_schema {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $sql = $class_or_self->generate_schema_sql(%params);
+    $class_or_self->connection->load_schema($sql);
+}
+
+sub generate_schema_sql {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $schema  = $params{schema} or croak "'schema' must be provided";
+    my $plugins = $params{plugins};
+    my $specs   = $params{sql_spec};
+
+    if (blessed($class_or_self)) {
+        $plugins //= $class_or_self->plugins;
+        $specs   //= $class_or_self->{+SQL_SPEC};
+    }
+
+    $specs = $class_or_self->generate_schema_sql_flatten_specs($specs);
+
+    my @out;
+
+    push @out => $class_or_self->_generate_schema_sql_header(sql_spec => $specs, plugins => $plugins, schema => $schema);
+
+    my %deps;
+    for my $r ($schema->relations) {
+        my ($referer, $referee);
+        for my $m ($r->members) {
+            if ($m->{reference}) {
+                croak "Cannot handle circular reference" if $referer;
+                $referer = $m->{table};
+            }
+            else {
+                $referee = $m->{table};
+            }
+        }
+
+        if ($referer && $referee && $referer ne $referee) {
+            $deps{$referer}{$referee} //= 1;
+        }
+    }
+
+    # Sort for consistency of output, but note that dep tree traversal will re-order by deps where necessary
+    my @todo = sort { $b->name cmp $a->name } $schema->tables;
+
+    my %table_done;
+    while (my $t = shift @todo) {
+        my $tname = $t->name;
+        next if $table_done{$tname};
+
+        if (my $deps = $deps{$tname}) {
+            if (first { !$table_done{$_} } keys %$deps) {
+                push @todo => $t; # Do it later, a dep table has not been handled yet
+                next;
+            }
+        }
+
+        push @out => $class_or_self->generate_schema_sql_table(table => $t, schema => $schema, plugins => $plugins);
+        push @out => $class_or_self->generate_schema_sql_indexes_for_table(table => $t, schema => $schema, plugins => $plugins);
+        $table_done{$tname} = 1;
+    }
+
+    push @out => $class_or_self->_generate_schema_sql_footer(sql_spec => $specs, schema => $schema, plugins => $plugins);
+
+    return join "\n" => @out;
+}
+
+sub _generate_schema_sql_header {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $specs   = $params{sql_spec} or return;
+    my $plugins = $params{plugins};
+    my $schema  = $params{schema};
+
+    my @out;
+
+    push @out => $specs->{pre_header_sql} if $specs->{pre_header_sql};
+    push @out => $class_or_self->generate_schema_sql_header(%params);
+    push @out => $specs->{post_header_sql} if $specs->{post_header_sql};
+
+    return @out;
+}
+
+sub _generate_schema_sql_footer {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $specs   = $params{sql_spec} or return;
+    my $plugins = $params{plugins};
+    my $schema  = $params{schema};
+
+    my @out;
+
+    push @out => $specs->{pre_footer_sql} if $specs->{pre_footer_sql};
+    push @out => $class_or_self->generate_schema_sql_footer(%params);
+    push @out => $specs->{post_footer_sql} if $specs->{post_footer_sql};
+
+    return @out;
+}
+
+sub generate_schema_sql_table {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $table   = $params{table} or croak "A table is required";
+    my $plugins = $params{plugins};
+    my $schema  = $params{schema};
+
+    my $specs = $class_or_self->generate_schema_sql_flatten_specs($table->sql_spec);
+
+    return $specs->{table_sql} if $specs->{table_sql};
+
+    my $table_name = $table->name;
+
+    my @out;
+
+    my @columns = sort {$a->{primary_key} ? -1 : $b->{primary_key} ? 1 : $a->{order} <=> $b->{order}} values %{$table->columns};
+
+    for my $col (@columns) {
+        push @out => $class_or_self->generate_schema_sql_column_sql(column => $col, %params);
+    }
+
+    my %uniq_seen;
+    if (my $pk = $table->primary_key) {
+        $uniq_seen{join(', ' => @$pk)}++;
+        push @out => $class_or_self->generate_schema_sql_primary_key(key => $pk, columns => \@columns);
+    }
+
+    for my $uniq (values %{$table->unique // {}}) {
+        next if $uniq_seen{join(', ' => @$uniq)}++;
+        push @out => $class_or_self->generate_schema_sql_unique(@$uniq);
+    }
+
+    my @rels;
+    for my $rel ($schema->relation_set->table_relations($table_name)) {
+        push @rels => $class_or_self->generate_schema_sql_foreign_key(relation => $rel, %params);
+    }
+
+    my %seen;
+    push @out => grep { !$seen{$_}++ } @rels;
+
+    return (
+        "CREATE TABLE $table_name(",
+        (join ",\n" => map { "    $_" } @out),
+        ");",
+    );
+}
+
+sub generate_schema_sql_column_sql {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $col = $params{column} or croak "column is required";
+
+    my $specs = $class_or_self->generate_schema_sql_flatten_specs($col->sql_spec);
+    return $specs->{column_sql} if $specs->{column_sql};
+
+    $params{sql_spec} = $specs;
+
+    my $name = $col->name or croak "Columns must have names";
+
+    my $type    = $class_or_self->generate_schema_sql_column_type(%params);
+    my $null    = $class_or_self->generate_schema_sql_column_null(%params);
+    my $default = $class_or_self->generate_schema_sql_column_default(%params);
+    my $serial  = $class_or_self->generate_schema_sql_column_serial(%params);
+
+    return join ' ' => $name, $type, grep { $_ } $null, $serial, $default;
+}
+
+sub generate_schema_sql_foreign_key {
+    my $class_or_self = shift;
+    my %params = @_;
+
+    my $rel   = $params{relation};
+    my $table = $params{table};
+
+    my @members = $rel->members;
+
+    # Self-reference conditions
+    return if @members == 1;
+    return if $members[0]->{table} eq $members[1]->{table};
+
+    my $tb_name = $table->name;
+    my ($me, $f) = sort { $a->{table} eq $tb_name ? -1 : $b->{table} eq $tb_name ? 1 : 0} @members;
+
+    return unless $me->{reference};
+
+    my $out = 'FOREIGN KEY(' . join(', ' => @{$me->{columns}} ) . ') REFERENCES ' . $f->{table} . '(' . join(', ' => @{$f->{columns}}) . ')';
+
+    $out .= " ON DELETE $me->{on_delete}" if $me->{on_delete};
+
+    return $out;
+}
+
+sub generate_schema_sql_primary_key {
+    my $class_or_self = shift;
+    my %params        = @_;
+    my $key           = $params{key};
+    my $cols          = $params{columns};
+
+    return unless $key && @$key;
+    return "PRIMARY KEY(" . join(', ' => @$key) . ")";
+}
+
+sub generate_schema_sql_unique {
+    my $class_or_self = shift;
+    my @cols = @_;
+    return unless @cols;
+    return "UNIQUE(" . join(', ' => @cols) . ")";
+}
+
+sub generate_schema_sql_column_null {
+    my $class_or_self = shift;
+    my %params = @_;
+
+    my $col = $params{column};
+
+    my $nullable = $col->nullable // 1;
+
+    return "" if $nullable;
+    return "NOT NULL";
+}
+
+sub generate_schema_sql_indexes_for_table {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $table   = $params{table} or croak "A table is required";
+    my $plugins = $params{plugins};
+    my $schema  = $params{schema};
+
+    my $specs = $class_or_self->generate_schema_sql_flatten_specs($table->sql_spec);
+
+    my @out;
+
+    my $table_name = $table->name;
+    for my $idx (values %{$table->indexes}) {
+        my @names = @{$idx->{columns}};
+        @names = map { "`$_`" } @names if $class_or_self->quote_index_columns;
+        push @out => "CREATE INDEX $idx->{name} ON $table_name(" . join(', ' => @names) . ");";
+    }
+
+    return @out;
+}
+
+sub generate_schema_sql_column_type {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $specs = $params{sql_spec};
+
+    my $t = $params{table}->name;
+    my $c = $params{column}->name;
+
+    my $type = $specs->{type} or croak "No 'type' key found in SQL specs for column $c in table $t";
+
+    return $type;
+}
+
+sub generate_schema_sql_column_default {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $specs = $params{sql_spec};
+
+    return $specs->{default};
 }
 
 1;

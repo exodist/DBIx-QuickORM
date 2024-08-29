@@ -9,6 +9,10 @@ use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util::HashBase qw{
     <name
     <columns
+    <accessors
+    <indexes
+    <unique
+    <primary_key
     <is_view
     <is_temp
 };
@@ -29,8 +33,27 @@ sub init {
         croak "Columns '$cname' is not an instance of 'DBIx::QuickORM::Table::Column', got: '$cval'" unless blessed($cval) && $cval->isa('DBIx::QuickORM::Table::Column');
     }
 
+    $self->{+ACCESSORS} //= {};
+    $self->{+INDEXES}   //= {};
+
     $self->{+IS_VIEW} //= 0;
     $self->{+IS_TEMP} //= 0;
+}
+
+sub add_accessor {
+    my $self = shift;
+    my ($name, $how) = @_;
+
+    croak "Accessor '$name' already defined" if $self->{+ACCESSORS}->{$name};
+
+    if (blessed($how)) {
+        croak "Object '$how' does not implement the 'use_as_orm_accessor' method" unless $how->can('use_as_orm_accessor');
+    }
+    else {
+        croak "An accessor must either be defined by an object implementing the 'use_as_orm_accessor' or by a coderef, got '$how'" unless ref($how) eq 'CODE';
+    }
+
+    $self->{+ACCESSORS}->{$name} = $how;
 }
 
 sub column {

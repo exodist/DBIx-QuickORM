@@ -12,12 +12,14 @@ use DBIx::QuickORM qw{
     omit
     primary_key
     relation
+    references
     table
     unique
     schema
     sql_spec
     is_temp
     is_view
+    rogue_table
 };
 
 my %AUTO_CONFLATE = (
@@ -33,64 +35,91 @@ sub _conflate {
     my ($type) = @_;
 
     $type = lc($type);
+    $type =~ s/\(.*$//g;
 
     return $AUTO_CONFLATE{$type} if $AUTO_CONFLATE{$type};
     return 'DBIx::QuickORM::Conflator::DateTime' if $type =~ m/(time|date|stamp|year)/;
 }
 
-sub generate {
+sub generate_schema {
     my $class = shift;
-    my ($db, $plugins) = @_;
+    my ($con, $plugins) = @_;
 
-    my $schema = schema $db->name, sub {
-        for my $table ($db->tables(details => 1)) {
+    my $schema = schema $con->db->name, sub {
+        for my $table ($con->tables(details => 1)) {
             my $name = $table->{name};
-            my $type = $table->{type};
 
             table $name => sub {
-                is_view() if $table->{type} eq 'view';
-                is_temp() if $table->{temp};
-
-                for my $col ($db->columns($name)) {
-                    column $col->{name} => sub {
-                        my $type = lc($col->{type});
-                        if(my $conflate = $class->_conflate($type)) {
-                            conflate($conflate);
-
-                            if ($conflate eq 'DBIx::QuickORM::Conflator::JSON') {
-                                omit();
-                            }
-                        }
-                        elsif ($col->{is_datetime}) {
-                            conflate('DBIx::QuickORM::Conflator::DateTime');
-                        }
-                        elsif ($col->{name} =~ m/uuid$/ && ($type eq 'binary' || $type eq 'char')) {
-                            conflate('DBIx::QuickORM::Conflator::UUID');
-                        }
-
-                        primary_key() if $col->{is_pk};
-
-                        sql_spec type => $col->{type};
-                    };
-                }
-
-                my $keys = $db->keys($name);
-
-                if (my $pk = $keys->{pk}) {
-                    primary_key(@$pk);
-                }
-
-                for my $u (@{$keys->{unique} // []}) {
-                    unique(@$u);
-                }
-
-                for my $fk (@{$keys->{fk} // []}) {
-                    relation "${table} -> $fk->{foreign_table}" => sub {
-                        member {table => $name, name => $fk->{foreign_table}, columns => $fk->{columns}};
-                        member {table => $fk->{foreign_table}, name => $name, columns => $fk->{foreign_columns}};
-                    };
-                }
+                $class->_build_table($con, $table, $plugins);
             };
         }
     };
 }
+
+sub generate_table {
+    my $class = shift;
+    my ($con, $table, $plugins) = @_;
+
+    return rogue_table $table->{name} => sub {
+        $class->_build_table($con, $table, $plugins);
+    };
+}
+
+sub _build_table {
+    my $class = shift;
+    my ($con, $table, $plugins) = @_;
+
+    my $name = $table->{name};
+
+    is_view() if $table->{type} eq 'view';
+    is_temp() if $table->{temp};
+
+    for my $col ($con->columns($name)) {
+        column $col->{name} => sub {
+            my $dtype = lc($col->{data_type});
+            my $stype = lc($col->{sql_type});
+
+            if (my $conflate = $class->_conflate($dtype) // $class->_conflate($stype)) {
+                conflate($conflate);
+
+                if ($conflate eq 'DBIx::QuickORM::Conflator::JSON') {
+                    omit();
+                }
+            }
+            elsif ($col->{is_datetime}) {
+                conflate('DBIx::QuickORM::Conflator::DateTime');
+            }
+            elsif ($col->{name} =~ m/uuid$/ && ($stype eq 'binary(16)' || $stype eq 'char(32)')) {
+                conflate('DBIx::QuickORM::Conflator::UUID');
+            }
+
+            primary_key() if $col->{is_pk};
+
+            sql_spec type => $col->{sql_type};
+        };
+    }
+
+    my $keys = $con->db_keys($name);
+
+    if (my $pk = $keys->{pk}) {
+        primary_key(@$pk);
+    }
+
+    for my $u (@{$keys->{unique} // []}) {
+        unique(@$u);
+    }
+
+    for my $fk (@{$keys->{fk} // []}) {
+        relation sub {
+            columns $fk->{columns};
+            references {table => $fk->{foreign_table}, columns => $fk->{foreign_columns}};
+        };
+    }
+
+    for my $idx ($con->indexes($name)) {
+        unique(@{$idx->{columns}}) if $idx->{unique};
+        index $idx;
+    }
+}
+
+1;
