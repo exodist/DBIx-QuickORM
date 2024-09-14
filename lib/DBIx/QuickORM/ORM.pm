@@ -114,7 +114,7 @@ sub source {
     );
 }
 
-sub load_schema { shift->connection->load_schema(@_) }
+sub load_schema_sql { shift->connection->load_schema_sql(@_) }
 
 sub create_temp_table { shift->_create_temp(table => @_) }
 sub create_temp_view  { shift->_create_temp(view  => @_) }
@@ -224,6 +224,12 @@ sub _with_temp {
 
     return $out if $ok;
     die $err;
+}
+
+sub generate_and_load_schema {
+    my $self = shift;
+    my $sql = $self->generate_schema_sql();
+    return $self->load_schema_sql($sql);
 }
 
 sub generate_schema_sql {

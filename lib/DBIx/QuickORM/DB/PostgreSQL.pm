@@ -25,7 +25,7 @@ sub create_savepoint   { $_[1]->pg_savepoint($_[2]) }
 sub commit_savepoint   { $_[1]->pg_release($_[2]) }
 sub rollback_savepoint { $_[1]->pg_rollback_to($_[2]) }
 
-sub load_schema {
+sub load_schema_sql {
     my $self = shift;
     my ($dbh, $sql) = @_;
     $dbh->do($sql) or die "Failed to load schema";

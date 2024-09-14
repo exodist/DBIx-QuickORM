@@ -166,7 +166,7 @@ subtest PostgreSQL => sub {
     is($orm->db, $pdb, "Orm uses the postgresql database");
 
     $pg_sql = $orm->generate_schema_sql;
-    ok(lives { $orm->load_schema($pg_sql) }, "loaded schema");
+    ok(lives { $orm->load_schema_sql($pg_sql) }, "loaded schema");
 
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
 };
@@ -182,7 +182,7 @@ subtest MySQL => sub {
     is($orm->db, $pdb, "Orm uses the mysql database");
 
     $mysql_sql = $orm->generate_schema_sql;
-    ok(lives { $orm->load_schema($mysql_sql) }, "loaded schema");
+    ok(lives { $orm->load_schema_sql($mysql_sql) }, "loaded schema");
 
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
 };
@@ -198,7 +198,7 @@ subtest Percona => sub {
     is($orm->db, $pdb, "Orm uses the percona database");
 
     $percona_sql = $orm->generate_schema_sql;
-    ok(lives { $orm->load_schema($percona_sql) }, "loaded schema");
+    ok(lives { $orm->load_schema_sql($percona_sql) }, "loaded schema");
 
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
 };
@@ -214,7 +214,7 @@ subtest MariaDB => sub {
     is($orm->db, $pdb, "Orm uses the mariadb database");
 
     $mariadb_sql = $orm->generate_schema_sql;
-    ok(lives { $orm->load_schema($mariadb_sql) }, "loaded schema");
+    ok(lives { $orm->load_schema_sql($mariadb_sql) }, "loaded schema");
 
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
 };
@@ -230,7 +230,7 @@ subtest SQLite => sub {
     is($orm->db, $pdb, "Orm uses the sqlite database");
 
     $sqlite_sql = $orm->generate_schema_sql;
-    ok(lives { $orm->load_schema($sqlite_sql) }, "loaded schema");
+    ok(lives { $orm->load_schema_sql($sqlite_sql) }, "loaded schema");
 
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
 };

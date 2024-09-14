@@ -24,7 +24,7 @@ sub create_savepoint   { $_[1]->do("SAVEPOINT $_[2]") }
 sub commit_savepoint   { $_[1]->do("RELEASE SAVEPOINT $_[2]") }
 sub rollback_savepoint { $_[1]->do("ROLLBACK TO SAVEPOINT $_[2]") }
 
-sub load_schema {
+sub load_schema_sql {
     my $self = shift;
     my ($dbh, $sql) = @_;
     $dbh->do($_) or die "Error loading schema" for split /;/, $sql;

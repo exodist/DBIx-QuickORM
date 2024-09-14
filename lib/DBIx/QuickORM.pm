@@ -193,8 +193,8 @@ sub mixer {
 sub _push_plugins {
     if (my $parent = $STATE{PLUGINS}) {
         return {
-            %$parent,
-            __ORDER__ => [@{$parent->{__ORDER__} // []}],
+            __PARENT__ => $parent,
+            __ORDER__  => [],
         };
     }
 
@@ -229,9 +229,26 @@ sub orm {
     local $STATE{ORM}    = \%params;
     local $STATE{STACK}   = ['ORM', @{$STATE{STACK} // []}];
 
+    local $STATE{DB}        = undef;
+    local $STATE{RELATIONS} = undef;
+    local $STATE{SCHEMA}    = undef;
+
     set_subname('orm_callback', $cb) if subname($cb) ne '__ANON__';
     $cb->(%STATE);
 
+    if (my $db = delete $STATE{DB}) {
+        $db = _build_db($db);
+        croak "orm was given more than 1 database" if $params{db};
+        $params{db} = $db;
+    }
+
+    if (my $schema = delete $STATE{SCHEMA}) {
+        $schema = _build_schema($schema);
+        croak "orm was given more than 1 schema" if $params{schema};
+        $params{schema} = $schema;
+    }
+
+    require DBIx::QuickORM::ORM;
     my $orm = DBIx::QuickORM::ORM->new(%params, %$new_args);
 
     if (my $mixer = $STATE{MIXER}) {
@@ -259,6 +276,28 @@ sub autofill {
     $orm->{autofill} = $val;
 }
 
+sub _new_db_params {
+    my ($name, $caller) = @_;
+
+    return (
+        name       => $name,
+        created    => "$caller->[1] line $caller->[2]",
+        db_name    => $name,
+        attributes => {},
+        plugins    => _push_plugins(),
+    );
+}
+
+sub _build_db {
+    my $params = shift;
+
+    my $class  = delete($params->{db_class}) or croak "You must specify a db class such as: PostgreSQL, MariaDB, Percona, MySQL, or SQLite";
+    $class = "DBIx::QuickORM::DB::$class" unless $class =~ s/^\+// || $class =~ m/^DBIx::QuickORM::DB::/;
+
+    eval { require(mod2file($class)); 1 } or croak "Could not load $class: $@";
+    return $class->new(%$params);
+}
+
 sub db {
     my ($name, $cb) = @_;
 
@@ -270,13 +309,7 @@ sub db {
     if ($cb) {
         my @caller = caller;
 
-        my %params = (
-            name       => $name,
-            created    => "$caller[1] line $caller[2]",
-            db_name    => $name,
-            attributes => {},
-            plugins    => _push_plugins(),
-        );
+        my %params = _new_db_params($name => \@caller);
 
         local $STATE{PLUGINS} = $params{plugins};
         local $STATE{DB}      = \%params;
@@ -285,11 +318,7 @@ sub db {
         set_subname('db_callback', $cb) if subname($cb) ne '__ANON__';
         $cb->(%STATE);
 
-        my $class = delete($params{db_class}) or croak "You must specify a db class such as: PostgreSQL, MariaDB, Percona, MySQL, or SQLite";
-        $class = "DBIx::QuickORM::DB::$class" unless $class =~ s/^\+// || $class =~ m/^DBIx::QuickORM::DB::/;
-
-        eval { require(mod2file($class)); 1 } or croak "Could not load $class: $@";
-        $db = $class->new(%params);
+        my $db = _build_db(\%params);
 
         if ($mixer) {
             croak "Quick ORM mixer already has a db named '$name'" if $mixer->{dbs}->{$name};
@@ -310,10 +339,22 @@ sub db {
     return $db;
 }
 
+sub _get_db {
+    return $STATE{DB} if $STATE{DB};
+    return unless $STATE{ORM};
+
+    croak "Attempt to use db builder tools outside of a db builder in an orm that already has a db defined"
+        if $STATE{ORM}->{db};
+
+    my %params = _new_db_params(default => [caller(1)]);
+
+    $STATE{DB} = \%params;
+}
+
 sub db_attributes {
     my %attrs = @_ == 1 ? (%{$_[0]}) : (@_);
 
-    my $db = $STATE{DB} or croak "attributes() must be called inside of a db builer";
+    my $db = _get_db() or croak "attributes() must be called inside of a db or ORM builer";
     %{$db->{attributes} //= {}} = (%{$db->{attributes} // {}}, %attrs);
 
     return $db->{attributes};
@@ -322,7 +363,7 @@ sub db_attributes {
 sub db_connect {
     my ($in) = @_;
 
-    my $db = $STATE{DB} or croak "connect() must be called inside of a db builer";
+    my $db = _get_db() or croak "connect() must be called inside of a db or ORM builer";
 
     if (ref($in) eq 'CODE') {
         return $db->{connect} = $in;
@@ -337,13 +378,40 @@ BEGIN {
     for my $db_field (qw/db_class db_name db_dsn db_host db_socket db_port db_user db_password/) {
         my $name = $db_field;
         my $sub  = sub {
-            my $db = $STATE{DB} or croak "$name() must be called inside of a db builer";
+            my $db = _get_db() or croak "$name() must be called inside of a db builer";
             $db->{$name} = $_[0];
         };
 
         no strict 'refs';
         *{$name} = set_subname $name => $sub;
     }
+}
+
+sub _new_schema_params {
+    my ($name, $caller) = @_;
+
+    return (
+        name      => $name,
+        created   => "$caller->[1] line $caller->[2]",
+        relations => [],
+        includes  => [],
+        plugins   => _push_plugins(),
+    );
+}
+
+sub _build_schema {
+    my $params = shift;
+
+    require DBIx::QuickORM::Schema::RelationSet;
+    $params->{relations} = DBIx::QuickORM::Schema::RelationSet->new(@{$params->{relations} // []});
+
+    my $includes = delete $params->{includes};
+    my $class    = delete($params->{schema_class}) // first { $_ } (map { $_->schema_class(%$params, %STATE) } ordered_plugins($params->{plugins})), 'DBIx::QuickORM::Schema';
+    eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
+    my $schema = $class->new(%$params);
+    $schema = $schema->merge($_) for @$includes;
+
+    return $schema;
 }
 
 sub schema {
@@ -357,21 +425,13 @@ sub schema {
     if ($cb) {
         my @caller = caller;
 
-        my @relations;
-        my @includes;
-        my %params = (
-            name      => $name,
-            created   => "$caller[1] line $caller[2]",
-            relations => \@relations,
-            includes  => \@includes,
-            plugins => _push_plugins(),
-        );
+        my %params = _new_schema_params($name => \@caller);
 
+        local $STATE{STACK}     = ['SCHEMA', @{$STATE{STACK} // []}];
+        local $STATE{SCHEMA}    = \%params;
         local $STATE{SOURCES}   = {};
         local $STATE{PLUGINS}   = $params{plugins};
-        local $STATE{SCHEMA}    = \%params;
-        local $STATE{RELATIONS} = \@relations;
-        local $STATE{STACK}     = ['SCHEMA', @{$STATE{STACK} // []}];
+        local $STATE{RELATIONS} = $params{relations};
 
         local $STATE{COLUMN};
         local $STATE{RELATION};
@@ -381,15 +441,7 @@ sub schema {
         set_subname('schema_callback', $cb) if subname($cb) ne '__ANON__';
         $cb->(%STATE);
 
-        require DBIx::QuickORM::Schema::RelationSet;
-        $params{relations} = DBIx::QuickORM::Schema::RelationSet->new(@relations);
-
-        delete $params{includes};
-
-        my $class = delete($params{schema_class}) // first { $_ } (map { $_->schema_class(%params, %STATE) } ordered_plugins($params{plugins})), 'DBIx::QuickORM::Schema';
-        eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
-        $schema = $class->new(%params);
-        $schema = $schema->merge($_) for @includes;
+        $schema = _build_schema(\%params);
 
         if ($mixer) {
             croak "A schema with name '$name' is already defined" if $mixer->{schemas}->{$name};
@@ -411,10 +463,25 @@ sub schema {
     return $schema;
 }
 
+sub _get_schema {
+    return $STATE{SCHEMA} if $STATE{SCHEMA};
+    return unless $STATE{ORM};
+
+    croak "Attempt to use schema builder tools outside of a schema builder in an orm that already has a schema defined"
+        if $STATE{ORM}->{schema};
+
+    my %params = _new_schema_params(default => [caller(1)]);
+
+    $STATE{RELATIONS} = $params{relations};
+    $STATE{SCHEMA}    = \%params;
+
+    return $STATE{SCHEMA};
+}
+
 sub include {
     my @schemas = @_;
 
-    my $schema = $STATE{SCHEMA} or croak "'include()' can only be used inside a 'schema' builder";
+    my $schema = _get_schema() or croak "'include()' can only be used inside a 'schema' builder";
 
     my $mixer = $STATE{MIXER};
 
@@ -495,7 +562,7 @@ sub _table {
 sub table {
     return _member_table(@_) if $STATE{MEMBER};
 
-    my $schema = $STATE{SCHEMA} or croak "table() can only be used inside a schema or member builder";
+    my $schema = _get_schema() or croak "table() can only be used inside a schema, orm, or member builder";
 
     my ($name, $cb) = @_;
 

@@ -42,7 +42,8 @@ sub column_type { croak "$_[0]->column_type() is not implemented" }
 sub columns     { croak "$_[0]->columns() is not implemented" }
 sub db_keys     { croak "$_[0]->db_keys() is not implemented" }
 sub indexes     { croak "$_[0]->indexes() is not implemented" }
-sub load_schema { croak "$_[0]->load_schema() is not implemented" }
+
+sub load_schema_sql { croak "$_[0]->load_schema_sql() is not implemented" }
 
 sub create_temp_view  { croak "$_[0]->create_temp_view() is not implemented" }
 sub create_temp_table { croak "$_[0]->create_temp_table() is not implemented" }
@@ -131,10 +132,10 @@ sub generate_schema_sql_flatten_specs {
 
 sub generate_and_load_schema {
     my $class_or_self = shift;
-    my %params        = @_;
+    my ($dbh, %params) = @_;
 
     my $sql = $class_or_self->generate_schema_sql(%params);
-    $class_or_self->connection->load_schema($sql);
+    return $class_or_self->load_schema_sql($sql);
 }
 
 sub generate_schema_sql {

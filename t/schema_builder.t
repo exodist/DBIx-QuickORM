@@ -559,7 +559,7 @@ subtest SQLite => sub {
     );
 };
 
-my $plugins = {__ORDER__ => []};
+my $plugins = T();
 
 my $rel_al = {
     index     => 'aliases(light_id) + lights(light_id)',

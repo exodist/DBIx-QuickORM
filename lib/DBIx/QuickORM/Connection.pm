@@ -39,7 +39,7 @@ sub create_savepoint   { my $self = shift; $self->{+TXN_DEPTH} += 1; $self->{+DB
 sub commit_savepoint   { my $self = shift; $self->{+TXN_DEPTH} -= 1; $self->{+DB}->commit_savepoint($self->dbh, @_) }
 sub rollback_savepoint { my $self = shift; $self->{+TXN_DEPTH} -= 1; $self->{+DB}->rollback_savepoint($self->dbh, @_) }
 
-sub load_schema { my $self = shift; $self->{+DB}->load_schema($self->dbh, @_) }
+sub load_schema_sql { my $self = shift; $self->{+DB}->load_schema_sql($self->dbh, @_) }
 
 sub init {
     my $self = shift;
