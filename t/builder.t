@@ -40,7 +40,7 @@ imported_ok qw{
 
     column columns member member_class relation relation_class
 
-    plugin plugins ordered_plugins
+    plugin plugins
 
     autofill mixer orm
 

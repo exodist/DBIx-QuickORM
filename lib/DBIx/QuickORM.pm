@@ -7,14 +7,12 @@ use Sub::Util qw/subname set_subname/;
 use List::Util qw/first uniq/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/mod2file alias/;
-use DBIx::QuickORM::Util::Has Plugins => [qw/ordered_plugins/];
 
 use Importer 'Importer' => 'import';
 
 my @PLUGIN_EXPORTS = qw{
     plugin
     plugins
-    ordered_plugins
 };
 
 my @DB_EXPORTS = qw{
@@ -125,33 +123,24 @@ our %STATE = (column_order => 1);
 
 alias columns => 'column';
 
-sub plugins { $STATE{PLUGINS} // {__ORDER__ => []} }
+sub plugins { $STATE{PLUGINS} // do { require DBIx::QuickORM::PluginSet; DBIx::QuickORM::PluginSet->new } }
 
-sub plugin {
+sub add_plugin {
     my ($in, %params) = @_;
+
+    my $before = delete $params{before_parent};
+    my $after  = delete $params{after_parent};
+
+    croak "Cannot add a plugin both before AND after the parent" if $before && $after;
 
     my $plugins = $STATE{PLUGINS} or croak "Must be used under a supported builder, no builder that accepts plugins found";
 
-    my ($class, $instance);
-    if ($class = blessed($in)) {
-        croak "'$in' is not an instance of 'DBIx::QuickORM::Plugin' or a subclass of it" unless $in->isa('DBIx::QuickORM::Plugin');
-        $instance = $in;
+    if ($before) {
+        $plugins->unshift_plugin($in, %params);
     }
     else {
-        $class = "DBIx::QuickORM::Plugin::$in" unless $in =~ s/^\+// || $in =~ m/^DBIx::QuickORM::Plugin::/;
-        eval { require(mod2file($class)); 1 } or croak "Could not load plugin '$in' ($class): $@";
-        croak "Plugin '$in' ($class) is not a subclass of 'DBIx::QuickORM::Plugin'" unless $class->isa('DBIx::QuickORM::Plugin');
+        $plugins->push_plugin($in, %params);
     }
-
-    unless ($params{clean}) {
-        if (my $have = $plugins->{$class}) {
-            croak "Already have a plugin of class '$class', and it is not the same instance (Pass in `clean => 1` to override)" if $instance && $instance != $have;
-            return $have;
-        }
-    }
-
-    push @{$plugins->{__ORDER__}} => $class;
-    return $plugins->{$class} = $instance // $class->new;
 }
 
 sub mixer {
@@ -191,14 +180,13 @@ sub mixer {
 }
 
 sub _push_plugins {
+    require DBIx::QuickORM::PluginSet;
+
     if (my $parent = $STATE{PLUGINS}) {
-        return {
-            __PARENT__ => $parent,
-            __ORDER__  => [],
-        };
+        return DBIx::QuickORM::PluginSet->new(parent => $parent);
     }
 
-    return {__ORDER__ => []};
+    return DBIx::QuickORM::PluginSet->new;
 }
 
 sub orm {
@@ -406,7 +394,7 @@ sub _build_schema {
     $params->{relations} = DBIx::QuickORM::Schema::RelationSet->new(@{$params->{relations} // []});
 
     my $includes = delete $params->{includes};
-    my $class    = delete($params->{schema_class}) // first { $_ } (map { $_->schema_class(%$params, %STATE) } ordered_plugins($params->{plugins})), 'DBIx::QuickORM::Schema';
+    my $class    = delete($params->{schema_class}) // first { $_ } (map { $_->schema_class(%$params, %STATE) } @{$params->{plugins}->all}), 'DBIx::QuickORM::Schema';
     eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
     my $schema = $class->new(%$params);
     $schema = $schema->merge($_) for @$includes;
@@ -554,7 +542,7 @@ sub _table {
         $params{columns}{$cname} = $class->new(%$spec);
     }
 
-    my $class = delete($params{table_class}) // first { $_ } (map { $_->table_class(%params, %STATE) } ordered_plugins( $params{plugins} )), 'DBIx::QuickORM::Table';
+    my $class = delete($params{table_class}) // first { $_ } (map { $_->table_class(%params, %STATE) } @{$params{plugins}->all}), 'DBIx::QuickORM::Table';
     eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
     return $class->new(%params);
 }
@@ -769,7 +757,7 @@ sub relation {
 
     $add->(delete $STATE{MEMBER}) if $STATE{MEMBER};
 
-    my $class = delete($params{relation_class}) // first { $_ } (map { $_->relation_class(%params, %STATE) } ordered_plugins($params{plugins})), 'DBIx::QuickORM::Relation';
+    my $class = delete($params{relation_class}) // first { $_ } (map { $_->relation_class(%params, %STATE) } @{$params{plugins}->all}), 'DBIx::QuickORM::Relation';
     eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
     my $rel = $class->new(%params);
     push @$relations => $rel;

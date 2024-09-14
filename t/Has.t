@@ -1,19 +1,14 @@
 use Test2::V0;
 
 {
+    $INC{'My/Plugin.pm'} = __PACKAGE__;
     package My::Plugin;
+    use parent 'DBIx::QuickORM::Plugin';
 
-    BEGIN {
-        require DBIx::QuickORM::Plugin;
-        push @My::Test::ISA => 'DBIx::QuickORM::Plugin';
-    };
-
-    sub new { bless({}, shift) }
-
-    sub post_init {
+    sub do_post_init {
         my ($self, $obj) = @_;
-        $obj->{post_init} = $main::order++;
-    }
+        $obj->{do_post_init} = $main::order++;
+    };
 
     package My::Test::Base;
 
@@ -36,7 +31,7 @@ use Test2::V0;
     };
 
     package My::Test2;
-    use DBIx::QuickORM::Util::Has Plugins => [qw/PLUGINS ordered_plugins/];
+    use DBIx::QuickORM::Util::Has Plugins => [qw/PLUGINS/];
 }
 
 $main::order = 1;
@@ -48,7 +43,7 @@ my $it = My::Test->new();
 can_ok(
     $it,
     [qw{
-        PLUGINS plugins ordered_plugins add_plugin
+        PLUGINS plugins
         CREATED created gen_created
     }],
     "Added the necessary methods"
@@ -57,16 +52,16 @@ can_ok(
 is($it->from_hashbase, 1, "Called the regularly added init");
 is($it->{base}, 1, "Called init from base class");
 
-is($it->{$it->PLUGINS}, {__ORDER__ => []}, "Got the plugins hash with order key via constant");
+isa_ok($it->{$it->PLUGINS}, ['DBIx::QuickORM::PluginSet'], "Got a pluginset");
 is($it->{$it->CREATED}, "$file line $line", "Got the created string via constant");
 
-is($it->plugins, {__ORDER__ => []}, "Got the plugins hash with order key via method");
+isa_ok($it->plugins, ['DBIx::QuickORM::PluginSet'], "Got a pluginset");
 is($it->created, "$file line $line", "Got the created string via method");
 
 $main::order = 1;
-my $it2 = My::Test->new(plugins => {__ORDER__ => ['My::Plugin'], 'My::Plugin' => My::Plugin->new()});
+my $it2 = My::Test->new(plugins => ['+My::Plugin']);
 is($it2->{init}, 1, "init ran first");
-is($it2->{post_init}, 2, "post_init ran last");
+is($it2->{do_post_init}, 2, "post_init ran last");
 
 sub {
     my $line = __LINE__ + 1;
@@ -74,8 +69,7 @@ sub {
     is($it3->created, "$file line $line", "Did not go too deep");
 }->();
 
-can_ok('My::Test2', [qw/PLUGINS ordered_plugins/], "Imported requested subs");
+can_ok('My::Test2', [qw/PLUGINS/], "Imported requested subs");
 ok(!My::Test2->can('plugins'), "Did not import 'plugins'");
-ok(!My::Test2->can('add_plugin'), "Did not import 'add_plugin'");
 
 done_testing;
