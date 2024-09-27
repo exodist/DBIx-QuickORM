@@ -1,4 +1,4 @@
-package DBIx::QuickDB::Conflator::DateTime;
+package DBIx::QuickORM::Conflator::DateTime;
 use strict;
 use warnings;
 

@@ -6,10 +6,12 @@ use Carp qw/croak/;
 use Storable qw/dclone/;
 use Scalar::Util qw/blessed/;
 
+use DBIx::QuickORM::Util qw/merge_hash_of_objs/;
+
 use DBIx::QuickORM::Util::HashBase qw{
     <name
     <columns
-    <accessors
+    <relations
     <indexes
     <unique
     <primary_key
@@ -33,28 +35,35 @@ sub init {
         croak "Columns '$cname' is not an instance of 'DBIx::QuickORM::Table::Column', got: '$cval'" unless blessed($cval) && $cval->isa('DBIx::QuickORM::Table::Column');
     }
 
-    $self->{+ACCESSORS} //= {};
+    $self->{+RELATIONS} //= {};
     $self->{+INDEXES}   //= {};
 
     $self->{+IS_VIEW} //= 0;
     $self->{+IS_TEMP} //= 0;
 }
 
-sub add_accessor {
+sub add_relation {
     my $self = shift;
-    my ($name, $how) = @_;
+    my ($accessor, $relation) = @_;
 
-    croak "Accessor '$name' already defined" if $self->{+ACCESSORS}->{$name};
-
-    if (blessed($how)) {
-        croak "Object '$how' does not implement the 'use_as_orm_accessor' method" unless $how->can('use_as_orm_accessor');
-    }
-    else {
-        croak "An accessor must either be defined by an object implementing the 'use_as_orm_accessor' or by a coderef, got '$how'" unless ref($how) eq 'CODE';
+    if (my $ex = $self->{+RELATIONS}->{$accessor}) {
+        return if $ex eq $relation;
+        croak "Relation '$accessor' already defined";
     }
 
-    $self->{+ACCESSORS}->{$name} = $how;
+    croak "'$relation' is not an instance of 'DBIx::QuickORM::Relation'" unless $relation->isa('DBIx::QuickORM::Relation');
+
+    $self->{+RELATIONS}->{$accessor} = $relation;
 }
+
+sub relation {
+    my $self = shift;
+    my ($accessor) = @_;
+
+    return $self->{+RELATIONS}->{$accessor} // undef;
+}
+
+sub column_names { keys %{$_[0]->{+COLUMNS}} }
 
 sub column {
     my $self = shift;
@@ -63,23 +72,34 @@ sub column {
     return $self->{+COLUMNS}->{$cname} // undef;
 }
 
+sub merge {
+    my $self = shift;
+    my ($other, %params) = @_;
+
+    $params{+SQL_SPEC}    //= $self->{+SQL_SPEC}->merge($other->{+SQL_SPEC});
+    $params{+PLUGINS}     //= $self->{+PLUGINS}->merge($other->{+PLUGINS});
+    $params{+COLUMNS}     //= merge_hash_of_objs($self->{+COLUMNS}, $other->{+COLUMNS});
+    $params{+UNIQUE}      //= {map { ($_ => [@{$self->{+UNIQUE}->{$_}}]) } keys %{$self->{+UNIQUE}}};
+    $params{+RELATIONS}   //= {%{$other->{+RELATIONS}}, %{$self->{+RELATIONS}}};
+    $params{+INDEXES}     //= {%{$other->{+INDEXES}},   %{$self->{+INDEXES}}};
+    $params{+PRIMARY_KEY} //= [@{$self->{+PRIMARY_KEY} // $other->{+PRIMARY_KEY}}] if $self->{+PRIMARY_KEY} || $other->{+PRIMARY_KEY};
+
+    my $new = ref($self)->new(%$self, %params);
+}
+
 sub clone {
     my $self   = shift;
     my %params = @_;
 
-    my $class = blessed($self);
+    $params{+SQL_SPEC}    //= $self->{+SQL_SPEC}->clone();
+    $params{+PLUGINS}     //= $self->{+PLUGINS}->clone();
+    $params{+RELATIONS}   //= {%{$self->{+RELATIONS}}};
+    $params{+INDEXES}     //= {%{$self->{+INDEXES}}};
+    $params{+PRIMARY_KEY} //= [@{$self->{+PRIMARY_KEY}}] if $self->{+PRIMARY_KEY};
+    $params{+COLUMNS}     //= {map { ($_ => $self->{+COLUMNS}->{$_}->clone) } keys %{$self->{+COLUMNS}}};
+    $params{+UNIQUE}      //= {map { ($_ => [@{$self->{+UNIQUE}->{$_}}]) } keys %{$self->{+UNIQUE}}};
 
-    unless ($self->{+CREATED}) {
-        my @caller = caller(1);
-        $self->{+CREATED} = "$caller[1] line $caller[2]";
-    }
-
-    my $new = $class->new(
-        %$self,
-        columns  => dclone($self->{+COLUMNS}),
-        sql_spec => dclone($self->{+SQL_SPEC}),
-        %params,
-    );
+    my $new = ref($self)->new(%$self, %params);
 }
 
 1;

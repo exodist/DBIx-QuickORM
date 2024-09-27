@@ -647,7 +647,7 @@ my $aliases = {
         name     => ['name'],
     },
 
-    accessors => {lights => $rel_al},
+    relations => {lights => $rel_al},
 
     columns => {
         alias_id => {
@@ -657,14 +657,14 @@ my $aliases = {
             unique      => T(),
             created     => T(),
             order       => T(),
-            sql_spec    => {type => T()},
+            sql_spec    => T(),
         },
         light_id => {
             name     => 'light_id',
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
         name => {
             name     => 'name',
@@ -672,7 +672,7 @@ my $aliases = {
             unique   => T(),
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
     },
 };
@@ -692,7 +692,7 @@ my $complex_keys = {
         'name_a, name_b, name_c' => ['name_a', 'name_b', 'name_c'],
     },
 
-    accessors => {complex_ref => $rel_cc},
+    relations => {complex_ref => $rel_cc},
 
     columns => {
         name_a => {
@@ -701,7 +701,7 @@ my $complex_keys = {
             plugins     => $plugins,
             primary_key => FDNE(),
             order       => T(),
-            sql_spec    => {type => T()},
+            sql_spec    => T(),
         },
         name_b => {
             name        => 'name_b',
@@ -709,14 +709,14 @@ my $complex_keys = {
             primary_key => FDNE(),
             created     => T(),
             order       => T(),
-            sql_spec    => {type => T()},
+            sql_spec    => T(),
         },
         name_c => {
             name     => 'name_c',
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
     },
 };
@@ -735,7 +735,7 @@ my $complex_ref = {
         'name_a, name_b' => ['name_a', 'name_b'],
     },
 
-    accessors => {complex_keys => $rel_cc},
+    relations => {complex_keys => $rel_cc},
 
     columns => {
         extras => {
@@ -743,7 +743,7 @@ my $complex_ref = {
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
         name_a => {
             name        => 'name_a',
@@ -751,7 +751,7 @@ my $complex_ref = {
             primary_key => FDNE(),
             created     => T(),
             order       => T(),
-            sql_spec    => {type => T()},
+            sql_spec    => T(),
         },
         name_b => {
             name        => 'name_b',
@@ -759,7 +759,7 @@ my $complex_ref = {
             primary_key => FDNE(),
             created     => T(),
             order       => T(),
-            sql_spec    => {type => T()},
+            sql_spec    => T(),
         },
     },
 };
@@ -772,7 +772,7 @@ my $light_by_name = {
     created  => T(),
     sql_spec => T(),
 
-    accessors => {},
+    relations => {},
     indexes   => {},
 
     columns => {
@@ -781,21 +781,21 @@ my $light_by_name = {
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
         color => {
             name     => 'color',
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
         light_id => {
             name     => 'light_id',
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
         light_uuid => {
             name     => 'light_uuid',
@@ -803,14 +803,14 @@ my $light_by_name = {
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
         name => {
             name     => 'name',
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
         stamp => {
             name     => 'stamp',
@@ -818,7 +818,7 @@ my $light_by_name = {
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
     },
 };
@@ -835,7 +835,7 @@ my $lights = {
 
     unique => {light_id => ['light_id']},
 
-    accessors => {aliases => $rel_al},
+    relations => {aliases => $rel_al},
 
     columns => {
         color => {
@@ -843,7 +843,7 @@ my $lights = {
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
         light_id => {
             name        => 'light_id',
@@ -852,7 +852,7 @@ my $lights = {
             unique      => T(),
             created     => T(),
             order       => T(),
-            sql_spec    => {type => T()},
+            sql_spec    => T(),
         },
         light_uuid => {
             name     => 'light_uuid',
@@ -860,7 +860,7 @@ my $lights = {
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
         stamp => {
             name     => 'stamp',
@@ -868,7 +868,7 @@ my $lights = {
             plugins  => $plugins,
             created  => T(),
             order    => T(),
-            sql_spec => {type => T()},
+            sql_spec => T(),
         },
     },
 };

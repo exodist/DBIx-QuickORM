@@ -74,7 +74,7 @@ sub _schema {
         column alias_id => sub {
             primary_key;
             serial;
-            sql_spec type => 'INTEGER';
+            sql_spec(type => 'INTEGER');
         };
 
         column person_id => sub {
@@ -145,7 +145,9 @@ orm sqlite => sub {
 
 for my $name (qw/postgresql mariadb mysql percona sqlite/) {
     subtest $name => sub {
-        skip_all "Could not find PostgreSQL" unless __PACKAGE__->can($name);
+        skip_all "Could not find $name" unless __PACKAGE__->can($name);
+
+        my $id = 1;
 
         my $orm = __PACKAGE__->$name();
         isa_ok($orm, ['DBIx::QuickORM::ORM'], "Got correct ORM type");
@@ -153,9 +155,110 @@ for my $name (qw/postgresql mariadb mysql percona sqlite/) {
         my $pdb = $orm->db;
         isa_ok($pdb, ['DBIx::QuickORM::DB'], "Got a database instance");
 
-        ok(lives { $orm->generate_and_load_schema() }, "Generate and insert schema");
+        ok(lives { $orm->generate_and_load_schema() }, "Generate and load schema");
 
         is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
+
+        my $source = $orm->source('person');
+        isa_ok($source, ['DBIx::QuickORM::Source'], "Got a source");
+
+        my $bob_id = $id++;
+        ok(my $bob = $source->insert(name => 'bob'), "Inserted bob");
+        isa_ok($bob, ['DBIx::QuickORM::Row'], "Got a row back");
+        is($bob->from_db->{person_id}, $bob_id, "First row inserted, got id");
+        is($bob->from_db->{name}, 'bob', "Name was set correctly");
+        ref_is($bob->source, $source, "Get original source when calling source");
+        is(ref($bob->{source}), 'CODE', "Source is a coderef, not the actual source instance");
+
+        # This failed insert will increment the sequence for all db's except sqlite
+        $id++ unless $name eq 'sqlite';
+
+        like(
+            dies {
+                local $SIG{__WARN__} = sub { 1 };
+                $source->insert(name => 'bob');
+            },
+            in_set(
+                qr/Duplicate entry 'bob' for key 'name'/,
+                qr/UNIQUE constraint failed: person\.name/,
+                qr/Duplicate entry 'bob' for key 'person\.name'/,
+                qr/duplicate key value violates unique constraint "person_name_key"/,
+            ),
+            "Cannot insert the same row again due to unique contraint"
+        );
+
+        ref_is($source->find($bob_id), $bob, "Got cached copy using pk search");
+        ref_is($source->find(name => 'bob'), $bob, "Got cached copy using name search");
+
+        my $con = $source->connection;
+        my $oldref = "$bob";
+        $bob = undef;
+        ok(!$con->{cache}->{$source}->{$bob_id}, "Object drops from cache when there are no refs to it");
+
+        $bob = $source->find($bob_id);
+        ok("$bob" ne $oldref, "Did not get the same ref");
+        is($bob->from_db, {name => 'bob', person_id => $bob_id}, "Got bob");
+        ref_is($source->find($bob_id), $bob, "Got cached copy using pk search");
+
+        my $data_ref = $bob->from_db;
+        $bob->refresh();
+        is($bob->from_db, $data_ref, "Identical data after fetch");
+        ref_is_not($bob->from_db, $data_ref, "But the data hashref has been swapped out");
+
+        $bob->from_db->{name} = 'foo';
+        is($bob->column('name'), 'foo', "Got incorrect stored name");
+        $bob->{dirty}->{name} = 'bar';
+        is($bob->column('name'), 'bar', "Got dirty name");
+        $bob->reload;
+        is($bob->column('name'), 'bob', "Got correct name from db, and cleared dirty");
+
+        is($source->fetch($bob_id), {name => 'bob', person_id => $bob_id}, "fetched bobs data");
+        is($source->find($id), undef, "Could not find anything for id $id");
+
+        my $ted = $source->vivify(name => 'ted');
+        isa_ok($ted, ['DBIx::QuickORM::Row'], "Created row");
+        ok(!$ted->from_db, "But did not insert");
+
+        my $ted_id = $id++;
+        $ted->save;
+
+        is($ted->from_db, {name => 'ted', person_id => $ted_id}, "Inserted");
+        ref_is($source->find($ted_id), $ted, "Got cached copy");
+
+        $ted->update(name => 'theador');
+
+        like(
+            $ted,
+            {
+                from_db  => {name => 'theador', person_id => $ted_id},
+                dirty    => DNE(),
+                inflated => {name => DNE()},
+            },
+            "Got expected data and state",
+        );
+
+        ok($ted->in_db, "Ted is in the db");
+        $ted->delete;
+        ok(!$ted->in_db, "Not in the db");
+
+        is($source->find($ted_id), undef, "No Ted");
+
+        my $als = $orm->source('aliases');
+        my $robert = $als->insert(person_id => $bob->column('person_id'), alias => 'robert');
+        my $rob = $als->insert(person_id => $bob->column('person_id'), alias => 'rob');
+
+        is($robert->relation('person'), $bob, "Got bob via relationship");
+        is($rob->relation('person'), $bob, "Got bob via relationship");
+
+        my $robert_id = $robert->column('alias_id');
+        $robert = undef;
+        ok(!$con->{cache}->{$als}->{$robert_id}, "Robert is not in cache");
+
+        my $rows = $bob->relations('aliases', 'alias_id');
+
+        $robert = $als->find(alias => 'robert');
+
+        is($rows, [exact_ref($robert), exact_ref($rob)], "Got both aliases, cached");
     };
 }
 

@@ -16,6 +16,9 @@ sub temp_table_supported { 1 }
 sub temp_view_supported  { 1 }
 sub quote_index_columns  { 1 }
 
+sub update_returning_supported { 1 }
+sub insert_returning_supported { 1 }
+
 sub start_txn    { $_[1]->begin_work }
 sub commit_txn   { $_[1]->commit }
 sub rollback_txn { $_[1]->rollback }

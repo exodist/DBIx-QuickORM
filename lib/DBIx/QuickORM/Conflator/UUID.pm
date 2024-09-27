@@ -1,4 +1,4 @@
-package DBIx::QuickDB::Conflator::UUID;
+package DBIx::QuickORM::Conflator::UUID;
 use strict;
 use warnings;
 

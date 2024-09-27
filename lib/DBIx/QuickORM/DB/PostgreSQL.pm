@@ -25,6 +25,9 @@ sub create_savepoint   { $_[1]->pg_savepoint($_[2]) }
 sub commit_savepoint   { $_[1]->pg_release($_[2]) }
 sub rollback_savepoint { $_[1]->pg_rollback_to($_[2]) }
 
+sub update_returning_supported { 1 }
+sub insert_returning_supported { 1 }
+
 sub load_schema_sql {
     my $self = shift;
     my ($dbh, $sql) = @_;
@@ -215,11 +218,13 @@ sub generate_schema_sql_header {
 
     my @out;
 
-    for my $ext (@{$specs->{extensions} // []}) {
+    my $exts = $specs->get_spec(extensions => $class_or_self->sql_spec_keys) // [];
+    for my $ext (@$exts) {
         push @out => qq{CREATE EXTENSION "$ext";};
     }
 
-    for my $set (@{$specs->{types}}) {
+    my $types = $specs->get_spec(types => $class_or_self->sql_spec_keys) // [];
+    for my $set (@$types) {
         my ($name, $type, @vals) = @$set;
         croak "Only enum types are supported currently (got '$type')" unless lc($type) eq 'enum';
 
@@ -231,5 +236,23 @@ sub generate_schema_sql_header {
 
 # Postgresql uses serial types instead of auto-increment
 sub generate_schema_sql_column_serial { }
+
+sub generate_schema_sql_column_type {
+    my $class_or_self = shift;
+    my %params        = @_;
+
+    my $type = $class_or_self->SUPER::generate_schema_sql_column_type(%params);
+
+    my $col = $params{column};
+
+    return $type unless $col->serial;
+
+    $type =~ s/int(eger)?/serial/;
+    $type =~ s/INT(EGER)?/SERIAL/;
+    $type =~ s/Int(eger)?/Serial/;
+    $type =~ s/int(eger)?/serial/i; # Catchall
+
+    return $type;
+}
 
 1;

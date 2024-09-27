@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 use Carp qw/confess croak/;
-use Scalar::Util qw/blessed/;
+use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/alias/;
 
 require SQL::Abstract;
@@ -14,8 +14,11 @@ use DBIx::QuickORM::Util::HashBase qw{
     +dbh
     <pid
     <txn_depth
+    <txn_id
     <column_type_cache
     <sqla
+    +cache
+    +cache_stack
 };
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created/;
@@ -53,6 +56,10 @@ sub init {
     $self->{+COLUMN_TYPE_CACHE} //= {};
 
     $self->{+TXN_DEPTH} = $self->dbh->{AutoCommit} ? 0 : 1;
+    $self->{+TXN_ID}    = 0;
+
+    $self->{+CACHE} = {};
+    $self->{+CACHE_STACK} = [];
 }
 
 sub dbh {
@@ -73,6 +80,7 @@ sub dbh {
     return $self->{+DBH};
 }
 
+my $TXN_ID = 1;
 sub transaction {
     my $self = shift;
     my ($code) = @_;
@@ -92,9 +100,16 @@ sub transaction {
         $self->start_txn;
     }
 
+    local $self->{+TXN_ID} = $TXN_ID++;
+
+    push @{$self->{+CACHE_STACK} //= []} => $self->{+CACHE};
+    $self->{+CACHE} = {};
+
     my ($ok, $out);
     $ok = eval { $out = $code->(); 1 };
     my $err = $@;
+
+    $self->{+CACHE} = pop @{$self->{+CACHE_STACK} //= []};
 
     if ($ok) {
         if   ($sp) { $self->commit_savepoint($sp) }
@@ -124,5 +139,106 @@ sub generate_table_schema {
     return DBIx::QuickORM::Util::SchemaBuilder->generate_table($self, $table, $self->plugins);
 }
 
+sub from_cache {
+    my $self = shift;
+    my ($source, $data) = @_;
+
+    my $cache_key = $self->_cache_key($source, $data) or return undef;
+    my $cache_ref = $self->_cache_ref($source, $cache_key);
+
+    return undef unless $$cache_ref;
+
+    return $$cache_ref;
+}
+
+sub cache_row {
+    my $self = shift;
+    my ($row) = @_;
+    return $self->cache_source_row($row->source, $row);
+}
+
+sub cache_source_row {
+    my $self = shift;
+    my ($source, $row) = @_;
+
+    my $cache_key = $self->_cache_key($source, $row) or return undef;
+    my $cache_ref = $self->_cache_ref($source, $cache_key);
+
+    $$cache_ref = $row;
+
+    weaken(${$cache_ref});
+
+    return $row;
+}
+
+sub uncache_source_row {
+    my $self = shift;
+    my ($source, $row) = @_;
+
+    my $cache_key = $self->_cache_key($source, $row) or return undef;
+
+    my ($ref, $key) = $self->_cache_ref($source, $cache_key, parent => 1);
+
+    croak "Found wrong object in cache (${$ref}->{$key} vs $row)" unless $row eq ${$ref}->{$key};
+    delete ${$ref}->{$key};
+
+    return $row;
+}
+
+sub remove_source_cache {
+    my $self = shift;
+    my ($source) = @_;
+
+    delete $_->{"$source"} for $self->{+CACHE}, @{$self->{+CACHE_STACK} // []};
+}
+
+sub _cache_key {
+    my $self = shift;
+    my ($source, $data) = @_;
+
+    my $table = $source->table;
+    my $pk_fields = $table->primary_key;
+
+    if (blessed($data) && $data->isa('DBIx::QuickORM::Row')) {
+        return [ map { $data->column($_) // return } @$pk_fields ];
+    }
+
+    return [ map { $data->{$_} // return } @$pk_fields ];
+}
+
+sub _cache_ref {
+    my $self = shift;
+    my ($source, $keys, %params) = @_;
+
+    my $cache = $self->{+CACHE};
+
+    my ($prev, $key);
+    my $ref;
+    for my $ck ("$source", @$keys) {
+        if ($ref) {
+            ${$ref} //= {};
+            $prev = $ref;
+            $key  = $ck;
+            $ref  = \(${$ref}->{$ck});
+        }
+        else {
+            $prev = $ref;
+            $key  = $ck;
+            $ref  = \($cache->{$ck});
+        }
+    }
+
+    return ($prev, $key) if $params{parent};
+
+    return $ref;
+}
+
 1;
+
+__END__
+
+
+
+
+
 

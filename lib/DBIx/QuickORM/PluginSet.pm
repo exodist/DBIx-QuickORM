@@ -56,7 +56,7 @@ sub has_plugin {
     my $self = shift;
     my ($class) = @_;
 
-    return $self->{+PLUGINS}->{$class} if $self->{+PLUGINS}->{$class};
+    return $self->{+PLUGINS}->{$class}          if $self->{+PLUGINS}->{$class};
     return $self->{+PARENT}->get_plugin($class) if $self->{+PARENT};
     return undef;
 }
@@ -106,6 +106,40 @@ sub _add_plugin {
     $self->{+PLUGINS}->{$class} = $inst // $class->new(%params);
 
     return ($class, $inst);
+}
+
+sub merge {
+    my $self = shift;
+    my ($other, %params) = @_;
+
+    $params{+BEFORE_PARENT} //= [uniq(@{$self->{+BEFORE_PARENT}}, @{$other->{+BEFORE_PARENT}})];
+
+    if ($self->{+PARENT} && $other->{+PARENT}) {
+        $params{+PARENT} //= $self->{+PARENT}->merge($other->{+PARENT});
+    }
+    elsif ($self->{+PARENT}) {
+        $params{+PARENT} //= $self->{+PARENT}->clone;
+    }
+    elsif ($other->{+PARENT}) {
+        $params{+PARENT} //= $other->{+PARENT}->clone;
+    }
+
+    $params{+AFTER_PARENT}  //= [uniq(@{$self->{+AFTER_PARENT}}, @{$other->{+AFTER_PARENT}})];
+    $params{+PLUGINS}       //= {%{$other->{+PLUGINS}}, %{$self->{+PLUGINS}}};
+
+    return blessed($self)->new(%params);
+}
+
+sub clone {
+    my $self   = shift;
+    my %params = @_;
+
+    $params{+BEFORE_PARENT} //= [@{$self->{+BEFORE_PARENT}}];
+    $params{+PARENT}        //= $self->{+PARENT}->clone if $self->{+PARENT};
+    $params{+AFTER_PARENT}  //= [@{$self->{+AFTER_PARENT}}];
+    $params{+PLUGINS}       //= {%{$self->{+PLUGINS}}};
+
+    return blessed($self)->new(%params);
 }
 
 1;

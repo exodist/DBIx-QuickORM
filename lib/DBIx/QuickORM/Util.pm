@@ -5,7 +5,7 @@ use warnings;
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 
-our @EXPORT = qw/ mod2file delegate alias parse_hash_arg /;
+our @EXPORT = qw/ mod2file delegate alias parse_hash_arg merge_hash_of_objs /;
 
 use base 'Exporter';
 
@@ -54,6 +54,29 @@ sub alias {
     my $sub = $caller->can($from) or croak "$caller does not have the '$from' method defined";
     no strict 'refs';
     *{"$caller\::$to"} = $sub;
+}
+
+sub merge_hash_of_objs {
+    my ($hash_a, $hash_b) = @_;
+
+    $hash_a //= {};
+    $hash_b //= {};
+
+    my %out;
+    my %seen;
+
+    for my $name (keys %$hash_a, keys %$hash_b) {
+        next if $seen{$name}++;
+
+        my $a = $hash_a->{$name};
+        my $b = $hash_b->{$name};
+
+        if    ($a && $b) { $out{$name} = $a->merge($b) }
+        elsif ($a)       { $out{$name} = $a->clone }
+        elsif ($b)       { $out{$name} = $b->clone }
+    }
+
+    return \%out;
 }
 
 1;

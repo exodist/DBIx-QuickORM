@@ -52,7 +52,7 @@ sub init {
         croak "Relation defines 2 accessors with the same name '$accessor' on table '$name'"
             if $accessors->{$name}->{$accessor};
 
-        $accessors->{$name}->{$accessor} = [$cols, $link->{table}, $link->{columns}];
+        $accessors->{$name}->{$accessor} = [$cols, $link->{table}, $link->{columns}, $table->{reference} ? 1 : 0];
 
         $identity = $identity ? "$identity + $accessor($table_idx)" : "$accessor($table_idx)";
     }
@@ -66,6 +66,12 @@ sub table_names         { sort keys %{$_[0]->{+ACCESSORS}} }
 sub has_table           { $_[0]->{+ACCESSORS}->{$_[1]} ? 1 : 0 }
 sub accessors_for_table { keys %{$_[0]->{+ACCESSORS}->{$_[1]} // croak("Table '$_[1]' has no accessors from this relation")} }
 
-sub use_as_orm_accessor { die "todo" }
+sub get_accessor {
+    my $self = shift;
+    my ($table, $accessor) = @_;
+
+    my $t = $self->{+ACCESSORS}->{$table} or return undef;
+    return $t->{$accessor} // undef;
+}
 
 1;

@@ -166,8 +166,11 @@ subtest PostgreSQL => sub {
     is($orm->db, $pdb, "Orm uses the postgresql database");
 
     $pg_sql = $orm->generate_schema_sql;
-    ok(lives { $orm->load_schema_sql($pg_sql) }, "loaded schema");
 
+    like($pg_sql, qr/CREATE EXTENSION "uuid-ossp";/, "Added extension");
+    like($pg_sql, qr/CREATE TYPE choice AS ENUM\('foo', 'bar', 'baz'\)/, "Added enum type");
+
+    ok(lives { $orm->load_schema_sql($pg_sql) }, "loaded schema");
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
 };
 

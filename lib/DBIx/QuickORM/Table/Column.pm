@@ -18,13 +18,31 @@ use DBIx::QuickORM::Util::HashBase qw{
     <serial
 };
 
-
-
 sub init {
     my $self = shift;
 
-    croak "The 'name' field is required" unless $self->{+NAME};
+    croak "The 'name' field is required"     unless $self->{+NAME};
     croak "Column must have an order number" unless $self->{+ORDER};
+}
+
+sub merge {
+    my $self = shift;
+    my ($other, %params) = @_;
+
+    $params{+SQL_SPEC} //= $self->{+SQL_SPEC}->merge($other->{+SQL_SPEC});
+    $params{+PLUGINS}  //= $self->{+PLUGINS}->merge($other->{+PLUGINS});
+
+    return ref($self)->new(%$self, %params);
+}
+
+sub clone {
+    my $self   = shift;
+    my %params = @_;
+
+    $params{+SQL_SPEC} //= $self->{+SQL_SPEC}->clone();
+    $params{+PLUGINS}  //= $self->{+PLUGINS}->clone();
+
+    return ref($self)->new(%$self, %params);
 }
 
 1;

@@ -5,6 +5,7 @@ use warnings;
 use Carp qw/confess croak/;
 
 require DBIx::QuickORM::Schema;
+require DBIx::QuickORM::Source;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <name
@@ -100,8 +101,10 @@ sub source {
 
     my ($schema, $table);
 
-    for $schema ($self->temp_schema, $self->con_schema) {
-        $table = $schema->maybe_table($name) and last;
+    for my $meth (qw/ temp_schema con_schema /) {
+        $schema = $self->$meth()              or next;
+        $table  = $schema->maybe_table($name) or next;
+        last;
     }
 
     croak "'$name' is not defined in the schema as a table/view, or temporary table/view"
@@ -111,6 +114,7 @@ sub source {
         connection => $self->connection,
         schema     => $schema,
         table      => $table,
+        orm        => $self,
     );
 }
 

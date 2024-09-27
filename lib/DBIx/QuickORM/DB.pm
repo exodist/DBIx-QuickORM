@@ -22,10 +22,9 @@ use DBIx::QuickORM::Util::HashBase qw{
     <socket
     <user
     password
-    <sql_spec
 };
 
-use DBIx::QuickORM::Util::Has qw/Plugins Created/;
+use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
 
 sub start_txn          { croak "$_[0]->start_txn() is not implemented" }
 sub commit_txn         { croak "$_[0]->commit_txn() is not implemented" }
@@ -47,6 +46,8 @@ sub load_schema_sql { croak "$_[0]->load_schema_sql() is not implemented" }
 
 sub create_temp_view  { croak "$_[0]->create_temp_view() is not implemented" }
 sub create_temp_table { croak "$_[0]->create_temp_table() is not implemented" }
+sub drop_temp_view    { croak "$_[0]->drop_temp_table() is not implemented" }
+sub drop_temp_table   { croak "$_[0]->drop_temp_table() is not implemented" }
 
 sub quote_index_columns               { 1 }
 sub generate_schema_sql_header        { () }
@@ -57,6 +58,9 @@ sub sql_spec_keys {}
 
 sub temp_table_supported { 0 }
 sub temp_view_supported  { 0 }
+
+sub insert_returning_supported { 0 }
+sub update_returning_supported { 0 }
 
 sub init {
     my $self = shift;
@@ -116,20 +120,6 @@ sub connect {
     );
 }
 
-sub generate_schema_sql_flatten_specs {
-    my $class_or_self = shift;
-    my ($sql_spec) = @_;
-
-    return {} unless $sql_spec;
-
-    my @keys = reverse $class_or_self->sql_spec_keys or return $sql_spec;
-
-    return {
-        %$sql_spec,
-        map { %{$sql_spec->{$_} // {}} } @keys,
-    };
-}
-
 sub generate_and_load_schema {
     my $class_or_self = shift;
     my ($dbh, %params) = @_;
@@ -150,8 +140,6 @@ sub generate_schema_sql {
         $plugins //= $class_or_self->plugins;
         $specs   //= $class_or_self->{+SQL_SPEC};
     }
-
-    $specs = $class_or_self->generate_schema_sql_flatten_specs($specs);
 
     my @out;
 
@@ -210,9 +198,9 @@ sub _generate_schema_sql_header {
 
     my @out;
 
-    push @out => $specs->{pre_header_sql} if $specs->{pre_header_sql};
+    if (my $val = $specs->get_spec('pre_header_sql', $class_or_self->sql_spec_keys)) { push @out => $val }
     push @out => $class_or_self->generate_schema_sql_header(%params);
-    push @out => $specs->{post_header_sql} if $specs->{post_header_sql};
+    if (my $val = $specs->get_spec('post_header_sql', $class_or_self->sql_spec_keys)) { push @out => $val }
 
     return @out;
 }
@@ -227,9 +215,9 @@ sub _generate_schema_sql_footer {
 
     my @out;
 
-    push @out => $specs->{pre_footer_sql} if $specs->{pre_footer_sql};
+    if (my $val = $specs->get_spec('pre_footer_sql', $class_or_self->sql_spec_keys)) { push @out => $val }
     push @out => $class_or_self->generate_schema_sql_footer(%params);
-    push @out => $specs->{post_footer_sql} if $specs->{post_footer_sql};
+    if (my $val = $specs->get_spec('post_footer_sql', $class_or_self->sql_spec_keys)) { push @out => $val }
 
     return @out;
 }
@@ -242,9 +230,11 @@ sub generate_schema_sql_table {
     my $plugins = $params{plugins};
     my $schema  = $params{schema};
 
-    my $specs = $class_or_self->generate_schema_sql_flatten_specs($table->sql_spec);
+    my $specs = $table->sql_spec;
 
-    return $specs->{table_sql} if $specs->{table_sql};
+    if (my $sql = $specs->get_spec(table_sql =>  $class_or_self->sql_spec_keys)) {
+        return $sql;
+    };
 
     my $table_name = $table->name;
 
@@ -288,10 +278,12 @@ sub generate_schema_sql_column_sql {
 
     my $col = $params{column} or croak "column is required";
 
-    my $specs = $class_or_self->generate_schema_sql_flatten_specs($col->sql_spec);
-    return $specs->{column_sql} if $specs->{column_sql};
-
+    my $specs = $col->sql_spec;
     $params{sql_spec} = $specs;
+
+    if (my $sql = $specs->get_spec(column_sql =>  $class_or_self->sql_spec_keys)) {
+        return $sql;
+    };
 
     my $name = $col->name or croak "Columns must have names";
 
@@ -365,8 +357,6 @@ sub generate_schema_sql_indexes_for_table {
     my $plugins = $params{plugins};
     my $schema  = $params{schema};
 
-    my $specs = $class_or_self->generate_schema_sql_flatten_specs($table->sql_spec);
-
     my @out;
 
     my $table_name = $table->name;
@@ -388,7 +378,7 @@ sub generate_schema_sql_column_type {
     my $t = $params{table}->name;
     my $c = $params{column}->name;
 
-    my $type = $specs->{type} or croak "No 'type' key found in SQL specs for column $c in table $t";
+    my $type = $specs->get_spec(type => $class_or_self->sql_spec_keys) or croak "No 'type' key found in SQL specs for column $c in table $t";
 
     return $type;
 }
@@ -399,7 +389,7 @@ sub generate_schema_sql_column_default {
 
     my $specs = $params{sql_spec};
 
-    return $specs->{default};
+    return $specs->get_spec(default => $class_or_self->sql_spec_keys);
 }
 
 1;
