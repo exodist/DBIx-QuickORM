@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 use Carp qw/confess croak/;
-use Scalar::Util qw/blessed weaken/;
+use Scalar::Util qw/blessed weaken isweak/;
 use DBIx::QuickORM::Util qw/alias/;
 
 require SQL::Abstract;
@@ -159,16 +159,28 @@ sub cache_row {
 
 sub cache_source_row {
     my $self = shift;
-    my ($source, $row) = @_;
+    my ($source, $row, %params) = @_;
+
+    $params{weak} //= 1;
 
     my $cache_key = $self->_cache_key($source, $row) or return undef;
     my $cache_ref = $self->_cache_ref($source, $cache_key);
 
     $$cache_ref = $row;
 
-    weaken(${$cache_ref});
+    weaken(${$cache_ref}) if $params{weak};
 
     return $row;
+}
+
+sub clear_cache {
+    my $self = shift;
+    $self->remove_source_cache($_) for keys %{$self->{+CACHE}};
+}
+
+sub prune_cache {
+    my $self = shift;
+    $self->prune_source_cache($_) for keys %{$self->{+CACHE}};
 }
 
 sub uncache_source_row {
@@ -185,19 +197,49 @@ sub uncache_source_row {
     return $row;
 }
 
+sub prune_source_cache {
+    my $self = shift;
+    my ($source) = @_;
+
+    my @sets = map { $_->{$source} ? ([$_, $source, $_->{$source}]) : ()} $self->{+CACHE}, @{$self->{+CACHE_STACK} // []};
+    while (my $set = shift @sets) {
+        my ($parent, $key, $item) = @$set;
+        @$set = ();
+
+        if (!$item) {
+            delete $parent->{$key};    # Prune empty hash keys
+        }
+        elsif (blessed($item) && $item->isa('DBIx::QuickORM::Row')) {
+            my $cnt = Internals::SvREFCNT(%$item);
+
+            next if $cnt > 2;                                 # The cache copy, and the copy here
+            next if $cnt == 1 && is_weak($parent->{$key});    # in cache weakly
+
+            delete $parent->{$key};
+
+            $item->set_uncached();
+        }
+        else {
+            push @sets => map { [$item, $_, $item->{$_}] } grep { $item->{$_} } keys %$item;
+        }
+    }
+}
+
 sub remove_source_cache {
     my $self = shift;
     my ($source) = @_;
 
-    delete $_->{"$source"} for $self->{+CACHE}, @{$self->{+CACHE_STACK} // []};
+    delete $_->{$source} for $self->{+CACHE}, @{$self->{+CACHE_STACK} // []};
 }
 
 sub _cache_key {
     my $self = shift;
     my ($source, $data) = @_;
 
-    my $table = $source->table;
-    my $pk_fields = $table->primary_key;
+    my $from = $source->from;
+    return unless $from->does('DBIx::QuickORM::Source::From::Cachable');
+
+    my $pk_fields = $from->primary_key;
 
     if (blessed($data) && $data->isa('DBIx::QuickORM::Row')) {
         return [ map { $data->column($_) // return } @$pk_fields ];
@@ -234,11 +276,3 @@ sub _cache_ref {
 }
 
 1;
-
-__END__
-
-
-
-
-
-
