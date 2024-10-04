@@ -21,6 +21,9 @@ use DBIx::QuickORM::Util::HashBase qw{
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
 
+sub sqla_source  { $_[0]->{+NAME} }
+sub sqla_columns { [$_[0]->column_names] }
+
 sub init {
     my $self = shift;
 
@@ -67,7 +70,7 @@ sub column_names { keys %{$_[0]->{+COLUMNS}} }
 
 sub column {
     my $self = shift;
-    my ($cname) = @_;
+    my ($cname, $row) = @_;
 
     return $self->{+COLUMNS}->{$cname} // undef;
 }
