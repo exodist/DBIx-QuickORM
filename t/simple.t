@@ -193,7 +193,7 @@ for my $name (qw/postgresql mariadb mysql percona sqlite/) {
         my $con = $source->connection;
         my $oldref = "$bob";
         $bob = undef;
-        ok(!$con->{cache}->{$source}->{$bob_id}, "Object drops from cache when there are no refs to it");
+        ok(!$con->{cache}->{$source}->{$bob_id}, "Object can be pruned from cache when there are no refs to it");
 
         $bob = $source->find($bob_id);
         ok("$bob" ne $oldref, "Did not get the same ref");
@@ -254,11 +254,19 @@ for my $name (qw/postgresql mariadb mysql percona sqlite/) {
         $robert = undef;
         ok(!$con->{cache}->{$als}->{$robert_id}, "Robert is not in cache");
 
-        my $rows = $bob->relations('aliases', 'alias_id');
+        my $rows = $bob->relations('aliases', order_by => 'alias_id');
 
         $robert = $als->find(alias => 'robert');
 
+        $con->prune_cache;
         is($rows, [exact_ref($robert), exact_ref($rob)], "Got both aliases, cached");
+
+        $bob    = undef;
+        $ted    = undef;
+        $rob    = undef;
+        $robert = undef;
+
+#        my $got = $als->precache('person')->find({alias => 'robert'});
     };
 }
 

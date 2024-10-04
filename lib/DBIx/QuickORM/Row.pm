@@ -2,7 +2,7 @@ package DBIx::QuickORM::Row;
 use strict;
 use warnings;
 
-use Scalar::Util qw/weaken/;
+use Scalar::Util qw/weaken blessed/;
 use Sub::Util qw/set_subname/;
 use Carp qw/croak/;
 
@@ -28,6 +28,8 @@ sub init {
     $self->{+TXN_ID} = $source->connection->txn_id;
 }
 
+sub set_uncached { }
+
 sub source     { $_[0]->{+SOURCE}->() }
 sub table      { $_[0]->source->table }
 sub connection { $_[0]->source->connection }
@@ -47,40 +49,75 @@ sub primary_key {
 sub column_def { $_[0]->table->column($_[1]) }
 sub has_column { $_[0]->column_def($_[1]) ? 1 : 0 }
 
-sub relation {
+sub _relation_spec {
     my $self = shift;
-    my ($accessor) = @_;
+    my ($accessor, $table, $order_by, %params);
+
+    if (@_ <= 2) {
+        ($accessor, $table) = reverse @_;
+    }
+    elsif (@_ % 2) {
+        ($accessor, %params) = @_;
+    }
+
+    $order_by //= $params{order_by};
+    $table    //= $params{table};
 
     my $source = $self->source;
-    my $table = $source->table;
+    $table //= $self->table;
+    $table = $source->orm->table($table) if $table && !blessed($table);
+
+    croak "Could not determine table (or 'table') to use for relation, please specify one" unless $table;
+
     my $relation = $table->relation($accessor) or croak "'$accessor' is not defined as a relation accessor on this table";
-    my $spec = $relation->get_accessor($table->name, $accessor);
+    my $spec     = $relation->get_accessor($table->name, $accessor);
 
-    my ($cols, $ftable, $fcols, $fk) = @$spec;
+    return {
+        %params,
+        accessor => $accessor,
+        order_by => $order_by,
+        relation => $relation,
+        source   => $source,
+        table     => $table,
+        %$spec,
+    };
+}
 
-    croak "Reference accessor '$accessor' is not a foreign key on this table, use relations() instead" unless $fk;
+sub _relation_query {
+    my $self = shift;
+    my ($params) = @_;
+
+    my $source = $params->{source};
+    my $cols   = $params->{local_columns};
+    my $ftable = $params->{foreign_table};
+    my $fcols  = $params->{foreign_columns};
 
     my $source2 = $source->orm->source($ftable);
-    my @vals = map { $self->_raw_col($_) // undef } @$cols;
-    return $source2->find(map {($_ => shift(@vals))} @$fcols);
+    my @vals    = map { $self->_raw_col($_) // undef } @$cols;
+
+    return ($source2, {map { ($_ => shift(@vals)) } @$fcols});
+}
+
+sub relation {
+    my $self = shift;
+    my $params = $self->_relation_spec(@_);
+
+    croak "Reference accessor '$params->{accessor}' is not a foreign key on this table, use relations() instead" unless $params->{foreign_key};
+    croak "order by is not supported in relation()" if $params->{order_by};
+
+    my ($source, $query) = $self->_relation_query($params);
+    return $source->find(%$query);
 }
 
 sub relations {
     my $self = shift;
-    my ($accessor, $order_by) = @_;
+    my $params = $self->_relation_spec(@_);
 
-    my $source = $self->source;
-    my $table = $source->table;
-    my $relation = $table->relation($accessor) or croak "'$accessor' is not defined as a relation accessor on this table";
-    my $spec = $relation->get_accessor($table->name, $accessor);
+    croak "Reference accessor '$params->{accessor}' is a foreign key on this table, use relation() instead" if $params->{foreign_key};
 
-    my ($cols, $ftable, $fcols, $fk) = @$spec;
+    my ($source, $query) = $self->_relation_query($params);
 
-    croak "Reference accessor '$accessor' is a foreign key on this table, use relation() instead" if $fk;
-
-    my $source2 = $source->orm->source($ftable);
-    my @vals = map { $self->_raw_col($_) // undef } @$cols;
-    return $source2->select({map {($_ => shift(@vals))} @$fcols}, $order_by ? $order_by : ());
+    return $source->select($query, $params->{order_by} ? $params->{order_by} : ());
 }
 
 sub generate_relation_accessor {

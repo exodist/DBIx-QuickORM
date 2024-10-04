@@ -52,7 +52,7 @@ sub init {
         croak "Relation defines 2 accessors with the same name '$accessor' on table '$name'"
             if $accessors->{$name}->{$accessor};
 
-        $accessors->{$name}->{$accessor} = [$cols, $link->{table}, $link->{columns}, $table->{reference} ? 1 : 0];
+        $accessors->{$name}->{$accessor} = {local_columns => $cols, foreign_table => $link->{table}, foreign_columns => $link->{columns}, foreign_key => $table->{reference} ? 1 : 0};
 
         $identity = $identity ? "$identity + $accessor($table_idx)" : "$accessor($table_idx)";
     }

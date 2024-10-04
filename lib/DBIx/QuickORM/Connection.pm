@@ -236,10 +236,9 @@ sub _cache_key {
     my $self = shift;
     my ($source, $data) = @_;
 
-    my $from = $source->from;
-    return unless $from->does('DBIx::QuickORM::Source::From::Cachable');
-
-    my $pk_fields = $from->primary_key;
+    my $table = $source->table;
+    my $pk_fields = $table->primary_key;
+    return unless $pk_fields && @$pk_fields;
 
     if (blessed($data) && $data->isa('DBIx::QuickORM::Row')) {
         return [ map { $data->column($_) // return } @$pk_fields ];

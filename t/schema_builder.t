@@ -568,8 +568,8 @@ my $rel_al = {
     created   => T(),
     sql_spec  => T(),
     accessors => {
-        aliases => {lights  => [['light_id'], 'lights',  ['light_id']]},
-        lights  => {aliases => [['light_id'], 'aliases', ['light_id']]},
+        aliases => {lights  => {local_columns => ['light_id'], foreign_table => 'lights',  foreign_columns => ['light_id'], foreign_key => 1}},
+        lights  => {aliases => {local_columns => ['light_id'], foreign_table => 'aliases', foreign_columns => ['light_id'], foreign_key => 0}},
     },
     tables => [
         {
@@ -595,8 +595,8 @@ my $rel_cc = {
     created   => T(),
     sql_spec  => T(),
     accessors => {
-        complex_ref  => {complex_keys => [['name_a', 'name_b'], 'complex_keys', ['name_a', 'name_b']]},
-        complex_keys => {complex_ref  => [['name_a', 'name_b'], 'complex_ref',  ['name_a', 'name_b']]},
+        complex_ref  => {complex_keys => {local_columns => ['name_a', 'name_b'], foreign_table => 'complex_keys', foreign_columns => ['name_a', 'name_b'], foreign_key => 1}},
+        complex_keys => {complex_ref  => {local_columns => ['name_a', 'name_b'], foreign_table => 'complex_ref',  foreign_columns => ['name_a', 'name_b'], foreign_key => 0}},
     },
     tables => [
         {

@@ -10,14 +10,10 @@ use DBIx::QuickORM::Source::Join;
 use DBIx::QuickORM::Row;
 
 use DBIx::QuickORM::Util::HashBase qw{
-    <join_order
-    <joins
-    <relations
     <connection
     <schema
     <table
     <orm
-    <as
     <ignore_cache
 };
 
@@ -38,22 +34,7 @@ sub init {
     weaken($self->{+CONNECTION});
     weaken($self->{+ORM});
 
-    my $jo = $self->{+JOIN_ORDER} //= [];
-    my $j  = $self->{+JOINS}      //= {};
-
     $self->{+IGNORE_CACHE} //= 0;
-
-    my %seen;
-    for my $join_name (@$jo) {
-        $seen{$join_name}++;
-        croak "'join_order' should be a list of join names (as), got '$join_name'" if ref($join_name);
-        my $join = $j->{$join_name} or croak "No join under name '$join_name'";
-        croak "Joins must be instances of 'DBIx::QuickORM::Source::Join', got `$join_name => $join`" unless blessed($join) && $join->isa('DBIx::QuickORM::Source::Join');
-    }
-
-    if (my @bad = grep { !$seen{$_} } keys %$j) {
-        croak "The following join are provided, but are not in the ordered list: " . join(', ' => @bad);
-    }
 }
 
 sub uncached {
@@ -62,7 +43,7 @@ sub uncached {
 
     if ($callback) {
         local $self->{+IGNORE_CACHE} = 1;
-        return $callback->();
+        return $callback->($self);
     }
 
     return $self->clone(IGNORE_CACHE => 1);
@@ -85,33 +66,8 @@ sub clone {
 
     return $class->new(
         %$self,
-        join_order => [@{$self->{+JOIN_ORDER} // []}],
-        joins      => {%{$self->{+JOINS}      // {}}},
         %params,
     );
-}
-
-sub join {
-    my $self = shift;
-    my ($table, %params) = @_;
-
-    unless ($params{+CREATED}) {
-        my @caller = caller();
-        $params{+CREATED} = "$caller[1] line $caller[2]";
-    }
-
-    my $join = DBIx::QuickORM::Source::Join->new(table => $self->{+SCHEMA}->table($table), plugins => $self->plugins, %params);
-    my $as = $join->as;
-
-    my $new = $self->clone(created => $params{+CREATED});
-    my $jo  = $new->{+JOIN_ORDER};
-    my $j   = $new->{+JOINS};
-
-    croak "There is already a join with the name (as) '$as'" if $j->{$as};
-    $j->{$as} = $join;
-    push @{$jo} => $as;
-
-    return $new;
 }
 
 sub update_or_insert {
