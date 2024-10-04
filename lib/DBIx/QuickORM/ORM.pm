@@ -92,6 +92,30 @@ sub connection {
     return $self->{+CONNECTION} //= $self->{+DB}->connect;
 }
 
+sub _table {
+    my $self = shift;
+    my ($name) = @_;
+
+    my ($schema, $table);
+
+    for my $meth (qw/ temp_schema con_schema /) {
+        $schema = $self->$meth()              or next;
+        $table  = $schema->maybe_table($name) or next;
+        return ($schema, $table);
+    }
+
+    return;
+}
+
+sub table {
+    my $self = shift;
+    my ($name) = @_;
+
+    my ($schema, $table) = $self->_table($name);
+
+    return $table;
+}
+
 sub source {
     my $self = shift;
     my ($name) = @_;
@@ -99,13 +123,7 @@ sub source {
     return $self->{+TEMP_SOURCES}->{$name} if $self->{+TEMP_SOURCES}->{$name};
     return $self->{+CON_SOURCES}->{$name}  if $self->{+CON_SOURCES}->{$name};
 
-    my ($schema, $table);
-
-    for my $meth (qw/ temp_schema con_schema /) {
-        $schema = $self->$meth()              or next;
-        $table  = $schema->maybe_table($name) or next;
-        last;
-    }
+    my ($schema, $table) = $self->_table($name);
 
     croak "'$name' is not defined in the schema as a table/view, or temporary table/view"
         unless $schema && $table;
