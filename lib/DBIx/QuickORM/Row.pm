@@ -150,23 +150,10 @@ sub generate_relation_accessor {
 
     $alias //= $accessor;
 
-    my $source   = $self->source;
-    my $table    = $source->table;
-    my $relation = $table->relation($accessor) or croak "'$accessor' is not defined as a relation accessor on this table";
-    my $spec     = $relation->get_accessor($table->name, $accessor);
+    my $params = $self->_relation_spec($accessor);
+    my $meth = $params->{foreign_key} ? 'relation' : 'relations';
 
-    my ($cols, $ftable, $fcols, $fk) = @$spec;
-
-    my $meth = $fk ? 'find' : 'select';
-
-    return set_subname $alias => sub {
-        my $self = shift;
-
-        my $source2 = $self->source->orm->source($ftable);
-        my @vals    = map { $self->_raw_col($_) // undef } @$cols;
-
-        return $source2->$meth(map { ($_ => shift(@vals)) } @$fcols);
-    };
+    return set_subname $alias => sub { shift->$meth(@_) };
 }
 
 sub column {
