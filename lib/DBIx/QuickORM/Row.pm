@@ -15,6 +15,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <inflated
     <dirty
     txn_id
+    <cached_relations
 };
 
 sub init {
@@ -26,9 +27,26 @@ sub init {
     $self->{+SOURCE} = sub { $source };
 
     $self->{+TXN_ID} = $source->connection->txn_id;
+
+    if (my $fdb = $self->{+FROM_DB}) {
+        croak "Cannot have references in the from_db data" if grep { ref($_) } values %$fdb;
+    }
 }
 
-sub set_uncached { }
+sub update_cached_relations {
+    my $self = shift;
+    my ($relations) = @_;
+
+    $self->{+CACHED_RELATIONS} = { %{$self->{+CACHED_RELATIONS} // {}}, %$relations };
+}
+
+sub set_uncached {
+    my $self = shift;
+
+    delete $self->{+CACHED_RELATIONS};
+
+    return;
+}
 
 sub source     { $_[0]->{+SOURCE}->() }
 sub table      { $_[0]->source->table }
@@ -105,8 +123,11 @@ sub relation {
     croak "Reference accessor '$params->{accessor}' is not a foreign key on this table, use relations() instead" unless $params->{foreign_key};
     croak "order by is not supported in relation()" if $params->{order_by};
 
+    return $self->{+CACHED_RELATIONS}->{$params->{accessor}} if $self->{+CACHED_RELATIONS}->{$params->{accessor}};
+
     my ($source, $query) = $self->_relation_query($params);
-    return $source->find(%$query);
+    my $row = $source->find(%$query) or return undef;
+    return $self->{+CACHED_RELATIONS}->{$params->{accessor}} = $row;
 }
 
 sub relations {
@@ -117,7 +138,10 @@ sub relations {
 
     my ($source, $query) = $self->_relation_query($params);
 
-    return $source->select($query, $params->{order_by} ? $params->{order_by} : ());
+    return $source->select(
+        where => $query,
+        map { $params->{$_} ? ($_ => $params->{$_}) : () } qw/order_by limit prefetch/,
+    );
 }
 
 sub generate_relation_accessor {
@@ -305,7 +329,7 @@ sub delete {
 }
 
 # Clear dirty stuff
-sub reset  {
+sub reset {
     my $self = shift;
 
     delete $self->{+DIRTY};

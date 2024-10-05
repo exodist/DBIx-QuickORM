@@ -73,6 +73,7 @@ my @RELATION_EXPORTS = qw {
     member
     member_class
     on_delete
+    precache
     references
     relation
     relation_class
@@ -734,7 +735,7 @@ sub relation {
             croak "Hashref argument must include the 'table' key, or come after a table name argument"
                 unless $member->{table} || $arg->{table};
 
-            for my $field (qw/table accessor columns created reference on_delete/) {
+            for my $field (qw/table accessor columns created reference on_delete precache/) {
                 next unless $arg->{$field};
                 croak "Member already has '$field' set" if $member->{$field} && $field ne 'created';
                 $member->{$field} = delete $arg->{$field};
@@ -801,7 +802,7 @@ sub member {
         }
 
         if ($type eq 'HASH') {
-            for my $field (qw/table accessor columns reference created on_delete/) {
+            for my $field (qw/table accessor columns reference created on_delete precache/) {
                 next unless $arg->{$field};
                 croak "Member '$field' already set" if $params{$field} && $field ne 'created';
                 $params{$field} = delete $arg->{$field};
@@ -818,7 +819,7 @@ sub member {
             next;
         }
 
-        croak "Invalid arg to relartion: $arg";
+        croak "Invalid arg to relation: $arg";
     }
 
     if (my $table = $STATE{TABLE}) {
@@ -831,12 +832,12 @@ sub member {
 }
 
 sub references {
-    my $on_delete = {};
+    my $ref_extra = {};
 
     my @args;
     for my $arg (@_) {
-        if (ref($arg) eq 'HASH' && $arg->{on_delete} && 1 == keys %$arg) {
-            $on_delete = $arg;
+        if (ref($arg) eq 'HASH' && ($arg->{on_delete} || $arg->{precache})) {
+            $ref_extra = $arg;
             next;
         }
 
@@ -845,7 +846,8 @@ sub references {
 
     if (my $member = $STATE{MEMBER}) {
         $member->{reference} = 1;
-        $member->{on_delete} //= $on_delete->{on_delete} if $on_delete->{on_delete};
+        $member->{on_delete} //= $ref_extra->{on_delete} if $ref_extra->{on_delete};
+        $member->{precache}  //= $ref_extra->{precache}  if $ref_extra->{precache};
         member(@args) if @args;
         return;
     }
@@ -853,17 +855,17 @@ sub references {
     if (my $table = $STATE{TABLE}) {
         if (my $col = $STATE{COLUMN}) {
             relation(
-                {reference => 1, %$on_delete},
-                @_,
+                {reference => 1, %$ref_extra},
+                @args,
             );
             return;
         }
 
-        if (@_ && ref($_[0]) eq 'ARRAY') {
+        if (@args && ref($args[0]) eq 'ARRAY') {
             my $cols = shift;
             relation(
-                {columns => $cols, reference => 1, %$on_delete},
-                @_,
+                {columns => $cols, reference => 1, %$ref_extra},
+                @args,
             );
             return;
         }
@@ -892,6 +894,14 @@ sub on_delete {
     croak "Member already has an on_delete ('$member->{on_delete}' vs '$on_delete')" if $member->{on_delete};
 
     $member->{on_delete} = $on_delete;
+}
+
+sub precache {
+    my ($precache) = @_;
+
+    my $member = $STATE{MEMBER} or croak "precache() can only be used inside a 'member', or a 'relation' builder used under a 'column' builder";
+
+    $member->{precache} = $precache;
 }
 
 sub _member_table {

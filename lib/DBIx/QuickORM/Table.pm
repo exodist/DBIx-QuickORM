@@ -21,8 +21,9 @@ use DBIx::QuickORM::Util::HashBase qw{
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
 
-sub sqla_source  { $_[0]->{+NAME} }
 sub sqla_columns { [$_[0]->column_names] }
+
+sub sqla_source  { $_[0]->{+NAME} }
 
 sub init {
     my $self = shift;
@@ -43,6 +44,28 @@ sub init {
 
     $self->{+IS_VIEW} //= 0;
     $self->{+IS_TEMP} //= 0;
+}
+
+sub precache_relations {
+    my $self = shift;
+    my ($add) = @_;
+
+    if ($add) {
+        $add = [$add] unless ref($add);
+        $add = {map {$_ => 1} @$add} unless ref($add) eq 'HASH';
+    }
+
+    my $tname = $self->{+NAME};
+
+    my @precache;
+    for my $accessor (keys %{$self->{+RELATIONS}}) {
+        my $relation = $self->{+RELATIONS}->{$accessor};
+        my $specs = $relation->get_accessor($tname, $accessor);
+        next unless $specs->{precache} || ($add && $add->{$accessor});
+        push @precache => [$accessor => $specs];
+    }
+
+    return \@precache;
 }
 
 sub add_relation {

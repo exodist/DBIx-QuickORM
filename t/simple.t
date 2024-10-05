@@ -81,7 +81,7 @@ sub _schema {
             sql_spec type => 'INTEGER';
 
             # 4 ways to do it
-            references person => ['person_id'], {on_delete => 'cascade'};
+            references person => ['person_id'], {on_delete => 'cascade', precache => 1};
             relation {accessor => 'person_way2', reference => 1, on_delete => 'cascade'}, {table => 'person', accessor => 'aliases_way2', columns => ['person_id']};
             relation {accessor => 'person_way3', reference => 1}, sub {
                 references;
@@ -254,19 +254,34 @@ for my $name (qw/postgresql mariadb mysql percona sqlite/) {
         $robert = undef;
         ok(!$con->{cache}->{$als}->{$robert_id}, "Robert is not in cache");
 
-        my $rows = $bob->relations('aliases', order_by => 'alias_id');
-
         $robert = $als->find(alias => 'robert');
+        is(
+            $robert->cached_relations,
+            {person => $bob},
+            "prefetched person"
+        );
 
-        $con->prune_cache;
-        is($rows, [exact_ref($robert), exact_ref($rob)], "Got both aliases, cached");
+        is($als->count_select({where => {person_id => $bob_id}}),             2, "Got proper count");
+        is($als->count_select({where => {person_id => $bob_id}, limit => 1}), 1, "Got limit");
+        is($als->count_select({where => {person_id => 9001}}),                0, "No rows");
 
-        $bob    = undef;
-        $ted    = undef;
-        $rob    = undef;
-        $robert = undef;
+        $robert = $als->find(where => {alias => 'robert'}, prefetch => 'person_way2');
+        is(
+            $robert->cached_relations,
+            {person => $bob, person_way2 => $bob},
+            "prefetched person and person_way2"
+        );
 
-#        my $got = $als->precache('person')->find({alias => 'robert'});
+        my $rows = $bob->relations('aliases', order_by => 'alias_id');
+        is($rows->count, 2, "Got count");
+
+        is([$rows->all], [exact_ref($robert), exact_ref($rob)], "Got both aliases, cached");
+        is($rows->count, 2, "Got count");
+
+        $rows = $bob->relations('aliases', order_by => 'alias_id', limit => 1);
+        is($rows->count, 1, "Got count");
+        is([$rows->all], [exact_ref($robert)], "Got aliases, limited");
+        is($rows->count, 1, "Got count");
     };
 }
 

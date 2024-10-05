@@ -32,6 +32,9 @@ sub init {
     for my $table (@$t) {
         my $name = $table->{table} or croak "Table in relation did not have a table name";
 
+        croak "Cannot precache on a relation member that is not also a reference (precache member must have a foreign key)" if $table->{precache} && !$table->{reference};
+        croak "Cannot specify on_delete on a relation member that is not also a reference (precache member must have a foreign key)" if $table->{on_delete} && !$table->{reference};
+
         my $cols = $table->{columns} or croak "Table '$name' did not provide any columns for relation";
         croak "Table '$name' has an empty column list for the relation" unless @$cols;
 
@@ -52,7 +55,14 @@ sub init {
         croak "Relation defines 2 accessors with the same name '$accessor' on table '$name'"
             if $accessors->{$name}->{$accessor};
 
-        $accessors->{$name}->{$accessor} = {local_columns => $cols, foreign_table => $link->{table}, foreign_columns => $link->{columns}, foreign_key => $table->{reference} ? 1 : 0};
+        $accessors->{$name}->{$accessor} = {
+            member          => $table,
+            local_columns   => $cols,
+            foreign_table   => $link->{table},
+            foreign_columns => $link->{columns},
+            precache        => $table->{precache}  ? 1 : 0,
+            foreign_key     => $table->{reference} ? 1 : 0,
+        };
 
         $identity = $identity ? "$identity + $accessor($table_idx)" : "$accessor($table_idx)";
     }

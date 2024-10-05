@@ -194,6 +194,8 @@ sub uncache_source_row {
     croak "Found wrong object in cache (${$ref}->{$key} vs $row)" unless $row eq ${$ref}->{$key};
     delete ${$ref}->{$key};
 
+    $row->set_uncached();
+
     return $row;
 }
 
