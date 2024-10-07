@@ -10,6 +10,7 @@ use DBIx::QuickORM::Util::HashBase;
 sub dbi_driver { 'DBD::MariaDB' }
 
 sub sql_spec_keys { qw/mariadb mysql/ }
+sub dsn_socket_field { 'mariadb_socket' };
 
 sub insert_returning_supported { 1 }
 sub update_returning_supported { 0 }

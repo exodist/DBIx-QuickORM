@@ -11,6 +11,7 @@ use DBIx::QuickORM::Util::HashBase;
 sub dbi_driver { 'DBD::mysql' }
 
 sub sql_spec_keys { 'mysql' }
+sub dsn_socket_field { 'mysql_socket' };
 
 # MySQL/MariaDB do not (currently) support temporary views
 sub temp_table_supported { 1 }

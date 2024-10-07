@@ -26,6 +26,7 @@ use DBIx::QuickORM::Util::HashBase qw{
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
 
+sub in_txn             { $_[1]->{BegunWork} ? 1 : $_[1]->{AutoCommit} ? 0 : 1 }
 sub start_txn          { croak "$_[0]->start_txn() is not implemented" }
 sub commit_txn         { croak "$_[0]->commit_txn() is not implemented" }
 sub rollback_txn       { croak "$_[0]->rollback_txn() is not implemented" }
@@ -77,17 +78,21 @@ sub init {
     croak "Cannot provide both a socket and a host" if $self->{+SOCKET} && $self->{+HOST};
 }
 
+sub dsn_socket_field { 'host' };
+
 sub dsn {
     my $self = shift;
     return $self->{+DSN} if $self->{+DSN};
 
     my $driver = $self->dbi_driver;
+    $driver =~ s/^DBD:://;
+
     my $db_name = $self->db_name;
 
-    my $dsn = "dbi:${driver}:database=${db_name};";
+    my $dsn = "dbi:${driver}:dbname=${db_name};";
 
     if (my $socket = $self->socket) {
-        $dsn .= "host=$socket;";
+        $dsn .= $self->dsn_socket_field . "=$socket";
     }
     elsif (my $host = $self->host) {
         $dsn .= "host=$host;";
@@ -111,7 +116,7 @@ sub connect {
     }
     else {
         require DBI;
-        $dbh = DBI->connect($self->dsn, $self->username, $self->password, $self->attributes // {AutoInactiveDestroy => 1, AutoCommit => 1});
+        $dbh = DBI->connect($self->dsn, $self->user, $self->password, $self->attributes // {AutoInactiveDestroy => 1, AutoCommit => 1});
     }
 
     return DBIx::QuickORM::Connection->new(

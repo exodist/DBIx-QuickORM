@@ -17,9 +17,9 @@ sub temp_table_supported { 1 }
 sub temp_view_supported  { 1 }
 sub quote_index_columns  { 0 }
 
-sub start_txn          { $_[1]->begin_work }
-sub commit_txn         { $_[1]->commit }
-sub rollback_txn       { $_[1]->rollback }
+sub start_txn    { $_[1]->begin_work }
+sub commit_txn   { $_[1]->commit }
+sub rollback_txn { $_[1]->rollback }
 
 sub create_savepoint   { $_[1]->pg_savepoint($_[2]) }
 sub commit_savepoint   { $_[1]->pg_release($_[2]) }

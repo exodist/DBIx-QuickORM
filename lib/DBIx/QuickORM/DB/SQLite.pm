@@ -277,4 +277,19 @@ sub generate_schema_sql_primary_key {
     return "PRIMARY KEY(" . join(', ' => @$key) . ")";
 }
 
+sub dsn {
+    my $self = shift;
+    return $self->{+DSN} if $self->{+DSN};
+
+    my $driver = $self->dbi_driver;
+    $driver =~ s/^DBD:://;
+
+    my $db_name = $self->db_name;
+
+    my $dsn = "dbi:${driver}:dbname=${db_name}";
+
+    return $self->{+DSN} = $dsn;
+}
+
+
 1;

@@ -7,9 +7,9 @@ use List::Util qw/zip min/;
 use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/parse_hash_arg/;
 
-use DBIx::QuickORM::Source::Join;
-use DBIx::QuickORM::Select;
 use DBIx::QuickORM::Row;
+use DBIx::QuickORM::Select;
+use DBIx::QuickORM::Select::Async;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <connection
@@ -132,6 +132,24 @@ sub _parse_find_and_fetch_args {
     return {where => {$pk->[0] => $_[0]}};
 }
 
+sub select_async {
+    my $self = shift;
+    my %params = @_;
+
+    croak "Cannot use async select inside a transaction (use `ignore_transaction => 1` to do it anyway, knowing that the async select will not see any uncommited changes)"
+        if $self->{+CONNECTION}->in_transaction && !$params{ignore_transaction};
+
+    my $params;
+    if (ref($_[0]) eq 'HASH') {
+        $params = $self->_parse_find_and_fetch_args(shift(@_));
+        $params->{order_by} = shift(@_) if @_ == 1;
+    }
+
+    $params = {%{$params // {}}, @_} if @_;
+
+    return DBIx::QuickORM::Select::Async->new(source => $self, %$params);
+}
+
 sub select {
     my $self = shift;
 
@@ -196,10 +214,11 @@ sub do_select {
     $sth->execute(@bind);
 
     my @out;
-    while (my $data = $sth->fetchrow_hashref) {
-        $self->expand_relations($data, $relmap) if $relmap;
-
-        push @out => $self->_expand_row($data);
+    while (my $data = $sth->fetchrow_arrayref) {
+        my $row = {};
+        @{$row}{@$cols} = @$data;
+        $self->expand_relations($row, $relmap) if $relmap;
+        push @out => $self->_expand_row($row);
     }
 
     return \@out;
@@ -236,13 +255,16 @@ sub fetch {
     my $sth = $con->dbh->prepare($stmt);
     $sth->execute(@bind);
 
-    my $data  = $sth->fetchrow_hashref or return;
-    my $extra = $sth->fetchrow_hashref;
+    my $data  = $sth->fetchrow_arrayref or return;
+    my $extra = $sth->fetchrow_arrayref;
     croak "Multiple rows returned for fetch/find operation" if $extra;
 
-    $self->expand_relations($data, $relmap) if $relmap;
+    my $row = {};
+    @{$row}{@$cols} = @$data;
 
-    return $data;
+    $self->expand_relations($row, $relmap) if $relmap;
+
+    return $row;
 }
 
 sub insert_row {
@@ -411,7 +433,7 @@ sub _source_and_cols {
             $source .= " ON(" . (map { "$_->[0] = $_->[1]" } zip($pc->{local_columns}, $pc->{foreign_columns})) . ")";
         }
 
-        push @cols => map { qq[${as}.$_ AS "${as}.$_"] } @$c2;
+        push @cols => map { qq[${as}.$_] } @$c2;
 
         push @todo => map { unshift @{$_} => @$path; $_} @{$t2->precache_relations};
     }
