@@ -561,77 +561,6 @@ subtest SQLite => sub {
 
 my $plugins = T();
 
-my $rel_al = {
-    index     => 'aliases(light_id) + lights(light_id)',
-    identity  => 'lights(aliases(light_id)) + aliases(lights(light_id))',
-    plugins   => $plugins,
-    created   => T(),
-    sql_spec  => T(),
-    accessors => {
-        aliases => {lights  => {local_columns => ['light_id'], foreign_table => 'lights',  foreign_columns => ['light_id'], foreign_key => 1, precache => F(), member => T()}},
-        lights  => {aliases => {local_columns => ['light_id'], foreign_table => 'aliases', foreign_columns => ['light_id'], foreign_key => 0, precache => F(), member => T()}},
-    },
-    tables => [
-        {
-            columns   => ['light_id'],
-            accessor  => 'lights',
-            table     => 'aliases',
-            created   => T(),
-            reference => T(),
-        },
-        {
-            columns  => ['light_id'],
-            accessor => 'aliases',
-            table    => 'lights',
-            created  => T(),
-        },
-    ],
-};
-
-my $rel_cc = {
-    index     => 'complex_keys(name_a,name_b) + complex_ref(name_a,name_b)',
-    identity  => 'complex_ref(complex_keys(name_a,name_b)) + complex_keys(complex_ref(name_a,name_b))',
-    plugins   => $plugins,
-    created   => T(),
-    sql_spec  => T(),
-    accessors => {
-        complex_ref  => {complex_keys => {local_columns => ['name_a', 'name_b'], foreign_table => 'complex_keys', foreign_columns => ['name_a', 'name_b'], foreign_key => 1, precache => F(), member => T()}},
-        complex_keys => {complex_ref  => {local_columns => ['name_a', 'name_b'], foreign_table => 'complex_ref',  foreign_columns => ['name_a', 'name_b'], foreign_key => 0, precache => F(), member => T()}},
-    },
-    tables => [
-        {
-            columns  => ['name_a', 'name_b'],
-            accessor => 'complex_ref',
-            table    => 'complex_keys',
-            created  => T(),
-        },
-        {
-            columns   => ['name_a', 'name_b'],
-            accessor  => 'complex_keys',
-            table     => 'complex_ref',
-            created   => T(),
-            reference => T(),
-        },
-    ],
-};
-
-my $relations = {
-    by_identity => {
-        'lights(aliases(light_id)) + aliases(lights(light_id))'                               => $rel_al,
-        'complex_ref(complex_keys(name_a,name_b)) + complex_keys(complex_ref(name_a,name_b))' => $rel_cc,
-    },
-    by_index => {
-        'aliases(light_id) + lights(light_id)'                     => [$rel_al],
-        'complex_keys(name_a,name_b) + complex_ref(name_a,name_b)' => [$rel_cc],
-    },
-    by_table_and_accessor => {
-        aliases      => {lights       => $rel_al},
-        lights       => {aliases      => $rel_al},
-        complex_keys => {complex_ref  => $rel_cc},
-        complex_ref  => {complex_keys => $rel_cc},
-    },
-};
-
 my $aliases = {
     name        => 'aliases',
     primary_key => ['alias_id'],
@@ -647,7 +576,16 @@ my $aliases = {
         name     => ['name'],
     },
 
-    relations => {lights => $rel_al},
+    relations => {
+        lights => {
+            gets_one  => 1,
+            gets_many => 0,
+            prefetch  => 0,
+            method    => 'find',
+            table     => 'lights',
+            on        => {light_id => 'light_id'},
+        },
+    },
 
     columns => {
         alias_id => {
@@ -692,7 +630,16 @@ my $complex_keys = {
         'name_a, name_b, name_c' => ['name_a', 'name_b', 'name_c'],
     },
 
-    relations => {complex_ref => $rel_cc},
+    relations => {
+        complex_ref => {
+            gets_one  => 0,
+            gets_many => 1,
+            prefetch  => 0,
+            method    => 'select',
+            table     => 'complex_ref',
+            on        => {name_a => 'name_a', name_b => 'name_b'},
+        },
+    },
 
     columns => {
         name_a => {
@@ -735,7 +682,16 @@ my $complex_ref = {
         'name_a, name_b' => ['name_a', 'name_b'],
     },
 
-    relations => {complex_keys => $rel_cc},
+    relations => {
+        complex_keys => {
+            gets_one  => 1,
+            gets_many => 0,
+            prefetch  => 0,
+            method    => 'find',
+            table     => 'complex_keys',
+            on        => {name_a => 'name_a', name_b => 'name_b'},
+        },
+    },
 
     columns => {
         extras => {
@@ -835,7 +791,16 @@ my $lights = {
 
     unique => {light_id => ['light_id']},
 
-    relations => {aliases => $rel_al},
+    relations => {
+        aliases => {
+            gets_one  => 0,
+            gets_many => 1,
+            prefetch  => 0,
+            method    => 'select',
+            table     => 'aliases',
+            on        => {light_id => 'light_id'},
+        },
+    },
 
     columns => {
         color => {
@@ -881,14 +846,12 @@ my $tables = {
     lights        => $lights,
 };
 
-is($pg_schema,      {name => 'postgresql', plugins => $plugins, relations => $relations, tables => $tables, created => T()}, "Got PG Schema")      if $psql;
-is($mariadb_schema, {name => 'mariadb',    plugins => $plugins, relations => $relations, tables => $tables, created => T()}, "Got MariaDB Schema") if $mariadb;
-is($mysql_schema,   {name => 'mysql',      plugins => $plugins, relations => $relations, tables => $tables, created => T()}, "Got MySQL Schema")   if $mysql;
-is($percona_schema, {name => 'percona',    plugins => $plugins, relations => $relations, tables => $tables, created => T()}, "Got Percona Schema") if $percona;
-is($sqlite_schema,  {name => 'sqlite',     plugins => $plugins, relations => $relations, tables => $tables, created => T()}, "Got SQLite Schema")  if $sqlite;
+is($pg_schema,      {name => 'postgresql', plugins => $plugins, tables => $tables, created => T()}, "Got PG Schema")      if $psql;
+is($mariadb_schema, {name => 'mariadb',    plugins => $plugins, tables => $tables, created => T()}, "Got MariaDB Schema") if $mariadb;
+is($mysql_schema,   {name => 'mysql',      plugins => $plugins, tables => $tables, created => T()}, "Got MySQL Schema")   if $mysql;
+is($percona_schema, {name => 'percona',    plugins => $plugins, tables => $tables, created => T()}, "Got Percona Schema") if $percona;
+is($sqlite_schema,  {name => 'sqlite',     plugins => $plugins, tables => $tables, created => T()}, "Got SQLite Schema")  if $sqlite;
 
 #system($sqlite->shell_command('quickdb')) unless $ENV{HARNESS_ACTIVE};
 
 done_testing;
-
-

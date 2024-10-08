@@ -38,7 +38,7 @@ imported_ok qw{
     column column_class columns conflate default index is_temp is_view omit
     primary_key row_base_class source_class table_class unique
 
-    column columns member member_class relation relation_class
+    column columns relation relations
 
     plugin plugins
 
@@ -68,6 +68,8 @@ sub _schema {
             unique;
             sql_spec(type => 'VARCHAR(128)');
         };
+
+        relations aliases => ['person_id'];
     };
 
     table aliases => sub {
@@ -80,19 +82,7 @@ sub _schema {
         column person_id => sub {
             sql_spec type => 'INTEGER';
 
-            # 4 ways to do it
-            references person => ['person_id'], {on_delete => 'cascade', precache => 1};
-            relation {accessor => 'person_way2', reference => 1, on_delete => 'cascade'}, {table => 'person', accessor => 'aliases_way2', columns => ['person_id']};
-            relation {accessor => 'person_way3', reference => 1}, sub {
-                references;
-                on_delete 'cascade';
-                member {table => 'person', accessor => 'aliases_way3', columns => ['person_id']};
-            };
-            relation sub {
-                accessor 'person_way4';
-                on_delete 'cascade';
-                references {table => 'person', accessor => 'aliases_way4', columns => ['person_id']};
-            };
+            references person => (on_delete => 'cascade', prefetch => 1);
         };
 
         column alias => sub {
@@ -100,10 +90,17 @@ sub _schema {
         };
 
         unique(qw/person_id alias/);
+
+        relation person_way2 => (table => 'person', using => 'person_id', on_delete => 'cascade');
+        relation sub { as 'person_way3'; table 'person'; using 'person_id'; on_delete 'cascade' };
+        relation as 'person_way4', rtable 'person', on {'person_id' => 'person_id'}, on_delete 'cascade';
+        relation as 'person_way5', rtable('person'), using 'person_id',               on_delete 'cascade';
+        relation person_way6 => ('person' => ['person_id'], on_delete => 'cascade');
     };
 }
 
-orm postgresql => sub {
+orm postgresql_auto => sub {
+    autofill 1;
     db_class 'PostgreSQL';
     db_name 'quickdb';
     db_connect sub { $psql->connect };
@@ -111,7 +108,8 @@ orm postgresql => sub {
     _schema();
 } if $psql;
 
-orm mariadb => sub {
+orm mariadb_auto => sub {
+    autofill 1;
     db_class 'MariaDB';
     db_name 'quickdb';
     db_connect sub { $mariadb->connect };
@@ -119,7 +117,8 @@ orm mariadb => sub {
     _schema();
 } if $mariadb;
 
-orm mysql => sub {
+orm mysql_auto => sub {
+    autofill 1;
     db_class 'MySQL';
     db_name 'quickdb';
     db_connect sub { $mysql->connect };
@@ -127,7 +126,8 @@ orm mysql => sub {
     _schema();
 } if $mysql;
 
-orm percona => sub {
+orm percona_auto => sub {
+    autofill 1;
     db_class 'Percona';
     db_name 'quickdb';
     db_connect sub { $percona->connect };
@@ -135,7 +135,8 @@ orm percona => sub {
     _schema();
 } if $percona;
 
-orm sqlite => sub {
+orm sqlite_auto => sub {
+    autofill 1;
     db_class 'SQLite';
     db_name 'quickdb';
     db_connect sub { $sqlite->connect };
@@ -143,7 +144,56 @@ orm sqlite => sub {
     _schema();
 } if $sqlite;
 
-for my $name (qw/postgresql mariadb mysql percona sqlite/) {
+orm postgresql_noauto => sub {
+    autofill 0;
+    db_class 'PostgreSQL';
+    db_name 'quickdb';
+    db_connect sub { $psql->connect };
+
+    _schema();
+} if $psql;
+
+orm mariadb_noauto => sub {
+    autofill 0;
+    db_class 'MariaDB';
+    db_name 'quickdb';
+    db_connect sub { $mariadb->connect };
+
+    _schema();
+} if $mariadb;
+
+orm mysql_noauto => sub {
+    autofill 0;
+    db_class 'MySQL';
+    db_name 'quickdb';
+    db_connect sub { $mysql->connect };
+
+    _schema();
+} if $mysql;
+
+orm percona_noauto => sub {
+    autofill 0;
+    db_class 'Percona';
+    db_name 'quickdb';
+    db_connect sub { $percona->connect };
+
+    _schema();
+} if $percona;
+
+orm sqlite_noauto => sub {
+    autofill 0;
+    db_class 'SQLite';
+    db_name 'quickdb';
+    db_connect sub { $sqlite->connect };
+
+    _schema();
+} if $sqlite;
+
+
+my %DB_COUNT;
+for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mariadb mysql percona sqlite/) {
+    my ($db, $name) = @$set;
+
     subtest $name => sub {
         skip_all "Could not find $name" unless __PACKAGE__->can($name);
 
@@ -154,6 +204,11 @@ for my $name (qw/postgresql mariadb mysql percona sqlite/) {
 
         my $pdb = $orm->db;
         isa_ok($pdb, ['DBIx::QuickORM::DB'], "Got a database instance");
+
+        if ($DB_COUNT{$db}++) {
+            $pdb->connect->dbh->do("DROP TABLE aliases");
+            $pdb->connect->dbh->do("DROP TABLE person");
+        }
 
         ok(lives { $orm->generate_and_load_schema() }, "Generate and load schema");
 
@@ -171,7 +226,7 @@ for my $name (qw/postgresql mariadb mysql percona sqlite/) {
         is(ref($bob->{source}), 'CODE', "Source is a coderef, not the actual source instance");
 
         # This failed insert will increment the sequence for all db's except sqlite
-        $id++ unless $name eq 'sqlite';
+        $id++ unless $db eq 'sqlite';
 
         like(
             dies {
@@ -256,7 +311,7 @@ for my $name (qw/postgresql mariadb mysql percona sqlite/) {
 
         $robert = $als->find(alias => 'robert');
         is(
-            $robert->cached_relations,
+            $robert->fetched_relations,
             {person => $bob},
             "prefetched person"
         );
@@ -267,7 +322,7 @@ for my $name (qw/postgresql mariadb mysql percona sqlite/) {
 
         $robert = $als->find(where => {alias => 'robert'}, prefetch => 'person_way2');
         is(
-            $robert->cached_relations,
+            $robert->fetched_relations,
             {person => $bob, person_way2 => $bob},
             "prefetched person and person_way2"
         );

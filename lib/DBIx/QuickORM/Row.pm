@@ -15,7 +15,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <inflated
     <dirty
     txn_id
-    <cached_relations
+    <fetched_relations
 };
 
 sub init {
@@ -33,17 +33,17 @@ sub init {
     }
 }
 
-sub update_cached_relations {
+sub update_fetched_relations {
     my $self = shift;
     my ($relations) = @_;
 
-    $self->{+CACHED_RELATIONS} = { %{$self->{+CACHED_RELATIONS} // {}}, %$relations };
+    $self->{+FETCHED_RELATIONS} = { %{$self->{+FETCHED_RELATIONS} // {}}, %$relations };
 }
 
 sub set_uncached {
     my $self = shift;
 
-    delete $self->{+CACHED_RELATIONS};
+    delete $self->{+FETCHED_RELATIONS};
 
     return;
 }
@@ -67,91 +67,53 @@ sub primary_key {
 sub column_def { $_[0]->table->column($_[1]) }
 sub has_column { $_[0]->column_def($_[1]) ? 1 : 0 }
 
-sub _relation_spec {
-    my $self = shift;
-    my ($accessor, $table, $order_by, %params);
-
-    if (@_ <= 2) {
-        ($accessor, $table) = reverse @_;
-    }
-    elsif (@_ % 2) {
-        ($accessor, %params) = @_;
-    }
-
-    $order_by //= $params{order_by};
-    $table    //= $params{table};
-
-    my $source = $self->source;
-    $table //= $self->table;
-    $table = $source->orm->table($table) if $table && !blessed($table);
-
-    croak "Could not determine table (or 'table') to use for relation, please specify one" unless $table;
-
-    my $relation = $table->relation($accessor) or croak "'$accessor' is not defined as a relation accessor on this table";
-    my $spec     = $relation->get_accessor($table->name, $accessor);
-
-    return {
-        %params,
-        accessor => $accessor,
-        order_by => $order_by,
-        relation => $relation,
-        source   => $source,
-        table     => $table,
-        %$spec,
-    };
-}
-
-sub _relation_query {
-    my $self = shift;
-    my ($params) = @_;
-
-    my $source = $params->{source};
-    my $cols   = $params->{local_columns};
-    my $ftable = $params->{foreign_table};
-    my $fcols  = $params->{foreign_columns};
-
-    my $source2 = $source->orm->source($ftable);
-    my @vals    = map { $self->_raw_col($_) // undef } @$cols;
-
-    return ($source2, {map { ($_ => shift(@vals)) } @$fcols});
-}
-
 sub relation {
     my $self = shift;
-    my $params = $self->_relation_spec(@_);
+    my ($name, %params) = @_;
 
-    croak "Reference accessor '$params->{accessor}' is not a foreign key on this table, use relations() instead" unless $params->{foreign_key};
-    croak "order by is not supported in relation()" if $params->{order_by};
+    my $rel = $self->table->relation($name) or croak "'$name' is not a relation on this rows table (" . $self->table_name . ")";
+    croak "Relation '$name' can return multiple items, use \$row->relations('$name') instead" unless $rel->gets_one;
+    croak "order_by is not supported in relation()" if $params{order_by};
 
-    return $self->{+CACHED_RELATIONS}->{$params->{accessor}} if $self->{+CACHED_RELATIONS}->{$params->{accessor}};
+    return $self->{+FETCHED_RELATIONS}->{$name} if $self->{+FETCHED_RELATIONS}->{$name};
 
-    my ($source, $query) = $self->_relation_query($params);
-    my $row = $source->find(%$query) or return undef;
-    return $self->{+CACHED_RELATIONS}->{$params->{accessor}} = $row;
+    my $source = $self->orm->source($rel->table);
+
+    my $on = $rel->on;
+    my %query = map {("me.$on->{$_}" => $self->_raw_col($_))} keys %$on;
+
+    my $row = $source->find(%query) or return undef;
+
+    return $self->{+FETCHED_RELATIONS}->{$name} = $row;
 }
 
 sub relations {
     my $self = shift;
-    my $params = $self->_relation_spec(@_);
+    my ($name, %params) = @_;
 
-    croak "Reference accessor '$params->{accessor}' is a foreign key on this table, use relation() instead" if $params->{foreign_key};
+    my $rel = $self->table->relation($name) or croak "'$name' is not a relation on this rows table (" . $self->table_name . ")";
+    croak "Relation '$name' returns a single row, use \$row->relation('$name') instead" unless $rel->gets_many;
 
-    my ($source, $query) = $self->_relation_query($params);
+    my $source = $self->orm->source($rel->table);
+
+    my $on = $rel->on;
+    my %query = map {("me.$on->{$_}" => $self->_raw_col($_))} keys %$on;
 
     return $source->select(
-        where => $query,
-        map { $params->{$_} ? ($_ => $params->{$_}) : () } qw/order_by limit prefetch/,
+        where => \%query,
+        map { $params{$_} ? ($_ => $params{$_}) : () } qw/order_by limit prefetch/,
     );
 }
 
 sub generate_relation_accessor {
     my $self = shift;
-    my ($accessor, $alias) = @_;
+    my ($name, $alias) = @_;
 
-    $alias //= $accessor;
+    $alias //= $name;
 
-    my $params = $self->_relation_spec($accessor);
-    my $meth = $params->{foreign_key} ? 'relation' : 'relations';
+    my $rel = $self->table->relation($name) or croak "'$name' is not a relation on this rows table (" . $self->table_name . ")";
+
+    my $meth = $rel->gets_one ? 'relation' : 'relations';
 
     return set_subname $alias => sub { shift->$meth(@_) };
 }

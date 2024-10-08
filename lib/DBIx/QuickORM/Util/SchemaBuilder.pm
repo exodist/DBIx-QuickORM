@@ -2,17 +2,18 @@ package DBIx::QuickORM::Util::SchemaBuilder;
 use strict;
 use warnings;
 
+use List::Util qw/mesh/;
+
 use DBIx::QuickORM qw{
     column
     columns
     conflate
     default
     index
-    member
     omit
     primary_key
     relation
-    references
+    relations
     table
     unique
     schema
@@ -45,15 +46,35 @@ sub generate_schema {
     my $class = shift;
     my ($con, $plugins) = @_;
 
+    require DBIx::QuickORM::Table::Relation;
+
+    my %tables;
+    my @todo;
     my $schema = schema $con->db->name, sub {
         for my $table ($con->tables(details => 1)) {
             my $name = $table->{name};
 
-            table $name => sub {
-                $class->_build_table($con, $table, $plugins);
+            $tables{$name} = table $name => sub {
+                push @todo => $class->_build_table($con, $table, $plugins);
             };
         }
     };
+
+    for my $item (@todo) {
+        my ($type, $tname, @params) = @$item;
+        my $table = $tables{$tname} or die "Invalid table name '$tname'";
+
+        if ($type eq 'relation') {
+            my ($alias, %relation_args) = @params;
+            my $rel = DBIx::QuickORM::Table::Relation->new(%relation_args);
+            $table->add_relation($alias => $rel);
+        }
+        else {
+            die "Invalid followup type: $type"
+        }
+    }
+
+    return $schema;
 }
 
 sub generate_table {
@@ -109,17 +130,18 @@ sub _build_table {
         unique(@$u);
     }
 
+    my @out;
     for my $fk (@{$keys->{fk} // []}) {
-        relation sub {
-            columns $fk->{columns};
-            references {table => $fk->{foreign_table}, columns => $fk->{foreign_columns}};
-        };
+        relation $fk->{foreign_table} => {mesh($fk->{columns}, $fk->{foreign_columns})};
+        push @out => ['relation', $fk->{foreign_table}, $name, table => $name, method => 'select', on => {mesh($fk->{foreign_columns}, $fk->{columns})}];
     }
 
     for my $idx ($con->indexes($name)) {
         unique(@{$idx->{columns}}) if $idx->{unique};
         index $idx;
     }
+
+    return @out;
 }
 
 1;

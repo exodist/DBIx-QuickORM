@@ -7,12 +7,9 @@ use Scalar::Util qw/blessed/;
 
 use DBIx::QuickORM::Util qw/merge_hash_of_objs/;
 
-use DBIx::QuickORM::Schema::RelationSet;
-
 use DBIx::QuickORM::Util::HashBase qw{
     <name
     +tables
-    +relations
 };
 
 use DBIx::QuickORM::Util::Has qw/Created Plugins/;
@@ -21,25 +18,24 @@ sub init {
     my $self = shift;
 
     croak "'name' is a required attribute" unless $self->{+NAME};
+}
 
-    $self->{+RELATIONS} //= DBIx::QuickORM::Schema::RelationSet->new();
+sub verify_relations {
+    my $self = shift;
 
-    for my $r ($self->{+RELATIONS}->all) {
-        for my $tname ($r->table_names) {
-            my $table = $self->{+TABLES}->{$tname} or croak "Relation refers to table '$tname', but no such table exists in this schema.";
+    for my $table ($self->tables) {
+        my $rels = $table->relations;
+        for my $alias (keys %$rels) {
+            my $rel = $rels->{$alias};
+            my $t2 = $rel->table;
+            next if $self->{+TABLES}->{$t2};
 
-            $table = $table->clone;
-            $self->{+TABLES}->{$tname} = $table;
-
-            for my $accessor ($r->accessors_for_table($tname)) {
-                $table->add_relation($accessor => $r);
-            }
+            my $t1 = $table->name;
+            confess "Relation '$alias' in table '$t1' points to table '$t2' but that table does not exist";
         }
     }
 }
 
-sub relation_set { $_[0]->{+RELATIONS} }
-sub relations    { $_[0]->{+RELATIONS}->all }
 sub tables       { values %{$_[0]->{+TABLES}} }
 sub table        { $_[0]->{+TABLES}->{$_[1]} or croak "Table '$_[1]' is not defined" }
 sub maybe_table  { return $_[0]->{+TABLES}->{$_[1]} // undef }
@@ -58,7 +54,6 @@ sub merge {
     my ($other, %params) = @_;
 
     $params{+TABLES}    //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES});
-    $params{+RELATIONS} //= $self->{+RELATIONS}->merge($other->{+RELATIONS});
     $params{+PLUGINS}   //= $self->{+PLUGINS}->merge($other->{+PLUGINS});
     $params{+NAME}      //= $self->{+NAME};
 
@@ -70,7 +65,6 @@ sub clone {
     my %params = @_;
 
     $params{+TABLES}    //= [map { $_->clone } $self->tables];
-    $params{+RELATIONS} //= $self->{+RELATIONS}->clone;
     $params{+NAME}      //= $self->{+NAME};
     $params{+PLUGINS}   //= $self->{+PLUGINS}->clone();
 

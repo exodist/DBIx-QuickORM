@@ -197,7 +197,7 @@ sub db_keys {
             $out{pk} = \@columns if $type eq 'PRIMARY KEY';
         }
 
-        if (my ($type, $columns, $ftable, $fcolumns) = $spec =~ m/(FOREIGN KEY) \(([^\)]+)\) (?:REFERENCES)\s+(\S+)\(([^\)]+)\)$/gi) {
+        if (my ($type, $columns, $ftable, $fcolumns) = $spec =~ m/(FOREIGN KEY) \(([^\)]+)\) (?:REFERENCES)\s+(\S+)\(([^\)]+)\)/gi) {
             my @columns  = split /,\s+/, $columns;
             my @fcolumns = split /,\s+/, $fcolumns;
 

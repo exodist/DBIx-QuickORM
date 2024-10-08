@@ -38,7 +38,7 @@ imported_ok qw{
     column column_class columns conflate default index is_temp is_view omit
     primary_key row_base_class source_class table_class unique
 
-    column columns member member_class relation relation_class
+    column columns relation
 
     plugin plugins
 
@@ -125,19 +125,7 @@ mixer mymix => sub {
             column person_id => sub {
                 sql_spec type => 'INTEGER';
 
-                # 4 ways to do it
-                references person => ['person_id'], {on_delete => 'cascade'};
-                relation {accessor => 'person_way2', reference => 1, on_delete => 'cascade'}, {table => 'person', accessor => 'aliases_way2', columns => ['person_id']};
-                relation {accessor => 'person_way3', reference => 1}, sub {
-                    references;
-                    on_delete 'cascade';
-                    member {table => 'person', accessor => 'aliases_way3', columns => ['person_id']};
-                };
-                relation sub {
-                    accessor 'person_way4';
-                    on_delete 'cascade';
-                    references {table => 'person', accessor => 'aliases_way4', columns => ['person_id']};
-                };
+                references person => (on_delete => 'cascade');
             };
 
             column alias => sub {
@@ -147,6 +135,12 @@ mixer mymix => sub {
             unique(qw/person_id alias/);
 
             index unnecessary_index => qw/person_id alias/;
+
+            relation person_way2 => (table => 'person', using => 'person_id', on_delete => 'cascade');
+            relation sub { as 'person_way3'; table 'person'; using 'person_id'; on_delete 'cascade' };
+            relation as 'person_way4', rtable 'person', on {'person_id' => 'person_id'}, on_delete 'cascade';
+            relation as 'person_way5', rtable('person'), using 'person_id',               on_delete 'cascade';
+            relation person_way6 => ('person' => ['person_id'], on_delete => 'cascade');
         };
     };
 };
@@ -169,6 +163,7 @@ subtest PostgreSQL => sub {
 
     like($pg_sql, qr/CREATE EXTENSION "uuid-ossp";/, "Added extension");
     like($pg_sql, qr/CREATE TYPE choice AS ENUM\('foo', 'bar', 'baz'\)/, "Added enum type");
+    like($pg_sql, qr/FOREIGN KEY\(person_id\) REFERENCES person\(person_id\) ON DELETE cascade/, "Added foreign key");
 
     ok(lives { $orm->load_schema_sql($pg_sql) }, "loaded schema");
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
@@ -185,6 +180,7 @@ subtest MySQL => sub {
     is($orm->db, $pdb, "Orm uses the mysql database");
 
     $mysql_sql = $orm->generate_schema_sql;
+    like($mysql_sql, qr/FOREIGN KEY\(person_id\) REFERENCES person\(person_id\) ON DELETE cascade/, "Added foreign key");
     ok(lives { $orm->load_schema_sql($mysql_sql) }, "loaded schema");
 
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
@@ -201,6 +197,7 @@ subtest Percona => sub {
     is($orm->db, $pdb, "Orm uses the percona database");
 
     $percona_sql = $orm->generate_schema_sql;
+    like($percona_sql, qr/FOREIGN KEY\(person_id\) REFERENCES person\(person_id\) ON DELETE cascade/, "Added foreign key");
     ok(lives { $orm->load_schema_sql($percona_sql) }, "loaded schema");
 
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
@@ -217,6 +214,7 @@ subtest MariaDB => sub {
     is($orm->db, $pdb, "Orm uses the mariadb database");
 
     $mariadb_sql = $orm->generate_schema_sql;
+    like($mariadb_sql, qr/FOREIGN KEY\(person_id\) REFERENCES person\(person_id\) ON DELETE cascade/, "Added foreign key");
     ok(lives { $orm->load_schema_sql($mariadb_sql) }, "loaded schema");
 
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");
@@ -233,6 +231,7 @@ subtest SQLite => sub {
     is($orm->db, $pdb, "Orm uses the sqlite database");
 
     $sqlite_sql = $orm->generate_schema_sql;
+    like($sqlite_sql, qr/FOREIGN KEY\(person_id\) REFERENCES person\(person_id\) ON DELETE cascade/, "Added foreign key");
     ok(lives { $orm->load_schema_sql($sqlite_sql) }, "loaded schema");
 
     is([sort $orm->connection->tables], [qw/aliases person/], "Loaded both tables");

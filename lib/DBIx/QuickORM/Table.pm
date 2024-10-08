@@ -17,6 +17,8 @@ use DBIx::QuickORM::Util::HashBase qw{
     <primary_key
     <is_view
     <is_temp
+
+    +deps
 };
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
@@ -46,47 +48,54 @@ sub init {
     $self->{+IS_TEMP} //= 0;
 }
 
-sub precache_relations {
+sub prefetch_relations {
     my $self = shift;
     my ($add) = @_;
 
     if ($add) {
-        $add = [$add] unless ref($add);
-        $add = {map {$_ => 1} @$add} unless ref($add) eq 'HASH';
+        my $todo = ref($add) ? $add : [$add];
+        $add = {};
+        for my $name (@$todo) {
+            $add->{$name} = $self->{+RELATIONS}->{$name} or croak "Relation '$name' does not exist, cannot prefetch";
+        }
     }
 
     my $tname = $self->{+NAME};
 
-    my @precache;
-    for my $accessor (keys %{$self->{+RELATIONS}}) {
-        my $relation = $self->{+RELATIONS}->{$accessor};
-        my $specs = $relation->get_accessor($tname, $accessor);
-        next unless $specs->{precache} || ($add && $add->{$accessor});
-        push @precache => [$accessor => $specs];
+    my @prefetch;
+    for my $alias (keys %{$self->{+RELATIONS}}) {
+        my $relation = $self->{+RELATIONS}->{$alias};
+        next unless $relation->prefetch || ($add && $add->{$alias});
+        push @prefetch => [$alias => $relation];
     }
 
-    return \@precache;
+    return \@prefetch;
 }
 
 sub add_relation {
     my $self = shift;
-    my ($accessor, $relation) = @_;
+    my ($name, $relation) = @_;
 
-    if (my $ex = $self->{+RELATIONS}->{$accessor}) {
-        return if $ex eq $relation;
-        croak "Relation '$accessor' already defined";
+    if (my $ex = $self->{+RELATIONS}->{$name}) {
+        return if $ex->compare($relation);
+        croak "Relation '$name' already defined";
     }
 
-    croak "'$relation' is not an instance of 'DBIx::QuickORM::Relation'" unless $relation->isa('DBIx::QuickORM::Relation');
+    croak "'$relation' is not an instance of 'DBIx::QuickORM::Table::Relation'" unless $relation->isa('DBIx::QuickORM::Table::Relation');
 
-    $self->{+RELATIONS}->{$accessor} = $relation;
+    $self->{+RELATIONS}->{$name} = $relation;
 }
 
 sub relation {
     my $self = shift;
-    my ($accessor) = @_;
+    my ($name) = @_;
 
-    return $self->{+RELATIONS}->{$accessor} // undef;
+    return $self->{+RELATIONS}->{$name} // undef;
+}
+
+sub deps {
+    my $self = shift;
+    return $self->{+DEPS} //= { map {( $_->table() => 1 )} grep { $_->gets_one } values %{$self->{+RELATIONS} // {}} };
 }
 
 sub column_names { keys %{$_[0]->{+COLUMNS}} }
@@ -109,6 +118,7 @@ sub merge {
     $params{+RELATIONS}   //= {%{$other->{+RELATIONS}}, %{$self->{+RELATIONS}}};
     $params{+INDEXES}     //= {%{$other->{+INDEXES}},   %{$self->{+INDEXES}}};
     $params{+PRIMARY_KEY} //= [@{$self->{+PRIMARY_KEY} // $other->{+PRIMARY_KEY}}] if $self->{+PRIMARY_KEY} || $other->{+PRIMARY_KEY};
+    $params{+DEPS}        //= undef;
 
     my $new = ref($self)->new(%$self, %params);
 }

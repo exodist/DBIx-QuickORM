@@ -30,6 +30,18 @@ my @DB_EXPORTS = qw{
     sql_spec
 };
 
+my @REL_EXPORTS = qw{
+    rtable
+    relation
+    relations
+    references
+    prefetch
+    as
+    on
+    using
+    on_delete
+};
+
 my @_TABLE_EXPORTS = qw{
     column
     column_class
@@ -43,6 +55,8 @@ my @_TABLE_EXPORTS = qw{
     nullable
     omit
     primary_key
+    relation
+    relations
     row_base_class
     serial
     source_class
@@ -53,35 +67,25 @@ my @_TABLE_EXPORTS = qw{
 
 my @TABLE_EXPORTS = uniq (
     @_TABLE_EXPORTS,
+    @REL_EXPORTS,
     qw{ table },
 );
 
 my @ROGUE_TABLE_EXPORTS = uniq (
     @_TABLE_EXPORTS,
+    @REL_EXPORTS,
     qw{ rogue_table },
 );
 
 my @TABLE_CLASS_EXPORTS = uniq (
     @_TABLE_EXPORTS,
+    @REL_EXPORTS,
     qw{ meta_table },
 );
 
-my @RELATION_EXPORTS = qw {
-    accessor
-    column
-    columns
-    member
-    on_delete
-    precache
-    references
-    relation
-    relation_class
-    sql_spec
-};
-
 my @SCHEMA_EXPORTS = uniq (
     @TABLE_EXPORTS,
-    @RELATION_EXPORTS,
+    @REL_EXPORTS,
     qw{
         include
         schema
@@ -93,8 +97,8 @@ our @EXPORT = uniq (
     @PLUGIN_EXPORTS,
     @DB_EXPORTS,
     @TABLE_EXPORTS,
-    @RELATION_EXPORTS,
     @SCHEMA_EXPORTS,
+    @REL_EXPORTS,
 
     qw{
         autofill
@@ -112,17 +116,18 @@ our @EXPORT_OK = uniq (
 our %EXPORT_TAGS = (
     DB            => \@DB_EXPORTS,
     PLUGIN        => \@PLUGIN_EXPORTS,
-    RELATION      => \@RELATION_EXPORTS,
     ROGUE_TABLE   => \@ROGUE_TABLE_EXPORTS,
     SCHEMA        => \@SCHEMA_EXPORTS,
     TABLE         => \@TABLE_EXPORTS,
     TABLE_CLASS   => \@TABLE_CLASS_EXPORTS,
+    RELATION      => \@REL_EXPORTS,
 );
 
 our %STATE;
 my $COL_ORDER = 1;
 
 sub _debug {
+    no warnings 'once';
     require Data::Dumper;
     local $Data::Dumper::Sortkeys = 1;
     print Data::Dumper::Dumper(\%STATE);
@@ -164,9 +169,10 @@ sub mixer {
         plugins => _push_plugins(),
     );
 
-    local $STATE{PLUGINS} = $params{plugins};
-    local $STATE{MIXER}   = \%params;
-    local $STATE{STACK}   = ['MIXER', @{$STATE{STACK} // []}];
+    local $STATE{RELATION} = undef;
+    local $STATE{PLUGINS}  = $params{plugins};
+    local $STATE{MIXER}    = \%params;
+    local $STATE{STACK}    = ['MIXER', @{$STATE{STACK} // []}];
     local $STATE{ORM};
 
     set_subname('mixer_callback', $cb) if subname($cb) ne '__ANON__';
@@ -224,9 +230,9 @@ sub orm {
     local $STATE{ORM}    = \%params;
     local $STATE{STACK}   = ['ORM', @{$STATE{STACK} // []}];
 
-    local $STATE{DB}        = undef;
-    local $STATE{RELATIONS} = undef;
-    local $STATE{SCHEMA}    = undef;
+    local $STATE{DB}       = undef;
+    local $STATE{SCHEMA}   = undef;
+    local $STATE{RELATION} = undef;
 
     set_subname('orm_callback', $cb) if subname($cb) ne '__ANON__';
     $cb->(%STATE);
@@ -390,7 +396,6 @@ sub _new_schema_params {
     return (
         name      => $name,
         created   => "$caller->[1] line $caller->[2]",
-        relations => [],
         includes  => [],
         plugins   => _push_plugins(),
     );
@@ -398,9 +403,6 @@ sub _new_schema_params {
 
 sub _build_schema {
     my $params = shift;
-
-    require DBIx::QuickORM::Schema::RelationSet;
-    $params->{relations} = DBIx::QuickORM::Schema::RelationSet->new(@{$params->{relations} // []});
 
     my $includes = delete $params->{includes};
     my $class    = delete($params->{schema_class}) // first { $_ } (map { $_->schema_class(%$params, %STATE) } @{$params->{plugins}->all}), 'DBIx::QuickORM::Schema';
@@ -428,12 +430,10 @@ sub schema {
         local $STATE{SCHEMA}    = \%params;
         local $STATE{SOURCES}   = {};
         local $STATE{PLUGINS}   = $params{plugins};
-        local $STATE{RELATIONS} = $params{relations};
 
         local $STATE{COLUMN};
-        local $STATE{RELATION};
-        local $STATE{MEMBER};
         local $STATE{TABLE};
+        local $STATE{RELATION};
 
         set_subname('schema_callback', $cb) if subname($cb) ne '__ANON__';
         $cb->(%STATE);
@@ -469,7 +469,6 @@ sub _get_schema {
 
     my %params = _new_schema_params(default => [caller(1)]);
 
-    $STATE{RELATIONS} = $params{relations};
     $STATE{SCHEMA}    = \%params;
 
     return $STATE{SCHEMA};
@@ -505,7 +504,7 @@ sub tables {
 
     die "TODO";
 
-    # Iterate all $prefix::NAME classes, load them, and add their tables/relations
+    # Iterate all $prefix::NAME classes, load them, and add their tables
 }
 
 sub rogue_table {
@@ -519,11 +518,9 @@ sub rogue_table {
     local $STATE{SCHEMA}    = undef;
     local $STATE{MIXER}     = undef;
     local $STATE{SOURCES}   = undef;
-    local $STATE{RELATIONS} = undef;
     local $STATE{COLUMN}    = undef;
-    local $STATE{RELATION}  = undef;
-    local $STATE{MEMBER}    = undef;
     local $STATE{TABLE}     = undef;
+    local $STATE{RELATION}  = undef;
 
     return _table($name, $cb);
 }
@@ -557,9 +554,8 @@ sub _table {
 }
 
 sub table {
-    return _member_table(@_) if $STATE{MEMBER};
-
-    my $schema = _get_schema() or croak "table() can only be used inside a schema, orm, or member builder";
+    return rtable(@_) if $STATE{RELATION};
+    my $schema = _get_schema() or croak "table() can only be used inside a schema, orm, builder";
 
     my ($name, $cb) = @_;
 
@@ -567,7 +563,6 @@ sub table {
 
     local $STATE{COLUMN};
     local $STATE{RELATION};
-    local $STATE{MEMBER};
 
     my $table = _table($name, $cb, %params);
 
@@ -592,16 +587,11 @@ sub meta_table {
 
     local %STATE;
 
-    my @relations;
-    local $STATE{RELATIONS} = \@relations;
     my $table = _table($name, $cb, row_base_class => $caller);
-
-    my $relations = DBIx::QuickORM::Schema::RelationSet->new(@relations);
 
     {
         no strict 'refs';
         *{"$caller\::orm_table"}     = set_subname orm_table     => sub { $table };
-        *{"$caller\::orm_relations"} = set_subname orm_relations => sub { $relations };
         push @{"$caller\::ISA"} => 'DBIx::QuickORM::Row';
     }
 
@@ -611,7 +601,6 @@ sub meta_table {
 BEGIN {
     my @CLASS_SELECTORS = (
         ['column_class',   'COLUMN',   'TABLE',    'SCHEMA'],
-        ['relation_class', 'RELATION', 'SCHEMA'],
         ['row_base_class', 'TABLE',    'SCHEMA'],
         ['table_class',    'TABLE',    'SCHEMA'],
         ['source_class',   'TABLE'],
@@ -652,275 +641,6 @@ sub sql_spec {
     return $specs;
 }
 
-# relation(table => \@cols);
-# relation(table1 => \@cols, table2 => \@cols);
-# relation({name => TABLE, columns => \@cols, accessor => FOO})
-# relation({name => TABLE, columns => \@cols, accessor => FOO} ...)
-# relation(table_1 => {accessor => foo, cols => \@cols);
-# relation(table_1 => {accessor => foo}, \@cols
-# relation(sub { ... })
-#
-# table foo => sub {
-#   relation(\@cols, $table2 => \@cols);
-#
-#   relation => sub {
-#       member \@cols;
-#       member table_2 => \@cols;
-#   };
-# };
-#
-# table foo => sub {
-#   column foo => sub {
-#       relation(second_table => \@cols)
-#   };
-# };
-
-sub relation {
-    my $relations = $STATE{RELATIONS} or croak "No 'relations' store found, must be nested under a schema or meta_table builder";
-
-    my @caller = caller;
-    my %params = (
-        created => "$caller[1] line $caller[2]",
-        tables => [],
-        plugins => _push_plugins(),
-    );
-
-    local $STATE{PLUGINS}  = $params{plugins};
-    local $STATE{RELATION} = \%params;
-    local $STATE{STACK}    = ['RELATION', @{$STATE{STACK} // []}];
-    local $STATE{MEMBER};
-
-    my %added;
-
-    my $add = set_subname 'relation_add' => sub {
-        my $m = shift;
-        return if $added{$m};
-
-        use Data::Dumper;
-        print Dumper($m);
-
-        confess "Member incomplete, no table name" unless $m->{table};
-        confess "Member incomplete, no columns"    unless $m->{columns};
-
-        push @{$params{tables}} => $m;
-        $added{$m} = 1;
-        return $m;
-    };
-
-    if (my $table = $STATE{TABLE}) {
-        if (my $col = $STATE{COLUMN}) {
-            $STATE{MEMBER} = {table => $table->{name}, columns => [$col->{name}], created => $params{created}};
-        }
-        else {
-            $STATE{MEMBER} = {table => $table->{name}, created => $params{created}};
-        }
-    }
-
-    while (my $arg = shift @_) {
-        my $type = ref($arg);
-
-        if ($type eq 'CODE') {
-            local $STATE{MEMBER} = $STATE{MEMBER};
-            set_subname('relation_callback', $arg) if subname($arg) ne '__ANON__';
-            $arg->(%STATE);
-            next;
-        }
-
-        if (!$type) { # Table name
-            $add->(delete $STATE{MEMBER}) if $STATE{MEMBER};
-
-            $STATE{MEMBER} = {table => $arg, created => $params{created}};
-            croak "Too many members for relation" if @{$params{tables}} > 2;
-            next;
-        }
-
-        if ($type eq 'HASH') {
-            my $member = $STATE{MEMBER} //= {created => $params{created}};
-
-            if ($member->{table} && $arg->{table}) {
-                $add->($member);
-                $member = $STATE{MEMBER} = {created => $params{created}};
-            }
-
-            croak "Hashref argument must include the 'table' key, or come after a table name argument"
-                unless $member->{table} || $arg->{table};
-
-            for my $field (qw/table accessor columns created reference on_delete precache/) {
-                next unless $arg->{$field};
-                croak "Member already has '$field' set" if $member->{$field} && $field ne 'created';
-                $member->{$field} = delete $arg->{$field};
-            }
-
-            my @bad = sort keys %$arg;
-            next unless @bad;
-            croak "Invalid member keys: " . join(', ' => @bad);
-        }
-
-        if ($type eq 'ARRAY') {
-            my $member = $STATE{MEMBER} or croak "Arrayref arg must come after a table name is specified";
-            croak "Tried to specify member columns multiple times" if $member->{columns};
-            $member->{columns} = $arg;
-            next;
-        }
-
-        croak "Invalid arg to relartion: $arg";
-    }
-
-    $add->(delete $STATE{MEMBER}) if $STATE{MEMBER};
-
-    my $class = delete($params{relation_class}) // first { $_ } (map { $_->relation_class(%params, %STATE) } @{$params{plugins}->all}), 'DBIx::QuickORM::Relation';
-    eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
-    my $rel = $class->new(%params);
-    push @$relations => $rel;
-
-    return $rel;
-}
-
-sub member {
-    my (@specs) = @_;
-
-    my $relation = $STATE{RELATION} or croak "member() must be nested under a relation builder";
-
-    my @caller = caller;
-    my %params = (
-        created => "$caller[1] line $caller[2]",
-    );
-    local $STATE{MEMBER} = \%params;
-
-    my $c = 0;
-    while (my $arg = shift @_) {
-        $c++;
-        my $type = ref($arg);
-
-        if ($type eq 'CODE') {
-            set_subname('member_callback', $arg) if subname($arg) ne '__ANON__';
-            $arg->(%STATE);
-            next;
-        }
-
-        if (!$type) { # Table name
-            if ($c == 1) {
-                croak "Member name already set" if $params{table};
-                $params{table} = $arg;
-                next;
-            }
-            else {
-                croak "Accessor name already set" if $params{accessor};
-                $params{accessor} = $arg;
-                next;
-            }
-        }
-
-        if ($type eq 'HASH') {
-            for my $field (qw/table accessor columns reference created on_delete precache/) {
-                next unless $arg->{$field};
-                croak "Member '$field' already set" if $params{$field} && $field ne 'created';
-                $params{$field} = delete $arg->{$field};
-            }
-
-            my @bad = sort keys %$arg;
-            next unless @bad;
-            croak "Invalid member keys: " . join(', ' => @bad);
-        }
-
-        if ($type eq 'ARRAY') {
-            croak "Tried to specify member columns multiple times" if $params{columns};
-            $params{columns} = $arg;
-            next;
-        }
-
-        croak "Invalid arg to relation: $arg";
-    }
-
-    if (my $table = $STATE{TABLE}) {
-        $STATE{MEMBER}->{table} //= $table->{name};
-    }
-
-    push @{$relation->{tables} //= []} => \%params;
-
-    return \%params;
-}
-
-sub references {
-    my $ref_extra = {};
-
-    my @args;
-    for my $arg (@_) {
-        if (ref($arg) eq 'HASH' && ($arg->{on_delete} || $arg->{precache})) {
-            $ref_extra = $arg;
-            next;
-        }
-
-        push @args => $arg;
-    }
-
-    if (my $member = $STATE{MEMBER}) {
-        $member->{reference} = 1;
-        $member->{on_delete} //= $ref_extra->{on_delete} if $ref_extra->{on_delete};
-        $member->{precache}  //= $ref_extra->{precache}  if $ref_extra->{precache};
-        member(@args) if @args;
-        return;
-    }
-
-    if (my $table = $STATE{TABLE}) {
-        if (my $col = $STATE{COLUMN}) {
-            relation(
-                {reference => 1, %$ref_extra},
-                @args,
-            );
-            return;
-        }
-
-        if (@args && ref($args[0]) eq 'ARRAY') {
-            my $cols = shift;
-            relation(
-                {columns => $cols, reference => 1, %$ref_extra},
-                @args,
-            );
-            return;
-        }
-
-        croak "references() under a 'table' builder must either start with an arrayref of columns, or be inside a 'column' builder";
-    }
-
-    croak "references() must be used under either a 'table' builder or a 'member' builder";
-}
-
-sub accessor {
-    my ($accessor) = @_;
-
-    my $member = $STATE{MEMBER} or croak "accessor() can only be used inside a 'member', or a 'relation' builder used under a 'column' builder";
-
-    croak "Member already has an accessor ('$member->{accessor}' vs '$accessor')" if $member->{accessor};
-
-    $member->{accessor} = $accessor;
-}
-
-sub on_delete {
-    my ($on_delete) = @_;
-
-    my $member = $STATE{MEMBER} or croak "on_delete() can only be used inside a 'member', or a 'relation' builder used under a 'column' builder";
-
-    croak "Member already has an on_delete ('$member->{on_delete}' vs '$on_delete')" if $member->{on_delete};
-
-    $member->{on_delete} = $on_delete;
-}
-
-sub precache {
-    my ($precache) = @_;
-
-    my $member = $STATE{MEMBER} or croak "precache() can only be used inside a 'member', or a 'relation' builder used under a 'column' builder";
-
-    $member->{precache} = $precache;
-}
-
-sub _member_table {
-    my ($name, @extra) = @_;
-    croak "Too many arguments for table under a member builder ($STATE{MEMBER}->{name}, $STATE{MEMBER}->{created})" if @extra;
-    my $member = $STATE{MEMBER}->{table};
-    $member->{table} = $name;
-}
-
 sub is_view {
     my $table = $STATE{TABLE} or croak "is_view() may only be used in a table builder";
     $table->{is_view} = 1;
@@ -939,25 +659,12 @@ sub columns {
     my @caller = caller;
     my $created = "$caller[1] line $caller[2]";
 
-    my $member = $STATE{MEMBER};
-
-    my $table;
-    if ($member) {
-        if (my $schema = $STATE{SCHEMA}) {
-            $table = $schema->{tables}->{$member->{table}} if $member->{table};
-        }
-    }
-    else {
-        $table = $STATE{TABLE} or croak "columns may only be used in a table or member builder";
-    }
+    my $table = $STATE{TABLE} or croak "columns may only be used in a table builder";
 
     my $sql_spec = pop(@specs) if $table && @specs && ref($specs[-1]) eq 'HASH';
 
     while (my $name = shift @specs) {
         my $spec = @specs && ref($specs[0]) ? shift(@specs) : undef;
-        croak "Cannot specify column data or builder under a member builder" if $member && $spec;
-
-        push @{$member->{columns} //= []} => $name if $member;
 
         if ($table) {
             if ($spec) {
@@ -1097,4 +804,158 @@ sub index {
     $table->{indexes}->{$name} = $idx;
 }
 
+sub relation {
+    croak "'relation' can only be used inside a table builder" unless $STATE{TABLE};
+    _relation(@_, method => 'find');
+}
+
+sub relations {
+    croak "'relations' can only be used inside a table builder" unless $STATE{TABLE};
+    _relation(@_, method => 'select');
+}
+
+sub references {
+    my $column = $STATE{COLUMN} or croak "references() can only be used inside a column builder";
+    _relation(@_, method => 'find', using => [$column->{name}]);
+}
+
+sub rtable($) {
+    if (my $relation = $STATE{RELATION}) {
+        $relation->{table} = $_[0];
+    }
+    else {
+        return (table => $_[0]);
+    }
+}
+
+sub prefetch() {
+    if (my $relation = $STATE{RELATION}) {
+        $relation->{prefetch} = 1;
+    }
+    else {
+        return (prefetch => 1);
+    }
+}
+
+sub as($) {
+    my ($alias) = @_;
+
+    if (my $relation = $STATE{RELATION}) {
+        push @{$relation->{aliases} //= []} => $alias;
+    }
+    else {
+        return ('as' => $alias);
+    }
+}
+
+sub on($) {
+    my ($cols) = @_;
+
+    croak "on() takes a hashref of primary table column names mapped to join table column names, got '$cols'" unless ref($cols) eq 'HASH';
+
+    if (my $relation = $STATE{RELATION}) {
+        $relation->{on} = $cols;
+    }
+    else {
+        return (on => $cols);
+    }
+}
+
+sub using($) {
+    my ($cols) = @_;
+
+    $cols = [$cols] unless ref($cols);
+    croak "using() takes a single column name, or an arrayref of column names, got '$cols'" unless ref($cols) eq 'ARRAY';
+
+    if (my $relation = $STATE{RELATION}) {
+        $relation->{using} = $cols;
+    }
+    else {
+        return (using => $cols);
+    }
+}
+
+sub on_delete($) {
+    my ($val) = @_;
+
+    if (my $relation = $STATE{RELATION}) {
+        $relation->{on_delete} = $val;
+    }
+    else {
+        return (on_delete => $val);
+    }
+}
+
+sub _relation {
+    my $table = $STATE{TABLE} or confess "Internal Error: _relation() was called outside of a table builder";
+
+    my (%params, @aliases);
+    $params{aliases} = \@aliases;
+    local $STATE{RELATION} = \%params;
+
+    while (my $arg = shift @_) {
+        my $type = ref($arg);
+
+        if (!$type) {
+            if ($arg eq 'table') {
+                $params{table} = shift(@_);
+            }
+            elsif ($arg eq 'alias' || $arg eq 'as') {
+                push @aliases => shift(@_);
+            }
+            elsif ($arg eq 'on') {
+                $params{on} = shift(@_);
+            }
+            elsif ($arg eq 'using') {
+                $params{using} = shift(@_);
+            }
+            elsif ($arg eq 'method') {
+                $params{method} = shift(@_);
+            }
+            elsif ($arg eq 'on_delete') {
+                $params{on_delete} = shift(@_);
+            }
+            elsif ($arg eq 'prefetch') {
+                $params{prefetch} = shift(@_);
+            }
+            elsif (!@aliases) {
+                push @aliases => $arg;
+            }
+            elsif(!$params{table}) {
+                $params{table} = $arg;
+            }
+            else {
+                push @aliases => $arg;
+            }
+        }
+        elsif ($type eq 'HASH') {
+            $params{on} = $arg;
+        }
+        elsif ($type eq 'ARRAY') {
+            $params{using} = $arg;
+        }
+        elsif ($type eq 'CODE') {
+            $arg->(%STATE);
+        }
+    }
+
+    delete $params{aliases};
+    $params{table} //= $aliases[-1] if @aliases;
+
+    require DBIx::QuickORM::Table::Relation;
+    my $rel = DBIx::QuickORM::Table::Relation->new(%params);
+
+    push @aliases => $params{table} unless @aliases;
+
+    my %seen;
+    for my $alias (@aliases) {
+        next if $seen{$alias}++;
+        croak "Table already has a relation named '$alias'" if $table->{relations}->{$alias};
+        $table->{relations}->{$alias} = $rel;
+    }
+
+    return $rel;
+}
+
 1;
+

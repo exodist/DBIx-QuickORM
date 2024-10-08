@@ -66,6 +66,8 @@ sub con_schema {
     $self->{+CON_SCHEMA} = $self->{+CON_SCHEMA}->merge($self->connection->generate_schema)
         if $self->{+AUTOFILL};
 
+    $self->{+CON_SCHEMA}->verify_relations;
+
     return $self->{+CON_SCHEMA};
 }
 

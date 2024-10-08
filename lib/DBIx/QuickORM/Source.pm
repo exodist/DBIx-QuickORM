@@ -2,8 +2,8 @@ package DBIx::QuickORM::Source;
 use strict;
 use warnings;
 
-use Carp qw/croak/;
-use List::Util qw/zip min/;
+use Carp qw/croak confess/;
+use List::Util qw/min/;
 use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/parse_hash_arg/;
 
@@ -177,7 +177,9 @@ sub count_select {
     my $table = $self->{+TABLE};
     my $con = $self->{+CONNECTION};
 
-    my ($stmt, @bind) = $con->sqla->select($table->sqla_source, ['count(*)'], $where);
+    my $source = $table->sqla_source;
+    $source = \"$source AS me" unless ref($source);
+    my ($stmt, @bind) = $con->sqla->select($source, ['count(*)'], $where);
 
     my $sth = $con->dbh->prepare($stmt);
     $sth->execute(@bind);
@@ -217,7 +219,7 @@ sub do_select {
     while (my $data = $sth->fetchrow_arrayref) {
         my $row = {};
         @{$row}{@$cols} = @$data;
-        $self->expand_relations($row, $relmap) if $relmap;
+        $self->expand_relations($row, $relmap);
         push @out => $self->_expand_row($row);
     }
 
@@ -255,14 +257,21 @@ sub fetch {
     my $sth = $con->dbh->prepare($stmt);
     $sth->execute(@bind);
 
-    my $data  = $sth->fetchrow_arrayref or return;
+    my $data = $sth->fetchrow_arrayref or return undef;
     my $extra = $sth->fetchrow_arrayref;
     croak "Multiple rows returned for fetch/find operation" if $extra;
 
     my $row = {};
-    @{$row}{@$cols} = @$data;
 
-    $self->expand_relations($row, $relmap) if $relmap;
+    if ($relmap) {
+        @{$row}{@$cols} = @$data;
+        $self->expand_relations($row, $relmap);
+    }
+    else {
+        s/^me\.// for @$cols;
+        @{$row}{@$cols} = @$data;
+    }
+
 
     return $row;
 }
@@ -359,31 +368,29 @@ sub _expand_row {
     my %relations;
 
     for my $key (keys %$data) {
-        my $rel = $data->{$key} or next;
-        next unless ref($rel) eq 'HASH';
+        my $row = $data->{$key} or next;
+        next unless ref($row) eq 'HASH';
 
-        my $accessor = $key;
-        my $relation = $self->{+TABLE}->relation($accessor);
-        my $specs = $relation->get_accessor($self->{+TABLE}->name, $accessor);
-        my $source = $self->{+ORM}->source($specs->{foreign_table});
+        my $rel = $self->{+TABLE}->relation($key);
+        my $source = $self->{+ORM}->source($rel->table);
 
         $relations{$key} = $source->_expand_row(delete $data->{$key});
     }
 
-    return DBIx::QuickORM::Row->new(from_db => $data, source => $self, cached_relations => \%relations)
+    return DBIx::QuickORM::Row->new(from_db => $data, source => $self, fetched_relations => \%relations)
         if $self->{+IGNORE_CACHE};
 
     my $con = $self->{+CONNECTION};
 
     if (my $cached = $con->from_cache($self, $data)) {
         $cached->refresh($data);
-        $cached->update_cached_relations(\%relations);
+        $cached->update_fetched_relations(\%relations);
         return $cached;
     }
 
     return $con->cache_source_row(
         $self,
-        DBIx::QuickORM::Row->new(from_db => $data, source => $self, cached_relations => \%relations),
+        DBIx::QuickORM::Row->new(from_db => $data, source => $self, fetched_relations => \%relations),
     );
 }
 
@@ -392,29 +399,33 @@ sub _source_and_cols {
     my ($prefetch) = @_;
 
     my $table = $self->{+TABLE};
-    my $precache_sets = $table->precache_relations($prefetch);
+    my $prefetch_sets = $table->prefetch_relations($prefetch);
 
-    return ($table->sqla_source, $table->sqla_columns) unless @$precache_sets;
+    unless (@$prefetch_sets) {
+        my $source = $table->sqla_source;
+        my $cols = $table->sqla_columns;
 
-    # This causes an sqla autoload error, so for now use an empty string
-    my $qc = ''; #$self->{+CONNECTION}->sqla->quote_char() // '';
+        return ($source, $cols) if ref($source);
 
-    my $tname = $table->sqla_source;
-    my $source = "${qc}${tname}${qc}";
-    my @cols = @{$table->sqla_columns};
+        return (\"$source AS me", [map { "me.$_" } @$cols]);
+    }
+
+    my $source = $table->sqla_source . " AS me";
+    my @cols   = map { "me.$_" } @{$table->sqla_columns};
 
     my %relmap;
-    my %ases;
-    my @todo = @$precache_sets;
+    my @todo = map {[@{$_}, 'me'] } @$prefetch_sets;
 
-    while (my $path = shift @todo) {
-        my $pc = pop @$path;
+    while (my $item = shift @todo) {
+        my ($as, $rel, @path) = @$item;
+        my ($from) = @path;
 
-        my $ftable = $pc->{foreign_table};
-        $ases{$ftable} //= 1;
-        my $as = $ftable . $ases{$ftable}++;
+        confess "Multiple relations requested the alias (AS) '$as', please specify an alternate name for one"
+            if $relmap{$as};
 
-        $relmap{$as} = $path;
+        my $ftable = $rel->table;
+
+        $relmap{$as} = [@path, $as];
 
         my $ts = $self->orm->source($ftable);
         my $t2 = $ts->table;
@@ -422,20 +433,11 @@ sub _source_and_cols {
         my $s2 = $t2->sqla_source;
         my $c2 = $t2->sqla_columns;
 
-        $source .= " JOIN ${qc}${s2}${qc} AS $as";
+        $source .= " JOIN $s2 AS $as";
+        $source .= " ON(" . $rel->on_sql($from, $as) . ")";
 
-        my $lc = join ", ", @{$pc->{local_columns}};
-        my $fc = join ", ", @{$pc->{foreign_columns}};
-        if ($lc eq $fc) {
-            $source .= " USING($lc)";
-        }
-        else {
-            $source .= " ON(" . (map { "$_->[0] = $_->[1]" } zip($pc->{local_columns}, $pc->{foreign_columns})) . ")";
-        }
-
-        push @cols => map { qq[${as}.$_] } @$c2;
-
-        push @todo => map { unshift @{$_} => @$path; $_} @{$t2->precache_relations};
+        push @cols => map { "${as}.$_" } @$c2;
+        push @todo => map { [@{$_}, @path] } @{$t2->prefetch_relations};
     }
 
     return (\$source, \@cols, \%relmap);
@@ -445,15 +447,21 @@ sub expand_relations {
     my $self = shift;
     my ($data, $relmap) = @_;
 
-    return $data unless $relmap && keys %$relmap;
+    $relmap //= {};
 
     for my $key (keys %$data) {
         next unless $key =~ m/^(.+)\.(.+)$/;
         my ($rel, $col) = ($1, $2);
-        my $path = $relmap->{$rel} or next;
+        if ($rel eq 'me') {
+            $data->{$col} = delete $data->{$key};
+            next;
+        }
+
+        my $path = $relmap->{$rel} or die "No relmap path for '$key'";
 
         my $p = $data;
         for my $pt (@$path) {
+            next if $pt eq 'me';
             $p = $p->{$pt} //= {};
         }
 

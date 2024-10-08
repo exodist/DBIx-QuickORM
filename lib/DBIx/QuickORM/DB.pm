@@ -133,6 +133,31 @@ sub generate_and_load_schema {
     return $class_or_self->load_schema_sql($sql);
 }
 
+sub table_dep_cmp {
+    my $class_or_self = shift;
+    my ($a, $b) = @_;
+
+    my $out = 0;
+
+    my $a_first = -1;
+    my $b_first = 1;
+
+    my $a_name = $a->name;
+    my $b_name = $b->name;
+
+    my $a_deps = $a->deps;
+    my $b_deps = $b->deps;
+
+    die "Circular dependency detected in tables '$a_name' and '$b_name'"
+        if $a_deps->{$b_name} && $b_deps->{$a_name};
+
+    $out ||= $a_first if $b_deps->{$a_name};
+    $out ||= $b_first if $a_deps->{$b_name};
+    $out ||= $b_name cmp $a_name;
+
+    return $out;
+}
+
 sub generate_schema_sql {
     my $class_or_self = shift;
     my %params        = @_;
@@ -150,42 +175,11 @@ sub generate_schema_sql {
 
     push @out => $class_or_self->_generate_schema_sql_header(sql_spec => $specs, plugins => $plugins, schema => $schema);
 
-    my %deps;
-    for my $r ($schema->relations) {
-        my ($referer, $referee);
-        for my $m ($r->members) {
-            if ($m->{reference}) {
-                croak "Cannot handle circular reference" if $referer;
-                $referer = $m->{table};
-            }
-            else {
-                $referee = $m->{table};
-            }
-        }
-
-        if ($referer && $referee && $referer ne $referee) {
-            $deps{$referer}{$referee} //= 1;
-        }
-    }
-
-    # Sort for consistency of output, but note that dep tree traversal will re-order by deps where necessary
-    my @todo = sort { $b->name cmp $a->name } $schema->tables;
-
-    my %table_done;
-    while (my $t = shift @todo) {
+    for my $t (sort { $class_or_self->table_dep_cmp($a, $b) } $schema->tables) {
         my $tname = $t->name;
-        next if $table_done{$tname};
-
-        if (my $deps = $deps{$tname}) {
-            if (first { !$table_done{$_} } keys %$deps) {
-                push @todo => $t; # Do it later, a dep table has not been handled yet
-                next;
-            }
-        }
 
         push @out => $class_or_self->generate_schema_sql_table(table => $t, schema => $schema, plugins => $plugins);
         push @out => $class_or_self->generate_schema_sql_indexes_for_table(table => $t, schema => $schema, plugins => $plugins);
-        $table_done{$tname} = 1;
     }
 
     push @out => $class_or_self->_generate_schema_sql_footer(sql_spec => $specs, schema => $schema, plugins => $plugins);
@@ -263,7 +257,7 @@ sub generate_schema_sql_table {
     }
 
     my @rels;
-    for my $rel ($schema->relation_set->table_relations($table_name)) {
+    for my $rel (values %{$table->relations // {}}) {
         push @rels => $class_or_self->generate_schema_sql_foreign_key(relation => $rel, %params);
     }
 
@@ -307,20 +301,18 @@ sub generate_schema_sql_foreign_key {
     my $rel   = $params{relation};
     my $table = $params{table};
 
-    my @members = $rel->members;
+    # Only do this for relations where this table only finds 1 other object
+    return unless $rel->gets_one;
 
     # Self-reference conditions
-    return if @members == 1;
-    return if $members[0]->{table} eq $members[1]->{table};
-
     my $tb_name = $table->name;
-    my ($me, $f) = sort { $a->{table} eq $tb_name ? -1 : $b->{table} eq $tb_name ? 1 : 0} @members;
+    return if $rel->table eq $tb_name;
 
-    return unless $me->{reference};
+    my $out = 'FOREIGN KEY(' . join(', ' => $rel->local_columns) . ') REFERENCES ' . $rel->table . '(' . join(', ' => $rel->foreign_columns) . ')';
 
-    my $out = 'FOREIGN KEY(' . join(', ' => @{$me->{columns}} ) . ') REFERENCES ' . $f->{table} . '(' . join(', ' => @{$f->{columns}}) . ')';
-
-    $out .= " ON DELETE $me->{on_delete}" if $me->{on_delete};
+    if (my $od = $rel->on_delete) {
+        $out .= " ON DELETE $od";
+    }
 
     return $out;
 }
