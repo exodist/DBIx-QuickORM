@@ -5,7 +5,7 @@ use warnings;
 use Carp qw/croak confess/;
 use List::Util qw/min/;
 use Scalar::Util qw/blessed weaken/;
-use DBIx::QuickORM::Util qw/parse_hash_arg/;
+use DBIx::QuickORM::Util qw/parse_hash_arg mod2file/;
 
 use DBIx::QuickORM::Row;
 use DBIx::QuickORM::Select;
@@ -17,6 +17,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <table
     <orm
     <ignore_cache
+    +row_class
 };
 
 use DBIx::QuickORM::Util::Has qw/Created Plugins/;
@@ -37,6 +38,26 @@ sub init {
     weaken($self->{+ORM});
 
     $self->{+IGNORE_CACHE} //= 0;
+}
+
+sub set_row_class {
+    my $self = shift;
+    my ($class) = @_;
+
+    require(mod2file($class));
+
+    return $self->{+ROW_CLASS} = $class;
+}
+
+sub row_class {
+    my $self = shift;
+    return $self->{+ROW_CLASS} if $self->{+ROW_CLASS};
+
+    my $class = $self->{+TABLE}->row_class or return $self->{+ROW_CLASS} = 'DBIx::QuickORM::Row';
+
+    require(mod2file($class));
+
+    return $self->{+ROW_CLASS} = $class;
 }
 
 sub uncached {
@@ -299,7 +320,7 @@ sub insert {
     my $row_data = $self->parse_hash_arg(@_);
 
     my $data = $self->_insert($row_data);
-    my $row  = DBIx::QuickORM::Row->new(from_db => $data, source => $self);
+    my $row  = $self->row_class->new(from_db => $data, source => $self);
 
     my $con = $self->{+CONNECTION};
     return $row if $self->{+IGNORE_CACHE};
@@ -349,7 +370,7 @@ sub _insert {
 sub vivify {
     my $self = shift;
     my $row_data = $self->parse_hash_arg(@_);
-    return DBIx::QuickORM::Row->new(dirty => $row_data, source => $self);
+    return $self->row_class->new(dirty => $row_data, source => $self);
 }
 
 sub DESTROY {
@@ -377,7 +398,7 @@ sub _expand_row {
         $relations{$key} = $source->_expand_row(delete $data->{$key});
     }
 
-    return DBIx::QuickORM::Row->new(from_db => $data, source => $self, fetched_relations => \%relations)
+    return $self->row_class->new(from_db => $data, source => $self, fetched_relations => \%relations)
         if $self->{+IGNORE_CACHE};
 
     my $con = $self->{+CONNECTION};
@@ -390,7 +411,7 @@ sub _expand_row {
 
     return $con->cache_source_row(
         $self,
-        DBIx::QuickORM::Row->new(from_db => $data, source => $self, fetched_relations => \%relations),
+        $self->row_class->new(from_db => $data, source => $self, fetched_relations => \%relations),
     );
 }
 

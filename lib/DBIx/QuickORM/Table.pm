@@ -17,6 +17,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <primary_key
     <is_view
     <is_temp
+    <row_class
 
     +deps
 };
@@ -40,6 +41,8 @@ sub init {
         my $cval = $cols->{$cname} or croak "Column '$cname' is empty";
         croak "Columns '$cname' is not an instance of 'DBIx::QuickORM::Table::Column', got: '$cval'" unless blessed($cval) && $cval->isa('DBIx::QuickORM::Table::Column');
     }
+
+    $self->{+ROW_CLASS} //= 'DBIx::QuickORM::Row';
 
     $self->{+RELATIONS} //= {};
     $self->{+INDEXES}   //= {};

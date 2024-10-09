@@ -5,7 +5,14 @@ use warnings;
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 
-our @EXPORT = qw/ mod2file delegate alias parse_hash_arg merge_hash_of_objs /;
+use Module::Pluggable sub_name => '_find_mods';
+BEGIN {
+    *_find_paths = \&search_path;
+    no strict 'refs';
+    delete ${\%{__PACKAGE__ . "\::"}}{search_path};
+}
+
+our @EXPORT = qw/ mod2file delegate alias parse_hash_arg merge_hash_of_objs find_modules /;
 
 use base 'Exporter';
 
@@ -77,6 +84,13 @@ sub merge_hash_of_objs {
     }
 
     return \%out;
+}
+
+sub find_modules {
+    my (@prefixes) = @_;
+
+    __PACKAGE__->_find_paths(new => @prefixes);
+    return __PACKAGE__->_find_mods();
 }
 
 1;

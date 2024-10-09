@@ -64,8 +64,11 @@ sub primary_key {
     return { map {($_ => $self->raw_column($_))} @$pk_fields };
 }
 
-sub column_def { $_[0]->table->column($_[1]) }
-sub has_column { $_[0]->column_def($_[1]) ? 1 : 0 }
+sub column_def   { $_[0]->table->column($_[1]) }
+sub relation_def { $_[0]->table->relation($_[1]) }
+
+sub has_column   { $_[0]->column_def($_[1])   ? 1 : 0 }
+sub has_relation { $_[0]->relation_def($_[1]) ? 1 : 0 }
 
 sub relation {
     my $self = shift;

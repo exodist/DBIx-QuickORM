@@ -6,9 +6,9 @@ use Carp qw/croak confess/;
 use Sub::Util qw/subname set_subname/;
 use List::Util qw/first uniq/;
 use Scalar::Util qw/blessed/;
-use DBIx::QuickORM::Util qw/mod2file alias/;
+use DBIx::QuickORM::Util qw/mod2file alias find_modules/;
 
-use Importer 'Importer' => 'import';
+use Importer Importer => 'import';
 
 my @PLUGIN_EXPORTS = qw{
     plugin
@@ -31,6 +31,7 @@ my @DB_EXPORTS = qw{
 };
 
 my @REL_EXPORTS = qw{
+    relate
     rtable
     relation
     relations
@@ -57,7 +58,7 @@ my @_TABLE_EXPORTS = qw{
     primary_key
     relation
     relations
-    row_base_class
+    row_class
     serial
     source_class
     sql_spec
@@ -90,7 +91,16 @@ my @SCHEMA_EXPORTS = uniq (
         include
         schema
         tables
+        default_base_row
     },
+);
+
+our %EXPORT_GEN = (
+    '&meta_table' => \&gen_meta_table,
+);
+
+our %EXPORT_MAGIC = (
+    '&meta_table' => \&magic_meta_table,
 );
 
 our @EXPORT = uniq (
@@ -101,6 +111,7 @@ our @EXPORT = uniq (
     @REL_EXPORTS,
 
     qw{
+        default_base_row
         autofill
         mixer
         orm
@@ -136,6 +147,16 @@ sub _debug {
 alias columns => 'column';
 
 sub plugins { $STATE{PLUGINS} // do { require DBIx::QuickORM::PluginSet; DBIx::QuickORM::PluginSet->new } }
+
+sub default_base_row {
+    if (@_) {
+        my $class = shift;
+        require(mod2file($class));
+        return $STATE{'DEFAULT_BASE_ROW'} = $class
+    }
+
+    return $STATE{'DEFAULT_BASE_ROW'} // 'DBIx::QuickORM::Row';
+}
 
 sub add_plugin {
     my ($in, %params) = @_;
@@ -173,6 +194,9 @@ sub mixer {
     local $STATE{PLUGINS}  = $params{plugins};
     local $STATE{MIXER}    = \%params;
     local $STATE{STACK}    = ['MIXER', @{$STATE{STACK} // []}];
+
+    local $STATE{DEFAULT_BASE_ROW} = $STATE{DEFAULT_BASE_ROW};
+
     local $STATE{ORM};
 
     set_subname('mixer_callback', $cb) if subname($cb) ne '__ANON__';
@@ -229,6 +253,8 @@ sub orm {
     local $STATE{PLUGINS} = $params{plugins};
     local $STATE{ORM}    = \%params;
     local $STATE{STACK}   = ['ORM', @{$STATE{STACK} // []}];
+
+    local $STATE{DEFAULT_BASE_ROW} = $STATE{DEFAULT_BASE_ROW};
 
     local $STATE{DB}       = undef;
     local $STATE{SCHEMA}   = undef;
@@ -431,6 +457,8 @@ sub schema {
         local $STATE{SOURCES}   = {};
         local $STATE{PLUGINS}   = $params{plugins};
 
+        local $STATE{DEFAULT_BASE_ROW} = $STATE{DEFAULT_BASE_ROW};
+
         local $STATE{COLUMN};
         local $STATE{TABLE};
         local $STATE{RELATION};
@@ -500,11 +528,24 @@ sub include {
 }
 
 sub tables {
-    my ($prefix) = @_;
+    my (@prefixes) = @_;
 
-    die "TODO";
+    my $schema = $STATE{SCHEMA} or croak "tables() can only be called under a schema builder";
 
-    # Iterate all $prefix::NAME classes, load them, and add their tables
+    my @out;
+    for my $mod (find_modules(@prefixes)) {
+        require (mod2file($mod));
+
+        my $table = $mod->orm_table;
+        my $name = $table->name;
+
+        croak "Schema already has a table named '$name', cannot add table from module '$mod'" if $schema->{tables}->{$name};
+
+        $schema->{tables}->{$name} = $table;
+        push @out => $mod;
+    }
+
+    return @out;
 }
 
 sub rogue_table {
@@ -534,6 +575,8 @@ sub _table {
     $params{indexes} //= {};
     $params{plugins} = _push_plugins();
 
+    local $STATE{DEFAULT_BASE_ROW} = $STATE{DEFAULT_BASE_ROW};
+
     local $STATE{PLUGINS} = $params{plugins};
     local $STATE{TABLE}   = \%params;
     local $STATE{STACK}   = ['TABLE', @{$STATE{STACK} // []}];
@@ -559,40 +602,126 @@ sub table {
 
     my ($name, $cb) = @_;
 
-    my %params;
+    my $table;
+    if ($name =~ m/::/) {
+        require(mod2file($name));
+        $table = $name->orm_table;
+        $name = $table->name;
+    }
+    else {
+        my %params;
 
-    local $STATE{COLUMN};
-    local $STATE{RELATION};
+        local $STATE{COLUMN};
+        local $STATE{RELATION};
 
-    my $table = _table($name, $cb, %params);
-
-    if (my $names = $STATE{NAMES}) {
-        if (my $have = $names->{$name}) {
-            croak "There is already a source named '$name' ($have) from " . ($have->created // '');
-        }
-
-        $names->{$name} = $table;
+        $table = _table($name, $cb, %params);
     }
 
-    croak "Table '$table' is already defined" if $schema->{tables}->{$name};
+    croak "Table '$name' is already defined" if $schema->{tables}->{$name};
     $schema->{tables}->{$name} = $table;
 
     return $table;
 }
 
-sub meta_table {
-    my ($name, $cb) = @_;
+sub magic_meta_table {
+    my $from = shift;
+    my %args = @_;
 
-    my $caller = caller;
+    my $into = $args{into};
+    my $name = $args{new_name};
+    my $ref  = $args{ref};
+
+    eval { require BEGIN::Lift; BEGIN::Lift->can('install') } or return;
+
+    my $stash = do { no strict 'refs'; \%{"$into\::"} };
+    $stash->{_meta_table} = delete $stash->{meta_table};
+
+    BEGIN::Lift::install($into, $name, $ref);
+}
+
+sub gen_meta_table {
+    my $from_package = shift;
+    my ($into_package, $symbol_name) = @_;
+
+    my %subs;
+
+    my $stash = do { no strict 'refs'; \%{"$into_package\::"} };
+
+    for my $item (keys %$stash) {
+        my $sub = $into_package->can($item) or next;
+        $subs{$item} = $sub;
+    }
+
+    my $me;
+    $me = set_subname 'meta_table_wrapper' => sub {
+        my $name     = shift;
+        my $cb       = pop;
+        my $row_base = shift // $STATE{'DEFAULT_BASE_ROW'} // 'DBIx::QuickORM::Row';
+
+        my @caller_parent = caller(1);
+        confess "meta_table must be called directly from a BEGIN block (Or you can install 'BEGIN::Lift' to automatically wrap it in a BEGIN block)"
+            unless @caller_parent && $caller_parent[3] =~ m/(^BEGIN::Lift::__ANON__|::BEGIN|::import)$/;
+
+        my $table = _meta_table(name => $name, cb => $cb, row_base => $row_base, into => $into_package);
+
+        for my $item (keys %$stash) {
+            my $export = $item eq 'meta_table' ? $me : $from_package->can($item) or next;
+            my $sub    = $into_package->can($item)                               or next;
+
+            next unless $export == $sub || $item eq '_meta_table';
+
+            my $glob = delete $stash->{$item};
+
+            {
+                no strict 'refs';
+                no warnings 'redefine';
+
+                for my $type (qw/SCALAR HASH ARRAY FORMAT IO/) {
+                    next unless defined(*{$glob}{$type});
+                    *{"$into_package\::$item"} = *{$glob}{$type};
+                }
+
+                if ($subs{$item} && $subs{$item} != $export) {
+                    *{"$into_package\::$item"} = $subs{$item};
+                }
+            }
+        }
+
+        $me = undef;
+
+        return $table;
+    };
+
+    return $me;
+}
+
+sub meta_table {
+    my $name     = shift;
+    my $cb       = pop;
+    my $row_base = shift // $STATE{'DEFAULT_BASE_ROW'} // 'DBIx::QuickORM::Row';
+    my @caller   = caller;
+
+    return _meta_table(name => $name, cb => $cb, row_base => $row_base, into => $caller[0]);
+}
+
+sub _meta_table {
+    my %params = @_;
+
+    my $name     = $params{name};
+    my $cb       = $params{cb};
+    my $row_base = $params{row_base} // $STATE{'DEFAULT_BASE_ROW'} // 'DBIx::QuickORM::Row';
+    my $into     = $params{into};
+
+    require(mod2file($row_base));
 
     local %STATE;
 
-    my $table = _table($name, $cb, row_base_class => $caller);
+    my $table = _table($name, $cb, row_class => $into);
 
     {
         no strict 'refs';
-        *{"$caller\::orm_table"}     = set_subname orm_table     => sub { $table };
-        push @{"$caller\::ISA"} => 'DBIx::QuickORM::Row';
+        *{"$into\::orm_table"} = set_subname orm_table => sub { $table };
+        push @{"$into\::ISA"} => $row_base;
     }
 
     return $table;
@@ -601,7 +730,7 @@ sub meta_table {
 BEGIN {
     my @CLASS_SELECTORS = (
         ['column_class',   'COLUMN',   'TABLE',    'SCHEMA'],
-        ['row_base_class', 'TABLE',    'SCHEMA'],
+        ['row_class', 'TABLE',    'SCHEMA'],
         ['table_class',    'TABLE',    'SCHEMA'],
         ['source_class',   'TABLE'],
     );
@@ -804,19 +933,64 @@ sub index {
     $table->{indexes}->{$name} = $idx;
 }
 
+sub relate {
+    my ($table_a_name, $a_spec, $table_b_name, $b_spec) = @_;
+
+    croak "relate() cannot be used inside a table builder" if $STATE{TABLE};
+    my $schema = $STATE{SCHEMA} or croak "relate() must be used inside a schema builder";
+
+    my $table_a = $schema->{tables}->{$table_a_name} or croak "Table '$table_a_name' is not present in the schema";
+    my $table_b = $schema->{tables}->{$table_b_name} or croak "Table '$table_b_name' is not present in the schema";
+
+    $a_spec = [%$a_spec] if ref($a_spec) eq 'HASH';
+    $a_spec = [$a_spec] unless ref($a_spec);
+
+    $b_spec = [%$b_spec] if ref($b_spec) eq 'HASH';
+    $b_spec = [$b_spec] unless ref($b_spec);
+
+    my ($rel_a, @aliases_a) = _relation(table => $table_b_name, @$a_spec);
+    my ($rel_b, @aliases_b) = _relation(table => $table_a_name, @$b_spec);
+
+    $table_a->add_relation($_, $rel_a) for @aliases_a;
+    $table_b->add_relation($_, $rel_b) for @aliases_b;
+
+    return ($rel_a, $rel_b);
+}
+
 sub relation {
-    croak "'relation' can only be used inside a table builder" unless $STATE{TABLE};
-    _relation(@_, method => 'find');
+    my $table = $STATE{TABLE} or croak "'relation' can only be used inside a table builder";
+    my ($rel, @aliases) = _relation(@_, method => 'find');
+    _add_relation($table, $rel, @aliases);
+    return $rel;
 }
 
 sub relations {
-    croak "'relations' can only be used inside a table builder" unless $STATE{TABLE};
-    _relation(@_, method => 'select');
+    my $table = $STATE{TABLE} or croak "'relations' can only be used inside a table builder";
+    my ($rel, @aliases) = _relation(@_, method => 'select');
+    _add_relation($table, $rel, @aliases);
+    return $rel;
 }
 
 sub references {
+    my $table = $STATE{TABLE} or croak "'references()' can only be used inside a table builder";
     my $column = $STATE{COLUMN} or croak "references() can only be used inside a column builder";
-    _relation(@_, method => 'find', using => [$column->{name}]);
+
+    my ($rel, @aliases) = _relation(@_, method => 'find', using => [$column->{name}]);
+    _add_relation($table, $rel, @aliases);
+    return $rel;
+}
+
+sub _add_relation {
+    my ($table, $rel, @aliases) = @_;
+
+    my %seen;
+    for my $alias (@aliases) {
+        next if $seen{$alias}++;
+        croak "Table already has a relation named '$alias'" if $table->{relations}->{$alias};
+        $table->{relations}->{$alias} = $rel;
+    }
+
+    return $rel;
 }
 
 sub rtable($) {
@@ -887,8 +1061,6 @@ sub on_delete($) {
 }
 
 sub _relation {
-    my $table = $STATE{TABLE} or confess "Internal Error: _relation() was called outside of a table builder";
-
     my (%params, @aliases);
     $params{aliases} = \@aliases;
     local $STATE{RELATION} = \%params;
@@ -947,14 +1119,7 @@ sub _relation {
 
     push @aliases => $params{table} unless @aliases;
 
-    my %seen;
-    for my $alias (@aliases) {
-        next if $seen{$alias}++;
-        croak "Table already has a relation named '$alias'" if $table->{relations}->{$alias};
-        $table->{relations}->{$alias} = $rel;
-    }
-
-    return $rel;
+    return ($rel, @aliases);
 }
 
 1;

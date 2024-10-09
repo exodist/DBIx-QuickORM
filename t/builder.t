@@ -36,7 +36,7 @@ imported_ok qw{
     db_port db_socket db_user
 
     column column_class columns conflate default index is_temp is_view omit
-    primary_key row_base_class source_class table_class unique
+    primary_key row_class source_class table_class unique
 
     column columns relation
 

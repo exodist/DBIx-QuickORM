@@ -570,6 +570,7 @@ my $aliases = {
     created     => T(),
     sql_spec    => T(),
     indexes     => T(),
+    row_class   => 'DBIx::QuickORM::Row',
 
     unique => {
         alias_id => ['alias_id'],
@@ -624,6 +625,7 @@ my $complex_keys = {
     created     => T(),
     sql_spec    => T(),
     indexes     => T(),
+    row_class   => 'DBIx::QuickORM::Row',
 
     unique => {
         'name_a, name_b'         => ['name_a', 'name_b'],
@@ -677,6 +679,7 @@ my $complex_ref = {
     created     => T(),
     sql_spec    => T(),
     indexes     => T(),
+    row_class   => 'DBIx::QuickORM::Row',
 
     unique => {
         'name_a, name_b' => ['name_a', 'name_b'],
@@ -727,6 +730,7 @@ my $light_by_name = {
     is_view  => T(),
     created  => T(),
     sql_spec => T(),
+    row_class   => 'DBIx::QuickORM::Row',
 
     relations => {},
     indexes   => {},
@@ -788,6 +792,7 @@ my $lights = {
     created     => T(),
     sql_spec    => T(),
     indexes     => T(),
+    row_class   => 'DBIx::QuickORM::Row',
 
     unique => {light_id => ['light_id']},
 

@@ -36,9 +36,9 @@ imported_ok qw{
     db_port db_socket db_user
 
     column column_class columns conflate default index is_temp is_view omit
-    primary_key row_base_class source_class table_class unique
+    primary_key row_class source_class table_class unique
 
-    column columns relation relations
+    column columns relation relations relate
 
     plugin plugins
 
@@ -97,6 +97,11 @@ sub _schema {
         relation as 'person_way5', rtable('person'), using 'person_id',               on_delete 'cascade';
         relation person_way6 => ('person' => ['person_id'], on_delete => 'cascade');
     };
+
+    relate(
+        person  => ['aliases_link', ['person_id'], method => 'select'],
+        aliases => {as => 'person_link', on => {'person_id' => 'person_id'}, method => 'find', on_delete => 'cascade'},
+    );
 }
 
 orm postgresql_auto => sub {
@@ -337,6 +342,47 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
         is($rows->count, 1, "Got count");
         is([$rows->all], [exact_ref($robert)], "Got aliases, limited");
         is($rows->count, 1, "Got count");
+
+        is(
+            [$bob->relations('aliases_link', order_by => 'alias_id')->all],
+            [exact_ref($robert), exact_ref($rob)],
+            "Got relation built with 'relate' (aliases_link)"
+        );
+
+        is(
+            $rob->relation('person_link'),
+            exact_ref($bob),
+            "Got relation built with 'relate' (person_link)"
+        );
+
+        $source->connection->clear_cache();
+        $source->set_row_class('DBIx::QuickORM::Row::AutoAccessors');
+
+        $bob = $source->find($bob_id);
+        isa_ok($bob, ['DBIx::QuickORM::Row::AutoAccessors'], "Correct row class");
+        is($bob->person_id, $bob_id, "Can get column as accessor (autoloaded person_id method)");
+
+        ok($rows = $bob->aliases(order_by => 'alias_id'), "autoloaded aliases method");
+        is($rows->all, 2, "Got both aliases");
+
+        $source->connection->clear_cache();
+        $als->set_row_class('DBIx::QuickORM::Row::AutoAccessors');
+
+        $robert = $als->find(alias => 'robert');
+        isa_ok($robert, ['DBIx::QuickORM::Row::AutoAccessors'], "Got correct row type");
+        is($robert->person->person_id, $bob_id, "autoloaded person method");
+
+        like(
+            dies { $bob->fluggle },
+            qr/Can't locate object method "fluggle" via package "DBIx::QuickORM::Row::AutoAccessors"/,
+            "Correct exception for invalid method on blessed object"
+        );
+
+        like(
+            dies { DBIx::QuickORM::Row::AutoAccessors->foo },
+            qr/Can't locate object method "foo" via package "DBIx::QuickORM::Row::AutoAccessors"/,
+            "Correct exception for invalid method on class"
+        );
     };
 }
 
