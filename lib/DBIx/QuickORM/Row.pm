@@ -3,7 +3,6 @@ use strict;
 use warnings;
 
 use Scalar::Util qw/weaken blessed/;
-use Sub::Util qw/set_subname/;
 use Carp qw/croak/;
 
 use DBIx::QuickORM::Util qw/parse_hash_arg/;
@@ -51,6 +50,7 @@ sub set_uncached {
 sub source     { $_[0]->{+SOURCE}->() }
 sub table      { $_[0]->source->table }
 sub connection { $_[0]->source->connection }
+sub db         { $_[0]->source->connection->db }
 sub orm        { $_[0]->source->orm }
 sub table_name { $_[0]->{+TABLE_NAME} //= $_[0]->table->name }
 
@@ -108,52 +108,33 @@ sub relations {
     );
 }
 
-sub generate_relation_accessor {
-    my $self = shift;
-    my ($name, $alias) = @_;
-
-    $alias //= $name;
-
-    my $rel = $self->table->relation($name) or croak "'$name' is not a relation on this rows table (" . $self->table_name . ")";
-
-    my $meth = $rel->gets_one ? 'relation' : 'relations';
-
-    return set_subname $alias => sub { shift->$meth(@_) };
-}
-
 sub column {
     my $self = shift;
     my ($col, $val) = @_;
 
-    croak "No such column '$col'" unless $self->has_column($col);
+    my $def = $self->column_def($col) or croak "No such column '$col'";
 
     if (@_ > 1) {
-        $self->{+DIRTY}->{$col} = $val;
-        delete $self->{+INFLATED}->{$col};
+        my ($raw, $inflated);
+
+        if (ref($val)) {
+            if (my $conf = $def->conflate) {
+                ($raw, $inflated) = $conf->parse(column => $def, value => $val, type => $self->connection->column_type($self->table_name, $col));
+            }
+        }
+
+        $raw //= $val;
+
+        $self->{+DIRTY}->{$col} = $raw;
+        if ($inflated) {
+            $self->{+INFLATED}->{$col} = $inflated;
+        }
+        else {
+            delete $self->{+INFLATED}->{$col};
+        }
     }
 
     return $self->_inflated_col($col) // $self->_dirty_col($col) // $self->_from_db_col($col);
-}
-
-sub generate_column_accessor {
-    my $self = shift;
-    my ($col, $alias) = @_;
-
-    croak "No such column '$col'" unless $self->has_column($col);
-
-    $alias //= $col;
-
-    return set_subname $alias => sub {
-        my $self = shift;
-
-        if (@_) {
-            my ($val) = @_;
-            $self->{+DIRTY}->{$col} = $val;
-            delete $self->{+INFLATED}->{$col};
-        }
-
-        return $self->_inflated_col($col) // $self->_dirty_col($col) // $self->_from_db_col($col);
-    };
 }
 
 sub raw_column      { croak "No such column '$_[1]'" unless $_[0]->has_column($_[1]); $_[0]->_raw_col($_[1]) }
@@ -184,7 +165,7 @@ sub _inflate {
     for my $loc (DIRTY(), FROM_DB()) {
         next unless exists $self->{$loc}->{$col};
         my $val = $self->{$loc}->{$col};
-        return $conflate->inflate($val);
+        return $conflate->inflate(column => $def, value => $val, type => $self->connection->column_type($self->table_name, $col));
     }
 
     return undef;
@@ -244,9 +225,9 @@ sub update {
     else {
         # An update could theoretically update the primary key values, so get
         # new ones
-        my ($stmt, @bind) = $con->sqla->select($tname, \@cols, $self->primary_key);
+        my ($stmt, $bind, $bind_names) = $con->sqla->select($tname, \@cols, $self->primary_key);
         my $sth = $dbh->prepare($stmt);
-        $sth->execute(@bind);
+        $sth->execute(@$bind);
         $data = $sth->fetchrow_hashref;
     }
 

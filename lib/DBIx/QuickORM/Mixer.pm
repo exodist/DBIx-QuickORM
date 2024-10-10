@@ -12,6 +12,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <dbs
     <schemas
     <orms
+    <accessor_name_cb
 };
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created/;

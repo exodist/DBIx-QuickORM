@@ -18,7 +18,6 @@ BEGIN { $INC{'BEGIN/Lift.pm'} = 0 }
     }
 
     use DBIx::QuickORM::MetaTable aaa => sub {
-        print "HERE! XXY\n";
         column aaa_id => sub {
             primary_key;
             serial;
@@ -67,7 +66,7 @@ dbs_do db => sub {
     is([$orm->connection->tables], ['aaa'], "Table aaa was added");
 
     my $table = $orm->schema->table('aaa');
-    is($table, My::Table::AAA->orm_table, "Got table data");
+    like($table, My::Table::AAA->orm_table, "Got table data");
     is($table->row_class, 'My::Table::AAA', "row class is set");
 
     my $row = $orm->source('aaa')->insert(foo => 1);

@@ -12,7 +12,7 @@ BEGIN {
     delete ${\%{__PACKAGE__ . "\::"}}{search_path};
 }
 
-our @EXPORT = qw/ mod2file delegate alias parse_hash_arg merge_hash_of_objs find_modules /;
+our @EXPORT = qw/ mod2file delegate alias parse_hash_arg merge_hash_of_objs find_modules mesh_accessors accessor_field_inversion/;
 
 use base 'Exporter';
 
@@ -64,7 +64,7 @@ sub alias {
 }
 
 sub merge_hash_of_objs {
-    my ($hash_a, $hash_b) = @_;
+    my ($hash_a, $hash_b, $merge_params) = @_;
 
     $hash_a //= {};
     $hash_b //= {};
@@ -78,7 +78,7 @@ sub merge_hash_of_objs {
         my $a = $hash_a->{$name};
         my $b = $hash_b->{$name};
 
-        if    ($a && $b) { $out{$name} = $a->merge($b) }
+        if    ($a && $b) { $out{$name} = $a->merge($b, %$merge_params) }
         elsif ($a)       { $out{$name} = $a->clone }
         elsif ($b)       { $out{$name} = $b->clone }
     }
@@ -92,5 +92,43 @@ sub find_modules {
     __PACKAGE__->_find_paths(new => @prefixes);
     return __PACKAGE__->_find_mods();
 }
+
+my %ACCESSOR_FIELDS = (
+    ALL          => 'NONE',
+    NONE         => 'ALL',
+    RELATIONS    => 'NO_RELATIONS',
+    NO_RELATIONS => 'RELATIONS',
+    COLUMNS      => 'NO_COLUMNS',
+    NO_COLUMNS   => 'COLUMNS',
+);
+
+sub accessor_field_inversion { $ACCESSOR_FIELDS{$_[0]} }
+
+sub mesh_accessors {
+    my $out;
+
+    for my $set (@_) {
+        next unless $set;
+
+        $out //= {};
+
+        $out->{include}  = {%{$out->{include} // {}}, %{$set->{include}}} if $set->{include};
+        $out->{exclude}  = {%{$out->{exclude} // {}}, %{$set->{exclude}}} if $set->{exclude};
+        $out->{name_cbs} = [@{$out->{name_cbs} // []}, @{$set->{name_cbs}}] if $set->{name_cbs};
+
+        if (my $inj = $set->{inject_into}) {
+            $out->{inject_into} //= $inj;
+        }
+
+        for my $field (sort keys %ACCESSOR_FIELDS) {
+            next unless $set->{$field};
+            $out->{$field} = 1;
+            $out->{$ACCESSOR_FIELDS{$field}} = 0;
+        }
+    }
+
+    return $out;
+}
+
 
 1;

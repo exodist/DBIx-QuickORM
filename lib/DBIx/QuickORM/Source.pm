@@ -200,10 +200,10 @@ sub count_select {
 
     my $source = $table->sqla_source;
     $source = \"$source AS me" unless ref($source);
-    my ($stmt, @bind) = $con->sqla->select($source, ['count(*)'], $where);
+    my ($stmt, $bind, $bind_names) = $con->sqla->select($source, ['count(*)'], $where);
 
     my $sth = $con->dbh->prepare($stmt);
-    $sth->execute(@bind);
+    $sth->execute(@$bind);
 
     my ($count) = $sth->fetchrow_array;
 
@@ -226,15 +226,15 @@ sub do_select {
     my $con = $self->{+CONNECTION};
 
     my ($source, $cols, $relmap) = $self->_source_and_cols($params->{prefetch});
-    my ($stmt, @bind) = $con->sqla->select($source, $cols, $where, $order ? $order : ());
+    my ($stmt, $bind, $bind_names) = $con->sqla->select($source, $cols, $where, $order ? $order : ());
 
     if (my $limit = $params->{limit}) {
         $stmt .= " LIMIT ?";
-        push @bind => $limit;
+        push @$bind => $limit;
     }
 
     my $sth = $con->dbh->prepare($stmt);
-    $sth->execute(@bind);
+    $sth->execute(@$bind);
 
     my @out;
     while (my $data = $sth->fetchrow_arrayref) {
@@ -274,9 +274,9 @@ sub fetch {
     my $con = $self->{+CONNECTION};
 
     my ($source, $cols, $relmap) = $self->_source_and_cols($params->{prefetch});
-    my ($stmt, @bind) = $con->sqla->select($source, $cols, $where);
+    my ($stmt, $bind, $bind_names) = $con->sqla->select($source, $cols, $where);
     my $sth = $con->dbh->prepare($stmt);
-    $sth->execute(@bind);
+    $sth->execute(@$bind);
 
     my $data = $sth->fetchrow_arrayref or return undef;
     my $extra = $sth->fetchrow_arrayref;
@@ -358,9 +358,9 @@ sub _insert {
             $where = {$pk_fields->[0] => $kv};
         }
 
-        my ($stmt, @bind) = $con->sqla->select($table->sqla_source, $table->sqla_columns, $where);
+        my ($stmt, $bind, $bind_names) = $con->sqla->select($table->sqla_source, $table->sqla_columns, $where);
         my $sth = $dbh->prepare($stmt);
-        $sth->execute(@bind);
+        $sth->execute(@$bind);
         $data = $sth->fetchrow_hashref;
     }
 

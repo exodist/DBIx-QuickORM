@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 use DBIx::QuickORM ':TABLE_CLASS';
-use DBIx::QuickORM::MetaTable aaa => sub {
+use DBIx::QuickORM::MetaTable aaa => 'DBIx::QuickORM::Row::AutoAccessors', sub {
     column aaa_id => sub {
         primary_key;
         serial;
@@ -19,6 +19,8 @@ use DBIx::QuickORM::MetaTable aaa => sub {
     column foo => sub {
         sql_spec {type => 'INTEGER'};
     };
+
+    accessors ':ALL';
 };
 
 sub id { shift->column('aaa_id') }

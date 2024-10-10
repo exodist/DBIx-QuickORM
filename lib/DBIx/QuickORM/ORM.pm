@@ -15,6 +15,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     +con_schema  <con_sources
     +temp_schema <temp_sources
     <autofill
+    <accessor_name_cb
 };
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created/;
@@ -63,10 +64,13 @@ sub con_schema {
         $self->{+CON_SCHEMA} = $self->{+CON_SCHEMA}->merge($schema);
     }
 
-    $self->{+CON_SCHEMA} = $self->{+CON_SCHEMA}->merge($self->connection->generate_schema)
-        if $self->{+AUTOFILL};
+    if (my $af = $self->{+AUTOFILL}) {
+        my %params;
+        $params{name_cb} = $af if ref($af) eq 'CODE';
+        $self->{+CON_SCHEMA} = $self->{+CON_SCHEMA}->merge($self->connection->generate_schema, %params);
+    }
 
-    $self->{+CON_SCHEMA}->verify_relations;
+    $self->{+CON_SCHEMA}->compile;
 
     return $self->{+CON_SCHEMA};
 }
@@ -84,7 +88,6 @@ sub reconnect {
     $self->{+TEMP_SOURCES} = {};
 
     delete $self->{+TEMP_SCHEMA};
-    delete $self->{+CON_SCHEMA};
 
     return $self->connection;
 }
@@ -121,6 +124,8 @@ sub table {
 sub source {
     my $self = shift;
     my ($name) = @_;
+
+    croak "source() requires a table/view name" unless $name;
 
     return $self->{+TEMP_SOURCES}->{$name} if $self->{+TEMP_SOURCES}->{$name};
     return $self->{+CON_SOURCES}->{$name}  if $self->{+CON_SOURCES}->{$name};

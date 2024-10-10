@@ -6,7 +6,7 @@ use Carp qw/croak confess/;
 use Sub::Util qw/subname set_subname/;
 use List::Util qw/first uniq/;
 use Scalar::Util qw/blessed/;
-use DBIx::QuickORM::Util qw/mod2file alias find_modules/;
+use DBIx::QuickORM::Util qw/mod2file alias find_modules mesh_accessors accessor_field_inversion/;
 
 use Importer Importer => 'import';
 
@@ -64,12 +64,13 @@ my @_TABLE_EXPORTS = qw{
     sql_spec
     table_class
     unique
+    accessors
 };
 
 my @TABLE_EXPORTS = uniq (
     @_TABLE_EXPORTS,
     @REL_EXPORTS,
-    qw{ table },
+    qw{ table update_table },
 );
 
 my @ROGUE_TABLE_EXPORTS = uniq (
@@ -92,6 +93,7 @@ my @SCHEMA_EXPORTS = uniq (
         schema
         tables
         default_base_row
+        update_table
     },
 );
 
@@ -195,6 +197,8 @@ sub mixer {
     local $STATE{MIXER}    = \%params;
     local $STATE{STACK}    = ['MIXER', @{$STATE{STACK} // []}];
 
+    local $STATE{ACCESSORS};
+
     local $STATE{DEFAULT_BASE_ROW} = $STATE{DEFAULT_BASE_ROW};
 
     local $STATE{ORM};
@@ -256,6 +260,8 @@ sub orm {
 
     local $STATE{DEFAULT_BASE_ROW} = $STATE{DEFAULT_BASE_ROW};
 
+    local $STATE{ACCESSORS} = mesh_accessors($STATE{ACCESSORS});
+
     local $STATE{DB}       = undef;
     local $STATE{SCHEMA}   = undef;
     local $STATE{RELATION} = undef;
@@ -299,6 +305,17 @@ sub autofill {
     $val //= 1;
 
     my $orm = $STATE{ORM} or croak "This can only be used inside a orm builder";
+
+    my $ok;
+    if (my $type = ref($val)) {
+        $ok = 1 if $type eq 'CODE';
+    }
+    else {
+        $ok = 1 if "$val" == "1" || "$val" == "0";
+    }
+
+    croak "Autofill takes either no argument (on), 1 (on), 0 (off), or a coderef (got: $val)"
+        unless $ok;
 
     $orm->{autofill} = $val;
 }
@@ -430,6 +447,13 @@ sub _new_schema_params {
 sub _build_schema {
     my $params = shift;
 
+    if (my $pacc = $STATE{ACCESSORS}) {
+        for my $tname (%{$params->{tables}}) {
+            my $table = $params->{tables}->{$tname};
+            $tname = $table->clone(accessors => mesh_accessors($table->accessors, $pacc));
+        }
+    }
+
     my $includes = delete $params->{includes};
     my $class    = delete($params->{schema_class}) // first { $_ } (map { $_->schema_class(%$params, %STATE) } @{$params->{plugins}->all}), 'DBIx::QuickORM::Schema';
     eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
@@ -458,6 +482,8 @@ sub schema {
         local $STATE{PLUGINS}   = $params{plugins};
 
         local $STATE{DEFAULT_BASE_ROW} = $STATE{DEFAULT_BASE_ROW};
+
+        local $STATE{ACCESSORS} = mesh_accessors($STATE{ACCESSORS});
 
         local $STATE{COLUMN};
         local $STATE{TABLE};
@@ -534,18 +560,39 @@ sub tables {
 
     my @out;
     for my $mod (find_modules(@prefixes)) {
-        require (mod2file($mod));
-
-        my $table = $mod->orm_table;
-        my $name = $table->name;
-
-        croak "Schema already has a table named '$name', cannot add table from module '$mod'" if $schema->{tables}->{$name};
-
-        $schema->{tables}->{$name} = $table;
+        my ($mod, $table) = _add_table_class($mod, $schema);
         push @out => $mod;
     }
 
     return @out;
+}
+
+sub _add_table_class {
+    my ($mod, $schema) = @_;
+
+    $schema //= $STATE{SCHEMA};
+
+    require (mod2file($mod));
+
+    my $table = $mod->orm_table;
+    my $name = $table->name;
+
+    croak "Schema already has a table named '$name', cannot add table from module '$mod'" if $schema->{tables}->{$name};
+
+    my %clone;
+
+    if (my $pacc = $STATE{ACCESSORS}) {
+        $clone{accessors} = mesh_accessors($pacc, $table->accessors);
+    }
+
+    if (my $row_class = $table->{row_class} // $schema->{row_class}) {
+        $clone{row_class} = $row_class;
+    }
+
+    $table = $table->clone(%clone) if keys %clone;
+
+    $schema->{tables}->{$name} = $table;
+    return ($mod, $table);
 }
 
 sub rogue_table {
@@ -562,6 +609,7 @@ sub rogue_table {
     local $STATE{COLUMN}    = undef;
     local $STATE{TABLE}     = undef;
     local $STATE{RELATION}  = undef;
+    local $STATE{ACCESSORS} = undef;
 
     return _table($name, $cb);
 }
@@ -574,6 +622,8 @@ sub _table {
     $params{created} //= "$caller[1] line $caller[2]";
     $params{indexes} //= {};
     $params{plugins} = _push_plugins();
+
+    local $STATE{ACCESSORS};
 
     local $STATE{DEFAULT_BASE_ROW} = $STATE{DEFAULT_BASE_ROW};
 
@@ -596,28 +646,41 @@ sub _table {
     return $class->new(%params);
 }
 
+sub update_table {
+    my $schema = _get_schema() or croak "table() can only be used inside a schema builder";
+    my ($name, $cb) = @_;
+
+    my $old = $schema->{tables}->{$name};
+
+    local $STATE{COLUMN};
+    local $STATE{RELATION};
+
+    my $table = _table($name, $cb);
+
+    $schema->{tables}->{$name} = $old ? $old->merge($table) : $table;
+
+    return $schema->{tables}->{$name}
+}
+
 sub table {
     return rtable(@_) if $STATE{RELATION};
-    my $schema = _get_schema() or croak "table() can only be used inside a schema, orm, builder";
+    my $schema = _get_schema() or croak "table() can only be used inside a schema builder";
 
     my ($name, $cb) = @_;
 
-    my $table;
-    if ($name =~ m/::/) {
-        require(mod2file($name));
-        $table = $name->orm_table;
-        $name = $table->name;
-    }
-    else {
-        my %params;
-
-        local $STATE{COLUMN};
-        local $STATE{RELATION};
-
-        $table = _table($name, $cb, %params);
-    }
-
     croak "Table '$name' is already defined" if $schema->{tables}->{$name};
+
+    if ($name =~ m/::/) {
+        croak "Too many arguments for table(\$table_class)" if $cb;
+        my ($mod, $table) = _add_table_class($name, $schema);
+        return $table;
+    }
+
+    local $STATE{COLUMN};
+    local $STATE{RELATION};
+
+    my $table = _table($name, $cb);
+
     $schema->{tables}->{$name} = $table;
 
     return $table;
@@ -716,7 +779,7 @@ sub _meta_table {
 
     local %STATE;
 
-    my $table = _table($name, $cb, row_class => $into);
+    my $table = _table($name, $cb, row_class => $into, accessors => {inject_into => $into});
 
     {
         no strict 'refs';
@@ -727,12 +790,96 @@ sub _meta_table {
     return $table;
 }
 
+# -name - remove a name
+# :NONE
+# :ALL
+# {name => newname} - renames
+# [qw/name1 name2/] - includes
+# name - include
+# sub { my ($name, {col => $col, rel => $rel}) = @_; return $newname } - name generator, return original, new, or undef if it should be skipped
+sub accessors {
+    return _table_accessors(@_) if $STATE{TABLE};
+    return _other_accessors(@_) if $STATE{ACCESSORS};
+    croak "accesors() must be called inside one of the following builders: table, orm, schema, mixer"
+}
+
+sub _other_accessors {
+    my $acc = $STATE{ACCESSORS} //= {};
+
+    for my $arg (@_) {
+        if (ref($arg) eq 'CODE') {
+            push @{$acc->{name_cbs}} => $arg;
+            next;
+        }
+
+        if ($arg =~ m/^:(\S+)$/) {
+            my $field = $1;
+            my $inverse = accessor_field_inversion($field) or croak "'$arg' is not a valid accessors() argument";
+
+            $acc->{$field} = 1;
+            $acc->{$inverse} = 0;
+
+            next;
+        }
+
+        croak "'$arg' is not a valid argument to accessors in this builder";
+    }
+
+    return;
+}
+
+sub _table_accessors {
+    my $acc = $STATE{TABLE}->{accessors} //= {};
+
+    while (my $arg = shift @_) {
+        my $r = ref($arg);
+
+        if ($r eq 'HASH') {
+            $acc->{include}->{$_} = $r->{$_} for keys %$r;
+            next;
+        }
+
+        if ($r eq 'ARRAY') {
+            $acc->{include}->{$_} //= $r->{$_} for @$r;
+            next;
+        }
+
+        if ($r eq 'CODE') {
+            push @{$acc->{name_cbs} //= []} => $arg;
+            next
+        }
+
+        if ($arg =~ m/^-(\S+)$/) {
+            $acc->{exclude}->{$1} = $1;
+            next;
+        }
+
+        if ($arg =~ m/^\+(\$+)$/) {
+            $acc->{inject_into} = $1;
+        }
+
+        if ($arg =~ m/^:(\S+)$/) {
+            my $field = $1;
+            my $inverse = accessor_field_inversion($field) or croak "'$arg' is not a valid accessors() argument";
+
+            $acc->{$field} = 1;
+            $acc->{$inverse} = 0;
+
+            next;
+        }
+
+        $acc->{include}->{$arg} //= $arg;
+    }
+
+    return;
+}
+
 BEGIN {
     my @CLASS_SELECTORS = (
-        ['column_class',   'COLUMN',   'TABLE',    'SCHEMA'],
-        ['row_class', 'TABLE',    'SCHEMA'],
-        ['table_class',    'TABLE',    'SCHEMA'],
-        ['source_class',   'TABLE'],
+        ['column_class', 'COLUMN', 'TABLE', 'SCHEMA'],
+        ['row_class',    'TABLE',  'SCHEMA'],
+        ['table_class',  'TABLE',  'SCHEMA'],
+        ['source_class', 'TABLE'],
     );
 
     for my $cs (@CLASS_SELECTORS) {
@@ -841,9 +988,17 @@ BEGIN {
         ],
         [
             conflate => set_subname conflate_col_val => sub {
-                my $class = shift(@{$_[0]});
-                eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
-                return $class;
+                my $conf = shift(@{$_[0]});
+
+                if (blessed($conf)) {
+                    croak "Conflator '$conf' does not implement parse()"   unless $conf->can('parse');
+                    croak "Conflator '$conf' does not implement inflate()" unless $conf->can('inflate');
+                    # We do not care about deflate
+                    return $conf;
+                }
+
+                eval { require(mod2file($conf)); 1 } or croak "Could not load conflator class '$conf': $@";
+                return $conf;
             },
         ],
     );

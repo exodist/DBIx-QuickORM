@@ -75,50 +75,50 @@ sub on {
 
 sub on_sql {
     my $self = shift;
-    my ($from, $as) = @_;
+    my ($from, $as, $sort) = @_;
 
     if (my $on = $self->{+ON}) {
-        return join ", " => map {"${from}.$_ = ${as}.$on->{$_}"} keys %$on;
+        my @fields = keys %$on;
+        @fields = sort @fields if $sort;
+        return join ", " => map {"${from}.$_ = ${as}.$on->{$_}"} @fields;
     }
 
     if (my $using = $self->{+USING}) {
-        return join ", " => map {"${from}.$_ = ${as}.$_"} @$using;
+        my @fields = @$using;
+        @fields = sort @fields if $sort;
+        return join ", " => map {"${from}.$_ = ${as}.$_"} @fields;
     }
 
     die "Internal error, no 'using' or 'on' are present";
 }
 
+sub display {
+    my $self = shift;
+    my %params = @_;
+
+    my $on_sql = $self->on_sql(qw/A B sort/);
+
+    my $out = "$self->{+TABLE}->$self->{+METHOD} ON($on_sql)";
+    $out .= $self->{+PREFETCH} ? " PREFETCH" : " NO FETCH";
+    $out .= " ON DELETE $self->{+ON_DELETE}" if $self->{+ON_DELETE} && ($params{ON_DELETE} // 1);
+
+    return $out;
+}
+
 sub compare {
     my $self = shift;
-    my ($other) = @_;
+    my ($other, %params) = @_;
 
     return 0 unless $self->{+TABLE} eq $other->{+TABLE};
     return 0 unless $self->{+METHOD} eq $other->{+METHOD};
     return 0 if ($self->{+PREFETCH} xor $other->{+PREFETCH});
-    return 0 if ($self->{+ON} xor $other->{+ON});
-    return 0 if ($self->{+USING} xor $other->{+USING});
-    return 0 if ($self->{+ON_DELETE} xor $other->{+ON_DELETE});
+    return 0 unless $self->on_sql(qw/A B sort/) eq $other->on_sql(qw/A B sort/);
 
-    if ($self->{+USING}) {
-        my %seen;
-        for my $key (keys %{$self->{+USING}}, keys %{$other->{+USING}}) {
-            next if $seen{$key}++;
-            return 0 unless exists $self->{+USING}->{$key};
-            return 0 unless exists $other->{+USING}->{$key};
-            return 0 if (defined($self->{+USING}->{$key}) xor defined($other->{+USING}->{$key}));
-            return 0 unless $self->{+USING}->{$key} eq $other->{+USING}->{$key};
+    if ($params{ON_DELETE} // 1) {
+        return 0 if ($self->{+ON_DELETE} xor $other->{+ON_DELETE});
+        if ($self->{+ON_DELETE}) {
+            return 0 if $self->{+ON_DELETE} ne $other->{+ON_DELETE};
         }
-    }
-
-    if ($self->{+ON}) {
-        return 0 unless @{$self->{+ON}} == @{$other->{+ON}};
-        for (my $i = 0; $i < @{$self->{+ON}}; $i++) {
-            return 0 unless $self->{+ON}->[$i] eq $other->{+ON}->[$i];
-        }
-    }
-
-    if ($self->{+ON_DELETE}) {
-        return 0 if $self->{+ON_DELETE} ne $other->{+ON_DELETE};
     }
 
     return 1;

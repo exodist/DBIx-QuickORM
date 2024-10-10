@@ -6,7 +6,7 @@ use Carp qw/confess croak/;
 use Scalar::Util qw/blessed weaken isweak/;
 use DBIx::QuickORM::Util qw/alias/;
 
-require SQL::Abstract;
+require DBIx::QuickORM::SQLAbstract;
 require DBIx::QuickORM::Util::SchemaBuilder;
 
 use DBIx::QuickORM::Util::HashBase qw{
@@ -58,7 +58,7 @@ sub init {
     croak "A database handle is required" unless $self->{+DBH};
 
     $self->{+PID}  //= $$;
-    $self->{+SQLA} //= SQL::Abstract->new();
+    $self->{+SQLA} //= DBIx::QuickORM::SQLAbstract->new();
 
     $self->{+COLUMN_TYPE_CACHE} //= {};
 
