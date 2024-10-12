@@ -4,11 +4,13 @@ use warnings;
 
 use Carp qw/croak/;
 use DBD::SQLite;
+use DateTime::Format::SQLite;
 
 use parent 'DBIx::QuickORM::DB';
 use DBIx::QuickORM::Util::HashBase;
 
 sub dbi_driver { 'DBD::SQLite' }
+sub datetime_formatter { 'DateTime::Format::SQLite' }
 
 sub sql_spec_keys { 'sqlite' }
 
@@ -31,6 +33,31 @@ sub load_schema_sql {
     my $self = shift;
     my ($dbh, $sql) = @_;
     $dbh->do($_) or die "Error loading schema" for split /;/, $sql;
+}
+
+sub supports_uuid { 'UUID' }
+sub supports_json { 'JSON' }
+
+sub serial_type { 'INTEGER' }
+
+my %NORMALIZED_TYPES = (
+    INT          => 'INTEGER',
+    BYTEA        => 'BLOB',
+    BIGINTEGER   => 'BIGINT',
+    SMALLINTEGER => 'SMALLINT',
+    TINYINTEGER  => 'TINYINT',
+    SERIAL       => 'INTEGER',
+    BIGSERIAL    => 'BIGINT',
+    SMALLSERIAL  => 'SMALLINT',
+    TINYSERIAL   => 'TINYINT',
+);
+
+sub normalize_sql_type {
+    my $self = shift;
+    my ($type, %params) = @_;
+
+    $type = uc($type);
+    return $NORMALIZED_TYPES{$type} // $type;
 }
 
 sub tables {

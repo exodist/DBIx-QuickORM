@@ -119,7 +119,7 @@ sub column {
 
         if (ref($val)) {
             if (my $conf = $def->conflate) {
-                ($raw, $inflated) = $conf->parse(column => $def, value => $val, type => $self->connection->column_type($self->table_name, $col));
+                ($raw, $inflated) = $conf->qorm_parse(column => $def, value => $val, type => $self->connection->column_type($self->table_name, $col));
             }
         }
 
@@ -165,7 +165,7 @@ sub _inflate {
     for my $loc (DIRTY(), FROM_DB()) {
         next unless exists $self->{$loc}->{$col};
         my $val = $self->{$loc}->{$col};
-        return $conflate->inflate(column => $def, value => $val, type => $self->connection->column_type($self->table_name, $col));
+        return $conflate->qorm_inflate(column => $def, value => $val, type => $self->connection->column_type($self->table_name, $col));
     }
 
     return undef;
@@ -201,11 +201,12 @@ sub update {
 
     croak "Object is not yet in the database, use insert or save" unless $self->{+FROM_DB};
 
-    $row_data = { %{delete($self->{+DIRTY}) // {}}, %$row_data };
+    my $source = $self->source;
+
+    $row_data = $source->deflate_row_data(%{delete($self->{+DIRTY}) // {}}, %$row_data);
 
     my $primary_key = $self->primary_key;
 
-    my $source = $self->source;
     my $table  = $source->table;
     my $tname  = $table->name;
     my @cols   = $table->column_names;
@@ -225,7 +226,7 @@ sub update {
     else {
         # An update could theoretically update the primary key values, so get
         # new ones
-        my ($stmt, $bind, $bind_names) = $con->sqla->select($tname, \@cols, $self->primary_key);
+        my ($stmt, $bind) = $source->build_select_sql($tname, \@cols, $self->primary_key);
         my $sth = $dbh->prepare($stmt);
         $sth->execute(@$bind);
         $data = $sth->fetchrow_hashref;

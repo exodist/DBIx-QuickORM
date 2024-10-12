@@ -54,14 +54,7 @@ sub _schema {
     table person => sub {
         column person_id => sub {
             primary_key;
-            serial;
-            sql_spec(
-                mysql      => {type => 'INTEGER'},
-                postgresql => {type => 'SERIAL'},
-                sqlite     => {type => 'INTEGER'},
-
-                type => 'INTEGER',    # Fallback
-            );
+            serial('BIG');
         };
 
         column name => sub {
@@ -76,17 +69,15 @@ sub _schema {
         column alias_id => sub {
             primary_key;
             serial;
-            sql_spec(type => 'INTEGER');
         };
 
         column person_id => sub {
-            sql_spec type => 'INTEGER';
-
+            sql_type 'biginteger';
             references person => (on_delete => 'cascade', prefetch => 1);
         };
 
         column alias => sub {
-            sql_spec(type => 'VARCHAR(128)');
+            sql_type \'VARCHAR(128)'; # Just verifying escape works, nothing special about it.
         };
 
         unique(qw/person_id alias/);
@@ -214,6 +205,8 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
             $pdb->connect->dbh->do("DROP TABLE aliases");
             $pdb->connect->dbh->do("DROP TABLE person");
         }
+
+        note uc("== SQL for $db ==\n" . $orm->generate_schema_sql . "\n== END SQL for $db ==\n");
 
         ok(lives { $orm->generate_and_load_schema() }, "Generate and load schema");
 

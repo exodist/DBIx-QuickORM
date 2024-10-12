@@ -29,7 +29,7 @@ sub init {
         if ($ref && $ref eq 'HASH') {
             $self->{+OVERRIDES}->{$key} = DBIx::QuickORM::SQLSpec::Params->new(%$val);
         }
-        elsif (!$ref || $ref eq 'ARRAY') {
+        elsif (!$ref || $ref eq 'ARRAY' || $ref eq 'SCALAR') {
             $self->{+GLOBAL}->{$key} = $val;
         }
         else {

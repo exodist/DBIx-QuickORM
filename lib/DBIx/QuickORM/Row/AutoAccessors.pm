@@ -19,7 +19,7 @@ sub AUTOLOAD {
     my $meth = $AUTOLOAD;
     $meth =~ s/^.*:://g;
 
-    my $class = blessed($self);
+    my $class = blessed($self) // $self;
 
     croak qq{Can't locate object method "$meth" via package "$self"}
         unless blessed($self);

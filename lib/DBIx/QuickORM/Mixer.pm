@@ -11,6 +11,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <name
     <dbs
     <schemas
+    <conflators
     <orms
     <accessor_name_cb
 };
@@ -37,6 +38,12 @@ sub database {
     my $self = shift;
     my ($name) = @_;
     return $self->{+DBS}->{$name};
+}
+
+sub conflator {
+    my $self = shift;
+    my ($name) = @_;
+    return $self->{+CONFLATORS}->{$name};
 }
 
 sub orm {

@@ -9,6 +9,7 @@ use DBIx::QuickORM::Util qw/alias/;
 
 require DBIx::QuickORM::Connection;
 require DBIx::QuickORM::Util::SchemaBuilder;
+require DateTime;
 
 use DBIx::QuickORM::Util::HashBase qw{
     +connect
@@ -35,6 +36,7 @@ sub commit_savepoint   { croak "$_[0]->commit_savepoint() is not implemented" }
 sub rollback_savepoint { croak "$_[0]->rollback_savepoint() is not implemented" }
 
 sub dbi_driver { croak "$_[0]->dbi_driver() is not implemented" }
+sub datetime_formatter { 'DateTime' }
 
 sub tables      { croak "$_[0]->tables() is not implemented" }
 sub table       { croak "$_[0]->table() is not implemented" }
@@ -50,6 +52,7 @@ sub create_temp_table { croak "$_[0]->create_temp_table() is not implemented" }
 sub drop_temp_view    { croak "$_[0]->drop_temp_table() is not implemented" }
 sub drop_temp_table   { croak "$_[0]->drop_temp_table() is not implemented" }
 
+sub quote_binary_data                 { 1 }
 sub quote_index_columns               { 1 }
 sub generate_schema_sql_header        { () }
 sub generate_schema_sql_footer        { () }
@@ -59,6 +62,9 @@ sub sql_spec_keys {}
 
 sub temp_table_supported { 0 }
 sub temp_view_supported  { 0 }
+
+sub supports_uuid { () }
+sub supports_json { () }
 
 sub insert_returning_supported { 0 }
 sub update_returning_supported { 0 }
@@ -125,13 +131,13 @@ sub connect {
     );
 }
 
-sub generate_and_load_schema {
-    my $class_or_self = shift;
-    my ($dbh, %params) = @_;
-
-    my $sql = $class_or_self->generate_schema_sql(%params);
-    return $class_or_self->load_schema_sql($sql);
-}
+#sub generate_and_load_schema {
+#    my $class_or_self = shift;
+#    my ($dbh, %params) = @_;
+#
+#    my $sql = $class_or_self->generate_schema_sql(%params, dbh => $dbh);
+#    return $class_or_self->load_schema_sql($sql);
+#}
 
 sub table_dep_cmp {
     my $class_or_self = shift;
@@ -173,16 +179,16 @@ sub generate_schema_sql {
 
     my @out;
 
-    push @out => $class_or_self->_generate_schema_sql_header(sql_spec => $specs, plugins => $plugins, schema => $schema);
+    push @out => $class_or_self->_generate_schema_sql_header(%params, sql_spec => $specs, plugins => $plugins, schema => $schema);
 
     for my $t (sort { $class_or_self->table_dep_cmp($a, $b) } $schema->tables) {
         my $tname = $t->name;
 
-        push @out => $class_or_self->generate_schema_sql_table(table => $t, schema => $schema, plugins => $plugins);
-        push @out => $class_or_self->generate_schema_sql_indexes_for_table(table => $t, schema => $schema, plugins => $plugins);
+        push @out => $class_or_self->generate_schema_sql_table(%params, table => $t, schema => $schema, plugins => $plugins);
+        push @out => $class_or_self->generate_schema_sql_indexes_for_table(%params, table => $t, schema => $schema, plugins => $plugins);
     }
 
-    push @out => $class_or_self->_generate_schema_sql_footer(sql_spec => $specs, schema => $schema, plugins => $plugins);
+    push @out => $class_or_self->_generate_schema_sql_footer(%params, sql_spec => $specs, schema => $schema, plugins => $plugins);
 
     return join "\n" => @out;
 }
@@ -366,18 +372,46 @@ sub generate_schema_sql_indexes_for_table {
     return @out;
 }
 
+sub normalize_sql_type { $_[1] }
+
 sub generate_schema_sql_column_type {
     my $class_or_self = shift;
     my %params        = @_;
 
     my $specs = $params{sql_spec};
 
+    my $col = $params{column};
     my $t = $params{table}->name;
-    my $c = $params{column}->name;
+    my $c = $col->name;
 
-    my $type = $specs->get_spec(type => $class_or_self->sql_spec_keys) or croak "No 'type' key found in SQL specs for column $c in table $t";
+    my $type = $col->sql_type($class_or_self->sql_spec_keys);
+
+    if (my $s = $col->serial) {
+        $type //= $class_or_self->serial_type($s);
+    }
+
+    if (my $cf = $col->conflate) {
+        $type //= $cf->qorm_sql_type(%params) if $cf->can('qorm_sql_type');
+    }
+
+    if (ref($type) eq 'SCALAR') {
+        $type = $$type;
+    }
+    else {
+        $type = $class_or_self->normalize_sql_type($type, %params);
+    }
+
+    croak "No 'type' key found in SQL specs for column $c in table $t, and it is not serial"
+        unless $type;
 
     return $type;
+}
+
+sub serial_type {
+    my $self = shift;
+    my ($size) = @_;
+    return 'INTEGER' if "$size" eq "1";
+    return "${size}INT";
 }
 
 sub generate_schema_sql_column_default {

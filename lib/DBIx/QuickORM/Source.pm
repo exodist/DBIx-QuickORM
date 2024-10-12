@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 use Carp qw/croak confess/;
-use List::Util qw/min/;
+use List::Util qw/min zip/;
 use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/parse_hash_arg mod2file/;
 
@@ -21,6 +21,8 @@ use DBIx::QuickORM::Util::HashBase qw{
 };
 
 use DBIx::QuickORM::Util::Has qw/Created Plugins/;
+
+sub db { $_[0]->{+CONNECTION}->db }
 
 sub init {
     my $self = shift;
@@ -200,7 +202,7 @@ sub count_select {
 
     my $source = $table->sqla_source;
     $source = \"$source AS me" unless ref($source);
-    my ($stmt, $bind, $bind_names) = $con->sqla->select($source, ['count(*)'], $where);
+    my ($stmt, $bind) = $self->build_select_sql($source, ['count(*)'], $where);
 
     my $sth = $con->dbh->prepare($stmt);
     $sth->execute(@$bind);
@@ -226,7 +228,7 @@ sub do_select {
     my $con = $self->{+CONNECTION};
 
     my ($source, $cols, $relmap) = $self->_source_and_cols($params->{prefetch});
-    my ($stmt, $bind, $bind_names) = $con->sqla->select($source, $cols, $where, $order ? $order : ());
+    my ($stmt, $bind) = $self->build_select_sql($source, $cols, $where, $order ? $order : ());
 
     if (my $limit = $params->{limit}) {
         $stmt .= " LIMIT ?";
@@ -274,7 +276,7 @@ sub fetch {
     my $con = $self->{+CONNECTION};
 
     my ($source, $cols, $relmap) = $self->_source_and_cols($params->{prefetch});
-    my ($stmt, $bind, $bind_names) = $con->sqla->select($source, $cols, $where);
+    my ($stmt, $bind) = $self->build_select_sql($source, $cols, $where);
     my $sth = $con->dbh->prepare($stmt);
     $sth->execute(@$bind);
 
@@ -336,6 +338,8 @@ sub _insert {
     my $table = $self->{+TABLE};
     my $tname = $table->name;
 
+    $row_data = $self->deflate_row_data($row_data);
+
     my ($stmt, @bind) = $con->sqla->insert($tname, $row_data, $ret ? {returning => [$table->column_names]} : ());
 
     my $dbh = $con->dbh;
@@ -358,13 +362,54 @@ sub _insert {
             $where = {$pk_fields->[0] => $kv};
         }
 
-        my ($stmt, $bind, $bind_names) = $con->sqla->select($table->sqla_source, $table->sqla_columns, $where);
+        my ($stmt, $bind) = $self->build_select_sql($table->sqla_source, $table->sqla_columns, $where);
         my $sth = $dbh->prepare($stmt);
         $sth->execute(@$bind);
         $data = $sth->fetchrow_hashref;
     }
 
     return $data;
+}
+
+sub build_select_sql {
+    my $self = shift;
+    my ($stmt, $bind, $bind_names) = $self->{+CONNECTION}->sqla->select(@_);
+
+    die "Internal error: Length mistmatch between bind elements and bind names (" . @$bind . " vs " . @$bind_names . ")"
+        unless @$bind == @$bind_names;
+
+    my @new_bind = map { $self->deflate_column_data(@{$_}) } zip($bind_names, $bind);
+
+    return ($stmt, \@new_bind);
+}
+
+sub deflate_row_data {
+    my $self = shift;
+    my $row_data = $self->parse_hash_arg(@_);
+
+    my $new_data = {map {($_ => $self->deflate_column_data($_, $row_data->{$_}))} keys %$row_data};
+
+    return $new_data;
+}
+
+sub deflate_column_data {
+    my $self = shift;
+    my ($col, $val) = @_;
+
+    my $table = $self->{+TABLE};
+    my $tname = $table->name;
+    $col =~ s/^\S+\.// if index($col, '.');
+    my $def = $table->column($col) or confess "Table '$tname' does not have a column '$col'";
+
+    if (my $conf = $def->{conflate}) {
+        return $conf->qorm_deflate(quote_bin => $self->{+CONNECTION}, source => $self, column => $def, value => $val, type => $self->{+CONNECTION}->column_type($tname, $col));
+    }
+
+    if (blessed($val) && $val->can('qorm_deflate')) {
+        return $val->qorm_deflate(quote_bin => $self->{+CONNECTION}, source => $self, column => $def, value => $val, type => $self->{+CONNECTION}->column_type($tname, $col));
+    }
+
+    return $val;
 }
 
 sub vivify {

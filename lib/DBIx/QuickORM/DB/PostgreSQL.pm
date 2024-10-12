@@ -5,11 +5,13 @@ use warnings;
 use DBD::Pg;
 
 use Carp qw/croak/;
+use DateTime::Format::Pg;
 
 use parent 'DBIx::QuickORM::DB';
 use DBIx::QuickORM::Util::HashBase;
 
 sub dbi_driver { 'DBD::Pg' }
+sub datetime_formatter { 'DateTime::Format::Pg' }
 
 sub sql_spec_keys { 'postgresql' }
 
@@ -28,10 +30,48 @@ sub rollback_savepoint { $_[1]->pg_rollback_to($_[2]) }
 sub update_returning_supported { 1 }
 sub insert_returning_supported { 1 }
 
+sub supports_uuid { 'UUID' }
+sub supports_json { 'JSONB' }
+
 sub load_schema_sql {
     my $self = shift;
     my ($dbh, $sql) = @_;
     $dbh->do($sql) or die "Failed to load schema";
+}
+
+sub serial_type {
+    my $self = shift;
+    my ($size) = @_;
+    return 'SERIAL' if "$size" eq "1";
+    return "${size}SERIAL";
+}
+
+my %NORMALIZED_TYPES = (
+    INT          => 'INTEGER',
+    BINARY       => 'BYTEA',
+    JSON         => 'JSONB',
+    BIGINTEGER   => 'BIGINT',
+    SMALLINTEGER => 'SMALLINT',
+    TINYINTEGER  => 'TINYINT',
+);
+
+sub normalize_sql_type {
+    my $self_or_class = shift;
+    my ($type, %params) = @_;
+
+    my $col = $params{column};
+
+    $type = uc($type);
+    $type = $NORMALIZED_TYPES{$type} // $type;
+
+    $type = 'BYTEA' if $type =~ m/^BIN/;
+
+    if ($type =~ m/INT/i && $col->serial) {
+        $type =~ s/INTEGER/SERIAL/g;
+        $type =~ s/INT/SERIAL/g;
+    }
+
+    return $type;
 }
 
 # As far as I can tell postgres does not let us know if it is a temp view or a
@@ -167,7 +207,7 @@ sub columns {
 
     my @out;
     while (my $col = $sth->fetchrow_hashref) {
-        $cache->{$table}->{$col->{name}} //= {type => $col->{type}, is_datetime => $col->{is_datetime}};
+        $cache->{$table}->{$col->{name}} //= $col;
         push @out => $col;
     }
 

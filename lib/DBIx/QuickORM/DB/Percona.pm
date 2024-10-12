@@ -7,4 +7,7 @@ use DBIx::QuickORM::Util::HashBase;
 
 sub sql_spec_keys { qw/percona mysql/ }
 
+sub supports_uuid { () }
+sub supports_json { () }
+
 1;

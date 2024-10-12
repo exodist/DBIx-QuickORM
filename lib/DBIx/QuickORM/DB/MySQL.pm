@@ -3,12 +3,15 @@ use strict;
 use warnings;
 
 use Carp qw/croak/;
+use Scalar::Util qw/blessed/;
 use DBD::mysql;
+use DateTime::Format::MySQL;
 
 use parent 'DBIx::QuickORM::DB';
-use DBIx::QuickORM::Util::HashBase;
+use DBIx::QuickORM::Util::HashBase qw{ +quote_binary_data };
 
 sub dbi_driver { 'DBD::mysql' }
+sub datetime_formatter { 'DateTime::Format::MySQL' }
 
 sub sql_spec_keys { 'mysql' }
 sub dsn_socket_field { 'mysql_socket' };
@@ -26,10 +29,34 @@ sub create_savepoint   { $_[1]->do("SAVEPOINT $_[2]") }
 sub commit_savepoint   { $_[1]->do("RELEASE SAVEPOINT $_[2]") }
 sub rollback_savepoint { $_[1]->do("ROLLBACK TO SAVEPOINT $_[2]") }
 
+sub supports_uuid { () }
+sub supports_json { () }
+
 sub load_schema_sql {
     my $self = shift;
     my ($dbh, $sql) = @_;
     $dbh->do($_) or die "Error loading schema" for split /;/, $sql;
+}
+
+my %NORMALIZED_TYPES = (
+    INT          => 'INTEGER',
+    BYTEA        => 'BLOB',
+    BIGINTEGER   => 'BIGINT',
+    SMALLINTEGER => 'SMALLINT',
+    TINYINTEGER  => 'TINYINT',
+    UUID         => 'BINARY(16)',
+    SERIAL       => 'INTEGER',
+    BIGSERIAL    => 'BIGINT',
+    SMALLSERIAL  => 'SMALLINT',
+    TINYSERIAL   => 'TINYINT',
+);
+
+sub normalize_sql_type {
+    my $self = shift;
+    my ($type, %params) = @_;
+
+    $type = uc($type);
+    return $NORMALIZED_TYPES{$type} // $type;
 }
 
 my %TABLE_TYPES = (

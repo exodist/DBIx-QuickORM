@@ -48,6 +48,8 @@ my @_TABLE_EXPORTS = qw{
     column_class
     columns
     conflate
+    inflate
+    deflate
     default
     index
     is_temp
@@ -62,6 +64,7 @@ my @_TABLE_EXPORTS = qw{
     serial
     source_class
     sql_spec
+    sql_type
     table_class
     unique
     accessors
@@ -116,6 +119,7 @@ our @EXPORT = uniq (
         default_base_row
         autofill
         mixer
+        conflator
         orm
     },
 );
@@ -185,11 +189,12 @@ sub mixer {
     my @caller = caller;
 
     my %params = (
-        name    => $name // 'orm mixer',
-        created => "$caller[1] line $caller[2]",
-        dbs     => {},
-        schemas => {},
-        plugins => _push_plugins(),
+        name       => $name // 'orm mixer',
+        created    => "$caller[1] line $caller[2]",
+        dbs        => {},
+        schemas    => {},
+        conflators => {},
+        plugins    => _push_plugins(),
     );
 
     local $STATE{RELATION} = undef;
@@ -218,6 +223,94 @@ sub mixer {
     }
 
     return $mixer;
+}
+
+sub conflator {
+    croak "Too many arguments to conflator()" if @_ > 2;
+    my ($cb, $name);
+
+    my $mixer = $STATE{MIXER};
+    my $col = $STATE{COLUMN};
+
+    croak "conflator() can only be used in void context inside either a column or mixer builder "
+        unless $col || $mixer || wantarray;
+
+    for my $arg (@_) {
+        $cb = $arg if ref($arg) eq 'CODE';
+        $name = $arg;
+    }
+
+    my $c;
+
+    if ($col && $name && !$cb) {
+        $c = $mixer->{conflator}->{$name} or croak "conflator '$name' is not defined";
+    }
+    elsif ($mixer) {
+        croak "a name is required when used inside a mixer builder but not a column builder" unless $name;
+        croak "a codeblock is required" unless $cb;
+    }
+    else {
+        croak "a codeblock is required" unless $cb;
+    }
+
+    my %params = (name => $name);
+    local $STATE{CONFLATOR} = \%params;
+
+    unless ($c) {
+        $cb->() if $cb;
+
+        croak "The callback did not define an inflator" unless $params{inflator};
+        croak "The callback did not define a deflator"  unless $params{deflator};
+
+        require DBIx::QuickORM::Conflator;
+        $c = DBIx::QuickORM::Conflator->new(%params);
+    }
+
+    if ($col) {
+        $col->{conflate} = $c;
+    }
+    elsif ($mixer) {
+        croak "Conflator '$name' is already defined" if $mixer->{conflators}->{$name};
+        $mixer->{conflators}->{$name} = $c;
+    }
+
+    return $c;
+}
+
+sub inflate(&) {
+    my $self = shift;
+    my ($code) = @_;
+    croak "inflate() requires a coderef" unless $code and ref($code) eq 'CODE';
+
+    if (my $c = $STATE{CONFLATOR}) {
+        croak "An inflation coderef has already been provided" if $c->{inflate};
+        return $c->{inflate} = $code;
+    }
+    elsif (my $col = $STATE{COLUMN}) {
+        my $c = $col->{conflate} //= {};
+        croak "An inflation coderef has already been provided" if $c->{inflate};
+        return $c->{inflate} = $code;
+    }
+
+    croak "inflate() can only be used inside either a conflator builder or a column builder"
+}
+
+sub deflate(&) {
+    my $self = shift;
+    my ($code) = @_;
+    croak "deflate() requires a coderef" unless $code and ref($code) eq 'CODE';
+
+    if (my $c = $STATE{CONFLATOR}) {
+        croak "An deflation coderef has already been provided" if $c->{deflate};
+        return $c->{deflate} = $code;
+    }
+    elsif (my $col = $STATE{COLUMN}) {
+        my $c = $col->{conflate} //= {};
+        croak "An deflation coderef has already been provided" if $c->{deflate};
+        return $c->{deflate} = $code;
+    }
+
+    croak "deflate() can only be used inside either a conflator builder or a column builder"
 }
 
 sub _push_plugins {
@@ -636,6 +729,17 @@ sub _table {
 
     for my $cname (keys %{$params{columns}}) {
         my $spec = $params{columns}{$cname};
+
+        if (my $conflate = $spec->{conflate}) {
+            if (ref($conflate) eq 'HASH') { # unblessed hash
+                confess "No inflate callback was provided for conflation" unless $conflate->{inflate};
+                confess "No deflate callback was provided for conflation" unless $conflate->{deflate};
+
+                require DBIx::QuickORM::Conflator;
+                $spec->{conflate} = DBIx::QuickORM::Conflator->new(%$conflate);
+            }
+        }
+
         my $class = delete($spec->{column_class}) || $params{column_class} || ($STATE{SCHEMA} ? $STATE{SCHEMA}->{column_class} : undef ) || 'DBIx::QuickORM::Table::Column';
         eval { require(mod2file($class)); 1 } or die "Could not load column class '$class': $@";
         $params{columns}{$cname} = $class->new(%$spec);
@@ -902,6 +1006,19 @@ BEGIN {
     }
 }
 
+sub sql_type {
+    my ($type, @dbs) = @_;
+
+    my $col = $STATE{COLUMN} or croak "sql_type() may only be used inside a column builder";
+
+    if (@dbs) {
+        sql_spec($_ => { type => $type }) for @dbs;
+    }
+    else {
+        sql_spec(type => $type);
+    }
+}
+
 sub sql_spec {
     my %hash = @_ == 1 ? %{$_[0]} : (@_);
 
@@ -971,13 +1088,33 @@ sub columns {
     }
 }
 
+sub serial {
+    my ($size, @cols) = @_;
+    $size //= 1;
+
+    if (@cols) {
+        my @caller  = caller;
+        my $created = "$caller[1] line $caller[2]";
+
+        my $table = $STATE{TABLE} or croak 'serial($size, @cols) must be used inside a table builer';
+        for my $cname (@cols) {
+            my $col = $table->{columns}->{$cname} //= {created => $created, name => $cname};
+            $col->{serial} = $size;
+        }
+        return;
+    }
+
+    my $col = $STATE{COLUMN} or croak 'serial($size) must be used inside a column builer';
+    $col->{serial} = $size;
+    $col->{sql_type} //= 'serial';
+}
+
 BEGIN {
     my @COL_ATTRS = (
         [unique      => set_subname(unique_col_val => sub { @{$_[0]} > 1 ? undef : 1 }), {index => 'unique'}],
         [primary_key => set_subname(unique_pk_val => sub { @{$_[0]} > 1 ? undef : 1 }),  {set => 'primary_key', index => 'unique'}],
-        [serial      => 1,                                                               {set => 'serial'}],
+        [nullable    => set_subname(nullable_val => sub { $_[0] // 1 }),                 {set => 'nullable'}],
         [not_null    => 0,                                                               {set => 'nullable'}],
-        [nullable    => sub { $_[0] // 1 },                                              {set => 'nullable'}],
         [omit        => 1],
         [
             default => set_subname default_col_val => sub {
@@ -991,9 +1128,8 @@ BEGIN {
                 my $conf = shift(@{$_[0]});
 
                 if (blessed($conf)) {
-                    croak "Conflator '$conf' does not implement parse()"   unless $conf->can('parse');
                     croak "Conflator '$conf' does not implement inflate()" unless $conf->can('inflate');
-                    # We do not care about deflate
+                    croak "Conflator '$conf' does not implement deflate()" unless $conf->can('deflate');
                     return $conf;
                 }
 

@@ -263,7 +263,8 @@ sub generate_and_load_schema {
 
 sub generate_schema_sql {
     my $self = shift;
-    $self->{+DB}->generate_schema_sql(schema => $self->{+SCHEMA});
+    my $con = $self->connection or die "WTF?";
+    $self->{+DB}->generate_schema_sql(schema => $self->{+SCHEMA}, connection => $con, dbh => $con->dbh);
 }
 
 1;

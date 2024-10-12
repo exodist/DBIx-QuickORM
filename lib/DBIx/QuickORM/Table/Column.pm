@@ -2,7 +2,7 @@ package DBIx::QuickORM::Table::Column;
 use strict;
 use warnings;
 
-use Carp qw/croak/;
+use Carp qw/croak confess/;
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
 
@@ -23,6 +23,24 @@ sub init {
 
     croak "The 'name' field is required"     unless $self->{+NAME};
     croak "Column must have an order number" unless $self->{+ORDER};
+
+    if (my $conflate = $self->{+CONFLATE}) {
+        if (ref($conflate) eq 'HASH') { # unblessed hash
+            confess "No inflate callback was provided for conflation" unless $conflate->{inflate};
+            confess "No deflate callback was provided for conflation" unless $conflate->{deflate};
+
+            require DBIx::QuickORM::Conflator;
+            $self->{+CONFLATE} = DBIx::QuickORM::Conflator->new(%$conflate);
+        }
+    }
+}
+
+sub sql_type {
+    my $self = shift;
+    my (@dbs) = @_;
+
+    my $spec = $self->{+SQL_SPEC} or return;
+    return $spec->get_spec(type => @dbs);
 }
 
 sub merge {
