@@ -4,7 +4,7 @@ use warnings;
 
 use List::Util qw/mesh/;
 
-use DBIx::QuickORM qw{
+use DBIx::QuickORM::V0 qw{
     column
     columns
     conflate

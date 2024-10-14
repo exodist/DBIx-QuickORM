@@ -176,8 +176,8 @@ sub _create_temp {
     my $table;
     if ($table = $params{table}) {
         if (ref($table) eq 'CODE') {
-            require DBIx::QuickORM;
-            $table = DBIx::QuickORM::rogue_table($name => $table);
+            require DBIx::QuickORM::V0;
+            $table = DBIx::QuickORM::V0::rogue_table($name => $table);
         }
 
         $table = $table->merge($con->generate_table_schema($name)) if $params{autofill};

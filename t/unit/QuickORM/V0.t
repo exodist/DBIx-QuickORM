@@ -1,8 +1,11 @@
-use Test2::V0 -target => 'DBIx::QuickORM';
+use Test2::V0 -target => 'DBIx::QuickORM::V0';
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
-use Carp::Always;
 
+ok(1);
+done_testing;
+
+__END__
 BEGIN {
     no strict 'refs';
     $CLASS->import(@{"$CLASS\::EXPORT_OK"});

@@ -4,7 +4,7 @@ use ok $CLASS;
 
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
-use DBIx::QuickORM;
+use DBIx::QuickORM::V0;
 
 use DBIx::QuickORM::Conflator::UUID;
 

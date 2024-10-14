@@ -1,6 +1,6 @@
 use Test2::V0;
 use Test2::Tools::QuickDB;
-use DBIx::QuickORM;
+use DBIx::QuickORM::V0;
 use Data::Dumper;
 
 BEGIN {

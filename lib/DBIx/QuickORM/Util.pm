@@ -4,6 +4,7 @@ use warnings;
 
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
+use Sub::Util qw/subname set_subname/;
 
 use Module::Pluggable sub_name => '_find_mods';
 BEGIN {
@@ -12,9 +13,24 @@ BEGIN {
     delete ${\%{__PACKAGE__ . "\::"}}{search_path};
 }
 
-our @EXPORT = qw/ mod2file delegate alias parse_hash_arg merge_hash_of_objs find_modules mesh_accessors accessor_field_inversion/;
-
 use base 'Exporter';
+our @EXPORT = qw{
+    mod2file
+    delegate
+    alias
+    parse_hash_arg
+    merge_hash_of_objs
+    find_modules
+    mesh_accessors
+    accessor_field_inversion
+    update_subname
+};
+
+sub update_subname {
+    my ($name, $sub) = @_;
+    return $sub unless subname($sub) =~ /__ANON__/;
+    return set_subname $name => $sub;
+}
 
 sub parse_hash_arg {
     my $self = shift;

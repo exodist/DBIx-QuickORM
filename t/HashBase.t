@@ -2,7 +2,6 @@ use strict;
 use warnings;
 
 use Test::More;
-use Carp::Always;
 
 sub warnings(&) {
     my $code = shift;

@@ -2,7 +2,7 @@ package DBIx::QuickORM::Test::Tables::TestB;
 use strict;
 use warnings;
 
-use DBIx::QuickORM ':TABLE_CLASS';
+use DBIx::QuickORM::V0 ':TABLE_CLASS';
 use DBIx::QuickORM::MetaTable bbb => sub {
     column bbb_id => sub {
         primary_key;

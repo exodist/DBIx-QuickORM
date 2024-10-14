@@ -1,8 +1,6 @@
 use Test2::V0;
 use Test2::Tools::QuickDB;
-use DBIx::QuickORM;
-use Data::Dumper;
-use Carp::Always;
+use DBIx::QuickORM::V0;
 
 BEGIN {
     $ENV{PATH} = "/home/exodist/percona/bin:$ENV{PATH}" if -d "/home/exodist/percona/bin";

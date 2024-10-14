@@ -3,17 +3,17 @@ use Test2::Require::Module 'BEGIN::Lift';
 
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
-use DBIx::QuickORM;
+use DBIx::QuickORM::V0;
 
 {
     $INC{'My/Table/AAA.pm'} = __FILE__;
 
     package My::Table::AAA;
-    use DBIx::QuickORM ':TABLE_CLASS';
+    use DBIx::QuickORM::V0 ':TABLE_CLASS';
     use Test2::V0;
 
     BEGIN {
-        is(\&index, exact_ref(DBIx::QuickORM->can('index')), "Have DBIx::QuickORM::index() for this scope");
+        is(\&index, exact_ref(DBIx::QuickORM::V0->can('index')), "Have DBIx::QuickORM::index() for this scope");
     }
 
     meta_table aaa => sub {
