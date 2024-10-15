@@ -4,13 +4,41 @@ use warnings;
 
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
-use DBD::mysql;
 use DateTime::Format::MySQL;
 
-use parent 'DBIx::QuickORM::DB';
-use DBIx::QuickORM::Util::HashBase qw{ +quote_binary_data };
+my $DRIVER;
+BEGIN {
+    $DRIVER = 'DBD::MariaDB' if eval { require DBD::MariaDB; 1 };
+    $DRIVER //= 'DBD::mysql' if eval { require DBD::mysql; 1 };
+    croak "Could not load either 'DBD::MariaDB or DBD::mysql" unless $DRIVER;
+}
 
-sub dbi_driver { 'DBD::mysql' }
+use parent 'DBIx::QuickORM::DB';
+use DBIx::QuickORM::Util::HashBase qw{
+    +dbi_driver
+};
+
+sub dbi_driver {
+    my $self_or_class = shift;
+    my ($dbh) = @_;
+
+    return "DBD::" . $dbh->{Driver}->{Name} if $dbh;
+
+    return $DRIVER unless blessed($self_or_class);
+    return $self_or_class->{+DBI_DRIVER} //= $DRIVER;
+}
+
+sub quote_binary_data {
+    my $self_or_class = shift;
+    my ($dbh) = @_;
+
+    my $driver = $self_or_class->dbi_driver($dbh);
+
+    return 1 if $driver eq 'DBD::MariaDB';
+    return 0 if $driver eq 'DBD::mysql';
+    die "Not sure what to do with driver '$driver'";
+}
+
 sub datetime_formatter { 'DateTime::Format::MySQL' }
 
 sub sql_spec_keys { 'mysql' }
@@ -30,7 +58,21 @@ sub commit_savepoint   { $_[1]->do("RELEASE SAVEPOINT $_[2]") }
 sub rollback_savepoint { $_[1]->do("ROLLBACK TO SAVEPOINT $_[2]") }
 
 sub supports_uuid { () }
-sub supports_json { () }
+sub supports_datetime { 'DATETIME' }
+
+sub supports_json {
+    my $self = shift;
+    my ($dbh) = @_;
+
+    return 'JSON' unless $dbh;
+
+    my $ver = $self->db_version($dbh);
+
+    my ($maj, $min, $rev) = split /[-\.]/, $ver;
+    return 'JSON' if $maj > 5 || ($maj == 7 && ($min >= 8 || ($min == 7 && $rev >= 8)));
+
+    return ();
+}
 
 sub load_schema_sql {
     my $self = shift;
@@ -181,6 +223,17 @@ sub indexes {
     }
 
     return values %out;
+}
+
+sub db_version {
+    my $self = shift;
+    my ($dbh) = @_;
+
+    my $sth = $dbh->prepare("SELECT version()");
+    $sth->execute();
+
+    my ($ver) = $sth->fetchrow_array;
+    return $ver;
 }
 
 sub db_keys {

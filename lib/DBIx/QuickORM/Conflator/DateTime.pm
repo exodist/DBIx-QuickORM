@@ -14,12 +14,10 @@ sub qorm_sql_type {
     my %params = @_;
 
     my $con = $params{connection};
-    my $db = $con->db;
 
-    return 'TIMESTAMPTZ(6)' if $db->isa('DBIx::QuickORM::DB::PostgreSQL');
-    return 'DATETIME(6)'    if $db->isa('DBIx::QuickORM::DB::MariaDB');
-    return 'DATETIME(6)'    if $db->isa('DBIx::QuickORM::DB::SQLite');
-    return 'DATETIME'       if $db->isa('DBIx::QuickORM::DB::MySQL');
+    if (my $type = $con->supports_datetime) {
+        return $type;
+    }
 
     return 'DATETIME';
 }
@@ -32,7 +30,7 @@ sub qorm_inflate {
 
     my $dt;
     if (Scalar::Util::blessed($val)) {
-        return $val if $val->isa($class);
+        return $val if $val->isa(__PACKAGE__);
         $dt = $val if $val->isa('DateTime');
     }
 

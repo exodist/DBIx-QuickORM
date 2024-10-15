@@ -30,8 +30,35 @@ sub rollback_savepoint { $_[1]->pg_rollback_to($_[2]) }
 sub update_returning_supported { 1 }
 sub insert_returning_supported { 1 }
 
-sub supports_uuid { 'UUID' }
-sub supports_json { 'JSONB' }
+sub supports_datetime { 'TIMESTAMPTZ(6)' }
+
+sub supports_uuid {
+    my $self = shift;
+    my ($dbh) = @_;
+
+    return 'UUID' unless $dbh;
+
+    my $ver = $self->db_version($dbh);
+
+    my ($maj, $min) = split /\./, $ver;
+    return 'UUID' if $maj >= 12;
+
+    return ();
+}
+
+sub supports_json {
+    my $self = shift;
+    my ($dbh) = @_;
+
+    return 'JSONB' unless $dbh;
+
+    my $ver = $self->db_version($dbh);
+
+    my ($maj, $min) = split /\./, $ver;
+    return 'JSONB' if $maj >= 12;
+
+    return ();
+}
 
 sub load_schema_sql {
     my $self = shift;
@@ -212,6 +239,17 @@ sub columns {
     }
 
     return @out;
+}
+
+sub db_version {
+    my $self = shift;
+    my ($dbh) = @_;
+
+    my $sth = $dbh->prepare("SHOW server_version");
+    $sth->execute();
+
+    my ($ver) = $sth->fetchrow_array;
+    return $ver;
 }
 
 sub db_keys {

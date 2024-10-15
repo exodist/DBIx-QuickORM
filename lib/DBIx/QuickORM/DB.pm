@@ -43,6 +43,7 @@ sub table       { croak "$_[0]->table() is not implemented" }
 sub column_type { croak "$_[0]->column_type() is not implemented" }
 sub columns     { croak "$_[0]->columns() is not implemented" }
 sub db_keys     { croak "$_[0]->db_keys() is not implemented" }
+sub db_version  { croak "$_[0]->db_version() is not implemented" }
 sub indexes     { croak "$_[0]->indexes() is not implemented" }
 
 sub load_schema_sql { croak "$_[0]->load_schema_sql() is not implemented" }
@@ -65,9 +66,17 @@ sub temp_view_supported  { 0 }
 
 sub supports_uuid { () }
 sub supports_json { () }
+sub supports_datetime { 'DATETIME' }
 
 sub insert_returning_supported { 0 }
 sub update_returning_supported { 0 }
+
+sub driver_name {
+    my $self_or_class = shift;
+    my $class = blessed($self_or_class) || $self_or_class;
+    $class =~ s/^DBIx::QuickORM::DB:://;
+    return $class;
+}
 
 sub init {
     my $self = shift;
@@ -130,14 +139,6 @@ sub connect {
         db  => $self,
     );
 }
-
-#sub generate_and_load_schema {
-#    my $class_or_self = shift;
-#    my ($dbh, %params) = @_;
-#
-#    my $sql = $class_or_self->generate_schema_sql(%params, dbh => $dbh);
-#    return $class_or_self->load_schema_sql($sql);
-#}
 
 sub table_dep_cmp {
     my $class_or_self = shift;

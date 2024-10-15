@@ -15,10 +15,9 @@ my $bin  = $uuid->as_binary;
 dbs_do db => sub {
     my ($dbname, $dbc, $st) = @_;
 
-    my $uuid_type = $dbname =~ m/^(MySQL|Percona)$/i ? 0 : 1;
-
+    my $db;
     my $orm = orm myorm => sub {
-        db mydb => sub {
+        $db = db mydb => sub {
             db_class $dbname;
             db_name 'quickdb';
             db_connect sub { $dbc->connect };
@@ -38,7 +37,11 @@ dbs_do db => sub {
                     );
                 };
 
-                column uuid_type => sub { conflate $CLASS };
+                column uuid_type => sub { conflate $CLASS }
+                    if $db->supports_uuid;
+
+                column uuid_auto_type_bin => sub { conflate "$CLASS\::Binary" };
+                column uuid_auto_type_str => sub { conflate "$CLASS\::Stringy" };
 
                 column char_type    => sub { conflate $CLASS; sql_spec(type => 'CHAR(36)') };
                 column varchar_type => sub { conflate $CLASS; sql_spec(type => 'VARCHAR(36)') };
@@ -60,7 +63,10 @@ dbs_do db => sub {
     note uc("== SQL for $dbname ==\n" . $orm->generate_schema_sql . "\n== END SQL for $dbname ==\n");
 
     ok(lives { $orm->generate_and_load_schema() }, "Generate and load schema");
-    my @cols = qw/uuid_type char_type varchar_type bin_type/;
+    my @cols = qw/char_type varchar_type bin_type uuid_auto_type_str uuid_auto_type_bin/;
+
+    my $supports_uuid = $orm->db->supports_uuid;;
+    unshift @cols => 'uuid_type' if $supports_uuid;
 
     my $s = $orm->source('mytable');
 
@@ -71,8 +77,9 @@ dbs_do db => sub {
     is($row1->from_db, { %{$row2->from_db}, my_id => T()}, "Rows 1 and 2 are identical");
     is($row1->from_db, { %{$row3->from_db}, my_id => T()}, "Rows 1 and 3 are identical");
 
-    is($row1->from_db->{bin_type}, $bin, "Got binary data");
-    is(uc($row1->from_db->{$_}), $str, "Got stringy data") for grep { $_ ne 'bin_type' && !($_ eq 'uuid_type' && !$uuid_type) } @cols;
+    is($row1->from_db->{$_}, $bin, "Got binary data ($_)") for grep { m/bin/i && !($supports_uuid && m/auto/) } @cols;
+
+    is(uc($row1->from_db->{$_}), $str, "Got stringy data ($_)") for grep { $_ !~ m/bin/i || ($supports_uuid && m/auto/) } @cols;
 
     my $ref = "$row1";
     $row1 = undef;

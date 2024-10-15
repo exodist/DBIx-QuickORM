@@ -35,8 +35,25 @@ sub load_schema_sql {
     $dbh->do($_) or die "Error loading schema" for split /;/, $sql;
 }
 
-sub supports_uuid { 'UUID' }
-sub supports_json { 'JSON' }
+# sqlite does not have actual UUID type, using type 'UUID' just stores it with
+# string affinity. Returning empty here will result in BINARY(16) type being
+# used.
+sub supports_uuid { () }
+sub supports_datetime { 'DATETIME(6)' }
+
+sub supports_json {
+    my $self = shift;
+    my ($dbh) = @_;
+
+    return 'JSONB' unless $dbh;
+
+    my $ver = $self->db_version($dbh);
+
+    my ($maj, $min) = split /\./, $ver;
+    return 'JSONB' if $maj > 3 || ($maj == 3 && $min >= 45);
+
+    return ();
+}
 
 sub serial_type { 'INTEGER' }
 
@@ -201,6 +218,17 @@ sub columns {
     }
 
     return @out;
+}
+
+sub db_version {
+    my $self = shift;
+    my ($dbh) = @_;
+
+    my $sth = $dbh->prepare("SELECT sqlite_version()");
+    $sth->execute();
+
+    my ($ver) = $sth->fetchrow_array;
+    return $ver;
 }
 
 sub db_keys {

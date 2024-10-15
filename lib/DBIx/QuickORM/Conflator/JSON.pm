@@ -17,7 +17,7 @@ sub qorm_sql_type {
         return $type;
     }
 
-    return 'TEXT';
+    return 'LONGTEXT';
 }
 
 sub qorm_inflate {

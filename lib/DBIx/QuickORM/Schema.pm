@@ -21,9 +21,11 @@ sub init {
     croak "'name' is a required attribute" unless $self->{+NAME};
 }
 
+my $GEN_ID = 1;
 sub compile {
     my $self = shift;
 
+    my $gen_id = $GEN_ID++;
     my $tables = $self->{+TABLES};
 
     for my $tname (keys %$tables) {
@@ -39,7 +41,7 @@ sub compile {
         }
 
         my $acc = $table->accessors or next;
-        my $pkg = $acc->{inject_into} // $self->_gen_row_package($table->row_class);
+        my $pkg = $acc->{inject_into} // $self->_gen_row_package($table->row_class, $gen_id, $self->{+NAME}, $tname);
 
         my ($meta);
 
@@ -75,17 +77,23 @@ sub compile {
 
         $tables->{$tname} = $table->clone(row_class => $pkg) unless $pkg eq $table->row_class;
     }
+
+    return $self;
 }
 
-my $GEN_ID = 1;
 sub _gen_row_package {
     my $self = shift;
-    my ($parent) = @_;
+    my ($parent, $gen_id, @names) = @_;
 
     $parent //= 'DBIx::QuickORM::Row';
     require(mod2file($parent));
 
-    my $pkg = "DBIx::QuickORM::Row::__GEN" . ($GEN_ID++) . "__";
+    my $pkg = join '::' => (
+        'DBIx::QuickORM::Row',
+        "__GEN${gen_id}__",
+        @names,
+    );
+
     my $file = mod2file($pkg);
     $INC{$file} = __FILE__;
 
@@ -119,16 +127,16 @@ sub merge {
     $params{+PLUGINS} //= $self->{+PLUGINS}->merge($other->{+PLUGINS});
     $params{+NAME}    //= $self->{+NAME};
 
-    return ref($self)->new(%$self, %params);
+    return ref($self)->new(%$self, %params)->compile;
 }
 
 sub clone {
     my $self   = shift;
     my %params = @_;
 
-    $params{+TABLES}    //= [map { $_->clone } $self->tables];
-    $params{+NAME}      //= $self->{+NAME};
-    $params{+PLUGINS}   //= $self->{+PLUGINS}->clone();
+    $params{+TABLES}  //= [map { $_->clone } $self->tables];
+    $params{+NAME}    //= $self->{+NAME};
+    $params{+PLUGINS} //= $self->{+PLUGINS}->clone();
 
     return ref($self)->new(%$self, %params);
 }

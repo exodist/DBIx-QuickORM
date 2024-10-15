@@ -47,8 +47,16 @@ sub qorm_sql_type {
         return $type;
     }
 
-    return 'BYTEA' if $con->db->isa('DBIx::QuickORM::DB::PostgreSQL');
-    return 'BINARY(16)';
+    return $class->_qorm_sql_type(%params);
+}
+
+sub _qorm_sql_type {
+    my $class = shift;
+    my %params = @_;
+
+    my $con = $params{connection};
+
+    confess $con->db->driver_name . " does not support a native UUID type. Please use `DBIx::QuickORM::Conflator::UUID::Stringy` or `DBIx::QuickORM::Conflator::UUID::Binary` as your conflator if you wish to generate schema sql from perl code";
 }
 
 sub qorm_inflate {
@@ -59,12 +67,26 @@ sub qorm_inflate {
 
     return undef unless defined $val;
 
-    return $val if blessed($val) && $val->isa($class);
+    if (my $type = blessed($val)) {
+        # Already inflated!
+        return $val if $val->isa(__PACKAGE__);
 
-    if(looks_like_uuid($val)) {
-        return $class->new(AS_STRING() => uc($val));
+        # Stringifies to a uuid
+        return $class->new(AS_STRING() => uc("$val")) if looks_like_uuid("$val");
+
+        # Has an as_uuid or as_string method, lets see if it gives us a uuid
+        for my $meth (qw/as_uuid as_string/) {
+            if ($val->can($meth)) {
+                my $got = $val->$meth;
+                return $got if blessed($got) && $got->isa(__PACKAGE__);
+                return $class->new(AS_STRING() => uc("$got")) if looks_like_uuid("$got");
+            }
+        }
+
+        confess "Not sure how to inflate objects of type '$type' ($val) into type '$class'. Please give it either an 'as_uuid' or 'as_string' method.";
     }
 
+    return $class->new(AS_STRING() => uc("$val")) if looks_like_uuid("$val");
     return $class->new(AS_BINARY() => $val);
 }
 
@@ -81,7 +103,7 @@ sub qorm_deflate {
     if ($type =~ m/(bin|byte|blob)/i) {
         my $out = $inf->as_binary;
         if (my $con = $params{quote_bin}) {
-            return \($con->dbh->quote($out, DBI::SQL_BINARY())) if $con->db->quote_binary_data;
+            return \($con->dbh->quote($out, DBI::SQL_BINARY())) if $con->quote_binary_data;
         }
         return $out;
     }

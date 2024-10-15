@@ -26,6 +26,7 @@ use DBIx::QuickORM::Util::Has qw/Plugins Created/;
 sub tables      { my $self = shift; $self->{+DB}->tables($self->dbh, @_) }
 sub table       { my $self = shift; $self->{+DB}->table($self->dbh, @_) }
 sub db_keys     { my $self = shift; $self->{+DB}->db_keys($self->dbh, @_) }
+sub db_version  { my $self = shift; $self->{+DB}->db_version($self->dbh, @_) }
 sub indexes     { my $self = shift; $self->{+DB}->indexes($self->dbh, @_) }
 sub column_type { my $self = shift; $self->{+DB}->column_type($self->dbh, $self->{+COLUMN_TYPE_CACHE}, @_) }
 sub columns     { my $self = shift; $self->{+DB}->columns($self->dbh, $self->{+COLUMN_TYPE_CACHE}, @_) }
@@ -44,8 +45,12 @@ sub rollback_savepoint { my $self = shift; $self->{+TXN_DEPTH} -= 1; $self->{+DB
 
 sub load_schema_sql { my $self = shift; $self->{+DB}->load_schema_sql($self->dbh, @_) }
 
-sub supports_uuid {my $self = shift; $self->{+DB}->supports_uuid($self->dbh, @_)}
-sub supports_json {my $self = shift; $self->{+DB}->supports_json($self->dbh, @_)}
+sub supports_uuid     { my $self = shift; $self->{+DB}->supports_uuid($self->dbh, @_) }
+sub supports_json     { my $self = shift; $self->{+DB}->supports_json($self->dbh, @_) }
+sub supports_datetime { my $self = shift; $self->{+DB}->supports_datetime($self->dbh, @_) }
+
+sub quote_binary_data { my $self = shift; $self->{+DB}->quote_binary_data($self->dbh, @_) }
+sub dbi_driver        { my $self = shift; $self->{+DB}->dbi_driver($self->dbh, @_) }
 
 sub in_transaction {
     my $self = shift;
