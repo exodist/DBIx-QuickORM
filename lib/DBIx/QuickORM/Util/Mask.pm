@@ -1,4 +1,4 @@
-package DBIx::QuickORM::Util::SubWrapper;
+package DBIx::QuickORM::Util::Mask;
 use strict;
 use warnings;
 
@@ -9,39 +9,11 @@ $Carp::Internal{(__PACKAGE__)}++;
 
 use overload(
     fallback => 1,
-    '""'     => sub { "" . $_[0]->() },
-    '0+'     => sub { 0 + $_[0]->() },
-    'bool'   => sub { !!$_[0]->() },
+    '""'     => sub { "" . $_[0]->[1]->() },
+    '0+'     => sub { 0 + $_[0]->[1]->() },
+    'bool'   => sub { !!$_[0]->[1]->() },
+    '%{}'    => sub { $_[0]->[1]->() },
 );
-
-sub new {
-    my $class = shift;
-    my ($wrap, %params) = @_;
-
-    my @caller = caller;
-
-    Carp::croak("'$wrap' is not a blessed object") unless Scalar::Util::blessed($wrap);
-
-    my $weaken = delete $params{weaken};
-
-    Carp::croak("Invalid params passed into new: " . join ', ' => sort keys %params)
-        if keys %params;
-
-    if ($weaken) {
-        Scalar::Util::weaken($wrap);
-
-        return bless(
-            sub { $wrap // Carp::croak("Weakly wrapped object created at $caller[1] line $caller[2] has gone away") },
-            $class,
-        );
-    }
-
-    return bless(sub { $wrap }, $class);
-}
-
-sub import {}
-sub unimport {}
-sub DESTROY {}
 
 our $AUTOLOAD;
 sub AUTOLOAD {
@@ -49,6 +21,8 @@ sub AUTOLOAD {
 
     my $meth = $AUTOLOAD;
     $meth =~ s/^.*:://g;
+
+    return if $meth eq 'DESTROY';
 
     my $class = Scalar::Util::blessed($self) // $self;
 
@@ -69,19 +43,19 @@ sub can {
         return $sub;
     }
 
-    my $wrap = $self->() // return;
+    my $wrap = $self->[1]->() // return;
     return !!0 unless $wrap->can(@_);
 
     my ($meth) = @_;
 
-    return Sub::Util::set_subname($meth => sub { my $self = shift; my $w = $self->(); $w->$meth(@_) });
+    return Sub::Util::set_subname($meth => sub { my $self = shift; my $w = $self->[1]->(); $w->$meth(@_) });
 }
 
 sub isa {
     my $self = shift;
 
     return !!1 if $self->UNIVERSAL::isa(@_);
-    my $wrap = $self->() // return !!0;
+    my $wrap = $self->[1]->() // return !!0;
     return $wrap->isa(@_);
 }
 
@@ -95,7 +69,7 @@ __END__
 
 =head1 NAME
 
-DBIx::QuickORM::Util::SubWrapper - Wrap on object in a blessed coderef that
+DBIx::QuickORM::Util::Mask - Wrap on object with to hide it from dumps,
 delegates all method calls to the wrapped object.
 
 =head1 DESCRIPTION
@@ -105,10 +79,10 @@ still embed it inside structures and have it be fully functional. This tool
 does that.
 
 Simply wrap your annoying object in this sub, Data::Dumper will simply dump
-C<bless( sub { "DUMMY" }, 'DBIx::QuickORM::Util::SubWrapper' );> when it is
-encountered. However you can still call any method on it that is valid for the
-underlying method. Even Stringificaton, numerification and boolean overloading
-will be passed on!
+C<bless( ["CLASS=REF(0x5d384ca5d7e0)", sub { "DUMMY" }, 'DBIx::QuickORM::Util::Mask'] );>
+when it is encountered. However you can still call any method on it that is
+valid for the underlying method. Even Stringificaton, numerification and
+boolean overloading will be passed on!
 
 =head1 SYNOPSIS
 
@@ -117,7 +91,7 @@ Honestly the unit test for this class is a perfect demonstration of how it works
 First, some boilerplate:
 
     use Test2::V0;
-    use DBIx::QuickORM::Util::SubWrapper;
+    use DBIx::QuickORM::Util qw/mask unmask masked/; # The mask() function is the correct way to create this object
     use Data::Dumper;
 
 Set up some fake class to work with:
@@ -147,8 +121,15 @@ Set up some fake class to work with:
 
 Make our original, and a wrapped copy:
 
-    my $it = My::Package->new();
-    my $wr = DBIx::QuickORM::Util::SubWrapper->new($it);
+    my $it = My::Package->new(guts => 'GUTS!');
+    my $wr = mask $it;
+
+Check if an object is a masked form, or an original
+
+    ok(!masked($it), "Original is not masked");
+    ok(masked($wr), "masked");
+
+    is(unmask($wr), $it, "Can get the original from the mask");
 
 These 3 methods are identical for both the original and the copy:
 
@@ -163,7 +144,7 @@ B<NOTE:> the wrapper also returns true if you check if it is a wrapper, this is
 intentional as it makes it possible to distinguish a wrapped and unwrapped
 form.
 
-    isa_ok($wr, [qw/DBIx::QuickORM::Util::SubWrapper My::Package My::Base/], "isa passes though");
+    isa_ok($wr, [qw/DBIx::QuickORM::Util::Mask My::Package My::Base/], "isa passes though");
     can_ok($wr, [qw/one bob echo/], "can() delegates");
 
 Extra can() tests:
@@ -178,6 +159,10 @@ Extra isa() tests:
     ok($wr->isa('My::Package'), "Direct isa() test positive");
     ok(!$wr->isa('My::Fake'), "Direct isa() test negative");
 
+Make sure we can still access hash keys from the masked object:
+
+    is($wr->{guts}, 'GUTS!', "Can get hash value from key on wrapped object");
+
 These verify that overloading passes thorugh:
 
     is("$wr", "I am a teapot!", "String overloading is passed on");
@@ -189,7 +174,7 @@ when dumped, we no longer have to see it. I am looking at you L<DateTime>!
 
     like(
         Dumper($wr),
-        qr/bless\( sub \{ "DUMMY" \}, 'DBIx::QuickORM::Util::SubWrapper' \)/,
+        qr/bless\( sub \{ "DUMMY" \}, 'DBIx::QuickORM::Util::Mask' \)/,
         "Does not dump the wrapped object"
     );
 
@@ -198,14 +183,14 @@ method:
 
     my $line;
     like(
-        dies { $line = __LINE__; DBIx::QuickORM::Util::SubWrapper->foo },
-        qr/Can't locate object method "foo" via package "DBIx::QuickORM::Util::SubWrapper" at \Q${ \__FILE__ } line $line\E/,
+        dies { $line = __LINE__; DBIx::QuickORM::Util::Mask->foo },
+        qr/Can't locate object method "foo" via package "DBIx::QuickORM::Util::Mask" at \Q${ \__FILE__ } line $line\E/,
         "Calling for a bad sub on class instead of blessed object has a sane error",
     );
 
     like(
         dies { $line = __LINE__; $wr->foo },
-        qr/Can't locate object method "foo" via package "DBIx::QuickORM::Util::SubWrapper" at \Q${ \__FILE__ } line $line\E/,
+        qr/Can't locate object method "foo" via package "DBIx::QuickORM::Util::Mask" at \Q${ \__FILE__ } line $line\E/,
         "Calling for a bad sub on an instance has a sane error",
     );
 
@@ -213,7 +198,7 @@ method:
 
 =over 4
 
-=item new($thing, weaken => 1)
+=item mask($thing, weaken => 1)
 
 This will weaken the reference to $thing, so if all other references go away
 this one will too, causing this wrapper to be a wrapper around 'undef'.
@@ -222,7 +207,7 @@ If this happens there will be errors to this effect when you try to call
 methods on it:
 
     my $it = ...;
-    $wr = DBIx::QuickORM::Util::SubWrapper->new($it, weaken => 1);
+    $wr = mask($it, weaken => 1);
 
     # This works (assuming $it has a bob method)
     $wr->bob;
@@ -240,28 +225,12 @@ The exception looks like this (line numbers and filenames will change to match y
 The error message will list where the wrapper was created (file + line) as well
 as the file+line where it failed.
 
-=back
+=item mask($thing, mask_class => 'My::DBIx::QuickORM::Util::Mask::Subclass')
 
-=head1 EXTRA NOTES:
-
-The following methods are all implemented as empty on the wrapper, calling them
-B<WILL NOT> call them on the wrapped item:
-
-=over 4
-
-=item import()
-
-=item unimport()
-
-Because of the way these are called, and how they work, having the
-import()/unimport() methods delegate is just asking for trouble.
-
-=item DESTROY
-
-DESTROY() is magical, and leaving it unimplemented causes AUTOLOAD() to
-complain loudly. Also delegating it would lead to a double-destroy.
+This allows you to use a class other than the default as your wrapping class.
 
 =back
+
 
 =head1 SOURCE
 

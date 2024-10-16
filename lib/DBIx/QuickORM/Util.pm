@@ -2,7 +2,7 @@ package DBIx::QuickORM::Util;
 use strict;
 use warnings;
 
-use Carp qw/croak/;
+use Carp qw/croak cluck/;
 use Scalar::Util qw/blessed/;
 use Sub::Util qw/subname set_subname/;
 
@@ -24,6 +24,9 @@ our @EXPORT = qw{
     mesh_accessors
     accessor_field_inversion
     update_subname
+    mask
+    unmask
+    masked
 };
 
 sub update_subname {
@@ -146,5 +149,45 @@ sub mesh_accessors {
     return $out;
 }
 
+sub mask {
+    my ($wrap, %params) = @_;
+
+    my @caller = caller;
+
+    croak "Nothing to wrap" unless defined $wrap;
+    croak("'$wrap' is not a blessed object") unless blessed($wrap);
+    cluck "Wrapping an already wrapped object" if $wrap->isa('DBIx::QuickORM::Util::Mask');
+
+    my $weaken = delete $params{weaken};
+    my $mask_class = delete $params{mask_class} // 'DBIx::QuickORM::Util::Mask';
+
+    require(mod2file($mask_class));
+
+    croak("Invalid params passed into new: " . join ', ' => sort keys %params)
+        if keys %params;
+
+    if ($weaken) {
+        Scalar::Util::weaken($wrap);
+
+        return bless(
+            ["$wrap", sub { $wrap // croak("Weakly wrapped object created at $caller[1] line $caller[2] has gone away") }],
+            $mask_class,
+        );
+    }
+
+    return bless(["$wrap", sub { $wrap }], $mask_class);
+}
+
+sub unmask {
+    my ($mask) = @_;
+    return $mask unless defined($mask) && blessed($mask) && $mask->isa('DBIx::QuickORM::Util::Mask');
+    return $mask->[1]->();
+}
+
+sub masked {
+    my ($mask) = @_;
+    return !!0 unless defined($mask) && blessed($mask) && $mask->isa('DBIx::QuickORM::Util::Mask');
+    return !!1;
+}
 
 1;

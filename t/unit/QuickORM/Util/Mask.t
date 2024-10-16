@@ -1,5 +1,6 @@
-use Test2::V0 -target => 'DBIx::QuickORM::Util::SubWrapper';
+use Test2::V0 -target => 'DBIx::QuickORM::Util::Mask';
 use ok $CLASS;
+use DBIx::QuickORM::Util qw/mask unmask masked/;
 use Data::Dumper;
 
 BEGIN {
@@ -26,12 +27,17 @@ BEGIN {
     sub echo { [@_] }
 }
 
-my $it = My::Package->new();
-my $wr = DBIx::QuickORM::Util::SubWrapper->new($it);
+my $it = My::Package->new(guts => 'GUTS!');
+my $wr = mask($it);
+
+ok(!masked($it), "Original is not masked");
+ok(masked($wr), "masked");
 
 for my $meth (qw/one bob echo/) {
     is($wr->$meth(1, 2, 3), $it->$meth(1, 2, 3), "Method '$meth' retuns the same thing on both the original and wrapped");
 }
+
+is($wr->{guts}, "GUTS!", "Can get hash key from masked item");
 
 isa_ok($wr, [$CLASS, qw/My::Package My::Base/], "isa passes though");
 can_ok($wr, [qw/one bob echo/], "can() delegates");
@@ -61,18 +67,24 @@ is("$wr", "I am a teapot!", "String overloading is passed on");
 is(1 + $wr, 11, "Number overloading is passed on");
 is(!!$wr, F(), "Bool overloading is passed on");
 
-like(
-    Dumper($wr),
-    qr/bless\( sub \{ "DUMMY" \}, 'DBIx::QuickORM::Util::SubWrapper' \)/,
-    "Does not dump the wrapped object"
-);
+{
+    local $Data::Dumper::Terse   = 1;
+    local $Data::Dumper::Indent  = 0;
+
+    is(
+        Dumper($wr),
+        q<bless( ['I am a teapot!',sub { "DUMMY" }], 'DBIx::QuickORM::Util::Mask' )>,
+        "Does not dump the wrapped object, but gives us something useful"
+    );
+}
 
 $wr = undef;
 
 $line = __LINE__ + 1;
-$wr = DBIx::QuickORM::Util::SubWrapper->new($it, weaken => 1);
+$wr = mask($it, weaken => 1);
 
-is($wr->(), $it, "Can get 'it'");
+is($wr->[1]->(), $it, "Can get 'it'");
+is(unmask($wr), $it, "Can unwrap");
 $it = undef;
 
 my $line2;

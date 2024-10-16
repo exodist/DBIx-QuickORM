@@ -5,8 +5,7 @@ use warnings;
 use Scalar::Util qw/weaken blessed/;
 use Carp qw/croak/;
 
-use DBIx::QuickORM::Util qw/parse_hash_arg/;
-use DBIx::QuickORM::Util::SubWrapper;
+use DBIx::QuickORM::Util qw/parse_hash_arg mask unmask masked/;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <source
@@ -24,7 +23,8 @@ sub init {
     my $source = delete $self->{+SOURCE} or croak "'source' is a required attribute";
     croak "'source' must be an instance of 'DBIx::QuickORM::Source'" unless $source->isa('DBIx::QuickORM::Source');
 
-    $self->{+SOURCE} = $source->isa('DBIx::QuickORM::Util::SubWrapper') ? $source : DBIx::QuickORM::Util::SubWrapper->new($source, weaken => 1);
+    $source = mask($source, weaken => 1) unless masked($source);
+    $self->{+SOURCE} = $source;
 
     $self->{+TXN_ID} = $source->connection->txn_id;
 
@@ -48,7 +48,7 @@ sub set_uncached {
     return;
 }
 
-sub real_source { $_[0]->source->() }
+sub real_source { unmask($_[0]->source) }
 sub table       { $_[0]->source->table }
 sub connection  { $_[0]->source->connection }
 sub db          { $_[0]->source->connection->db }

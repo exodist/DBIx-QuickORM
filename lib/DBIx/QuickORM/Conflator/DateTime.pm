@@ -2,12 +2,15 @@ package DBIx::QuickORM::Conflator::DateTime;
 use strict;
 use warnings;
 
+use DBIx::QuickORM::Util();
 use Scalar::Util();
 use Carp();
 
-use overload '""' => \&as_string;
+use parent 'DBIx::QuickORM::Util::Mask';
 
-sub as_string { $_[0]->{string} //= $_[0]->{datetime}->()->stringify }
+use overload '""' => \&stringify;
+
+sub stringify { $_[0]->[0] = DBIx::QuickORM::Util::unwrap($_[0])->stringify }
 
 sub qorm_sql_type {
     my $class = shift;
@@ -39,7 +42,7 @@ sub qorm_inflate {
         $dt = $fmt->parse_datetime($val);
     }
 
-    return bless({datetime => sub { $dt }, string => $dt->stringify}, $class);
+    return DBIx::QuickORM::Util::wrap($dt, mask_class => $class);
 }
 
 sub qorm_deflate {
@@ -51,47 +54,10 @@ sub qorm_deflate {
     my $val = $params{value} or return undef;
     my $inf = $in->qorm_inflate(\%params);
 
-    my $dt = $val->{datetime}->();
+    my $dt = DBIx::QuickORM::Util::unwrap($inf);
 
     my $fmt = $params{source}->db->datetime_formatter;
     return $fmt->format_datetime($dt);
-}
-
-sub import {}
-sub DESTROY {}
-
-our $AUTOLOAD;
-sub AUTOLOAD {
-    my ($self) = @_;
-
-    my $meth = $AUTOLOAD;
-    $meth =~ s/^.*:://g;
-
-    my $class = Scalar::Util::blessed($self) // $self;
-
-    Carp::croak(qq{Can't locate object method "$meth" via package "$self"})
-        unless Scalar::Util::blessed($self);
-
-    my $sub = $self->can($meth) or Carp::croak(qq{Can't locate object method "$meth" via package "$class"});
-
-    goto &$sub;
-}
-
-sub can {
-    my $self = shift;
-
-    return $self->UNIVERSAL::can(@_) unless Scalar::Util::blessed($self);
-
-    if (my $sub = $self->UNIVERSAL::can(@_)) {
-        return $sub;
-    }
-
-    my ($name) = @_;
-
-    return sub { shift->{datetime}->()->$name(@_) }
-        if $self->{datetime}->()->can(@_);
-
-    return undef;
 }
 
 1;
