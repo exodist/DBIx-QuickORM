@@ -218,8 +218,8 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
         isa_ok($bob, ['DBIx::QuickORM::Row'], "Got a row back");
         is($bob->from_db->{person_id}, $bob_id, "First row inserted, got id");
         is($bob->from_db->{name}, 'bob', "Name was set correctly");
-        ref_is($bob->source, $source, "Get original source when calling source");
-        is(ref($bob->{source}), 'CODE', "Source is a coderef, not the actual source instance");
+        ref_is($bob->real_source, $source, "Can get original source");
+        isa_ok($bob->source, [qw/DBIx::QuickORM::Util::SubWrapper DBIx::QuickORM::Source/], "Source is both a a source, and a SubWrapper");
 
         # This failed insert will increment the sequence for all db's except sqlite
         $id++ unless $db eq 'sqlite';

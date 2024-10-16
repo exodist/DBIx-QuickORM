@@ -9,6 +9,7 @@ require DBIx::QuickORM::Source;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <name
+    <mixer_name
     <db
     +connection
     <schema
@@ -43,14 +44,12 @@ sub clone {
 
     my $type = blessed($self);
 
-    return $type->new(
-        name     => $self->{+NAME},
-        db       => $self->{+DB},
-        schema   => $self->{+SCHEMA},
-        autofill => $self->{+AUTOFILL},
+    # Do not clone mixer name
+    for my $field (NAME(), DB(), SCHEMA(), AUTOFILL(), ACCESSOR_NAME_CB()) {
+        $params{$field} //= $self->{$field};
+    }
 
-        %params,
-    );
+    return $type->new(%params);
 }
 
 sub con_schema {

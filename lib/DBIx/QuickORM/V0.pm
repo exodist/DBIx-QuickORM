@@ -400,6 +400,7 @@ build_top_builder orm => sub {
         name    => $name // "orm at $caller->[1] line $caller->[2]",
         created => "$caller->[1] line $caller->[2]",
         plugins => accept_plugins(),
+        $mixer ? (mixer_name => $mixer->{name}) : (),
     );
 
     $orm{schema} //= $schema if $schema;

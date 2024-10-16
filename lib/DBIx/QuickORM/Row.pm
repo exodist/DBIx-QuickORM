@@ -6,9 +6,10 @@ use Scalar::Util qw/weaken blessed/;
 use Carp qw/croak/;
 
 use DBIx::QuickORM::Util qw/parse_hash_arg/;
+use DBIx::QuickORM::Util::SubWrapper;
 
 use DBIx::QuickORM::Util::HashBase qw{
-    +source
+    <source
     +table_name
     <from_db
     <inflated
@@ -22,8 +23,8 @@ sub init {
 
     my $source = delete $self->{+SOURCE} or croak "'source' is a required attribute";
     croak "'source' must be an instance of 'DBIx::QuickORM::Source'" unless $source->isa('DBIx::QuickORM::Source');
-    weaken($source);
-    $self->{+SOURCE} = sub { $source };
+
+    $self->{+SOURCE} = $source->isa('DBIx::QuickORM::Util::SubWrapper') ? $source : DBIx::QuickORM::Util::SubWrapper->new($source, weaken => 1);
 
     $self->{+TXN_ID} = $source->connection->txn_id;
 
@@ -47,12 +48,12 @@ sub set_uncached {
     return;
 }
 
-sub source     { $_[0]->{+SOURCE}->() }
-sub table      { $_[0]->source->table }
-sub connection { $_[0]->source->connection }
-sub db         { $_[0]->source->connection->db }
-sub orm        { $_[0]->source->orm }
-sub table_name { $_[0]->{+TABLE_NAME} //= $_[0]->table->name }
+sub real_source { $_[0]->source->() }
+sub table       { $_[0]->source->table }
+sub connection  { $_[0]->source->connection }
+sub db          { $_[0]->source->connection->db }
+sub orm         { $_[0]->source->orm }
+sub table_name  { $_[0]->{+TABLE_NAME} //= $_[0]->table->name }
 
 sub in_db    { $_[0]->{+FROM_DB} ? 1 : 0 }
 sub is_dirty { $_[0]->{+DIRTY}   ? 1 : 0 }
@@ -201,7 +202,7 @@ sub update {
 
     croak "Object is not yet in the database, use insert or save" unless $self->{+FROM_DB};
 
-    my $source = $self->source;
+    my $source = $self->real_source;
 
     $row_data = $source->deflate_row_data(%{delete($self->{+DIRTY}) // {}}, %$row_data);
 
@@ -242,7 +243,7 @@ sub delete {
 
     my $primary_key = $self->primary_key;
 
-    my $source = $self->source;
+    my $source = $self->real_source;
     my $table  = $source->table;
     my $tname  = $table->name;
     my @cols   = $table->column_names;
