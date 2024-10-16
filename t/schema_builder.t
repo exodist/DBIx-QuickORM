@@ -40,37 +40,35 @@ sub clean_err {
     return $out;
 }
 
-mixer test_mix => sub {
-    db postgresql => sub {
-        db_class 'PostgreSQL';
-        db_name 'quickdb';
-        db_connect sub { $psql->connect };
-    } if $psql;
+db postgresql => sub {
+    db_class 'PostgreSQL';
+    db_name 'quickdb';
+    db_connect sub { $psql->connect };
+} if $psql;
 
-    db mariadb => sub {
-        db_class 'MariaDB';
-        db_name 'quickdb';
-        db_connect sub { $mariadb->connect };
-    } if $mariadb;
+db mariadb => sub {
+    db_class 'MariaDB';
+    db_name 'quickdb';
+    db_connect sub { $mariadb->connect };
+} if $mariadb;
 
-    db mysql => sub {
-        db_class 'MySQL';
-        db_name 'quickdb';
-        db_connect sub { $mysql->connect };
-    } if $mysql;
+db mysql => sub {
+    db_class 'MySQL';
+    db_name 'quickdb';
+    db_connect sub { $mysql->connect };
+} if $mysql;
 
-    db percona => sub {
-        db_class 'Percona';
-        db_name 'quickdb';
-        db_connect sub { $percona->connect };
-    } if $percona;
+db percona => sub {
+    db_class 'Percona';
+    db_name 'quickdb';
+    db_connect sub { $percona->connect };
+} if $percona;
 
-    db sqlite => sub {
-        db_class 'SQLite';
-        db_name 'quickdb';
-        db_connect sub { $sqlite->connect };
-    } if $sqlite;
-};
+db sqlite => sub {
+    db_class 'SQLite';
+    db_name 'quickdb';
+    db_connect sub { $sqlite->connect };
+} if $sqlite;
 
 my $keys = {
     lights => {
@@ -97,7 +95,7 @@ my $keys = {
 my ($pg_schema, $mariadb_schema, $sqlite_schema, $mysql_schema, $percona_schema);
 subtest PostgreSQL => sub {
     skip_all "Could not find PostgreSQL" unless $psql;
-    my $pdb = test_mix()->database('postgresql');
+    my $pdb = db('postgresql');
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::PostgreSQL'], "Got a database instance");
 
     my $c = $pdb->connect;
@@ -190,7 +188,7 @@ subtest PostgreSQL => sub {
 
 subtest MariaDB => sub {
     skip_all "Could not find MariaDB" unless $mariadb;
-    my $pdb = test_mix()->database('mariadb');
+    my $pdb = db('mariadb');
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::MariaDB'], "Got a database instance");
 
     my $c = $pdb->connect;
@@ -283,7 +281,7 @@ subtest MariaDB => sub {
 
 subtest MySQL => sub {
     skip_all "Could not find MySQL" unless $mysql;
-    my $pdb = test_mix()->database('mysql');
+    my $pdb = db('mysql');
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::MySQL'], "Got a database instance");
 
     my $c = $pdb->connect;
@@ -376,7 +374,7 @@ subtest MySQL => sub {
 
 subtest Percona => sub {
     skip_all "Could not find Percona" unless $percona;
-    my $pdb = test_mix()->database('percona');
+    my $pdb = db('percona');
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::Percona'], "Got a database instance");
 
     my $c = $pdb->connect;
@@ -469,7 +467,7 @@ subtest Percona => sub {
 
 subtest SQLite => sub {
     skip_all "Could not find SQLite" unless $sqlite;
-    my $pdb = test_mix()->database('sqlite');
+    my $pdb = db('sqlite');
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::SQLite'], "Got a database instance");
 
     my $c = $pdb->connect;
@@ -846,11 +844,11 @@ my $tables = {
     lights        => $lights,
 };
 
-is($pg_schema,      {name => 'postgresql', plugins => $plugins, tables => $tables, created => T()}, "Got PG Schema")      if $psql;
-is($mariadb_schema, {name => 'mariadb',    plugins => $plugins, tables => $tables, created => T()}, "Got MariaDB Schema") if $mariadb;
-is($mysql_schema,   {name => 'mysql',      plugins => $plugins, tables => $tables, created => T()}, "Got MySQL Schema")   if $mysql;
-is($percona_schema, {name => 'percona',    plugins => $plugins, tables => $tables, created => T()}, "Got Percona Schema") if $percona;
-is($sqlite_schema,  {name => 'sqlite',     plugins => $plugins, tables => $tables, created => T()}, "Got SQLite Schema")  if $sqlite;
+is($pg_schema,      {plugins => $plugins, tables => $tables, created => T()}, "Got PG Schema")      if $psql;
+is($mariadb_schema, {plugins => $plugins, tables => $tables, created => T()}, "Got MariaDB Schema") if $mariadb;
+is($mysql_schema,   {plugins => $plugins, tables => $tables, created => T()}, "Got MySQL Schema")   if $mysql;
+is($percona_schema, {plugins => $plugins, tables => $tables, created => T()}, "Got Percona Schema") if $percona;
+is($sqlite_schema,  {plugins => $plugins, tables => $tables, created => T()}, "Got SQLite Schema")  if $sqlite;
 
 #system($sqlite->shell_command('quickdb')) unless $ENV{HARNESS_ACTIVE};
 

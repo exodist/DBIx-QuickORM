@@ -104,6 +104,8 @@ my @SCHEMA_EXPORTS = uniq (
     },
 );
 
+our @FETCH_EXPORTS = qw/orm schema db/;
+
 our %EXPORT_GEN = (
     '&meta_table' => \&_gen_meta_table,
 );
@@ -118,11 +120,11 @@ our @EXPORT = uniq (
     @TABLE_EXPORTS,
     @SCHEMA_EXPORTS,
     @REL_EXPORTS,
+    @FETCH_EXPORTS,
 
     qw{
         default_base_row
         autofill
-        mixer
         conflator
         orm
     },
@@ -142,9 +144,9 @@ our %EXPORT_TAGS = (
     TABLE         => \@TABLE_EXPORTS,
     TABLE_CLASS   => \@TABLE_CLASS_EXPORTS,
     RELATION      => \@REL_EXPORTS,
+    FETCH         => \@FETCH_EXPORTS,
 );
 
-my @STACK;
 my $COL_ORDER = 1;
 
 alias column => 'columns';
@@ -166,7 +168,7 @@ sub add_plugin {
 }
 
 sub default_base_row {
-    my $state = build_state or croak "Must be used inside a mixer, orm, schema, or table builder";
+    my $state = build_state or croak "Must be used inside an orm, schema, or table builder";
 
     if (@_) {
         my $class = shift;
@@ -177,69 +179,27 @@ sub default_base_row {
     return $state->{+DEFAULT_BASE_ROW} // 'DBIx::QuickORM::Row';
 }
 
-# sub mixer {
-build_clean_builder mixer => sub {
-    my %params = @_;
-
-    my $args      = $params{args};
-    my $state     = $params{state};
-    my $caller    = $params{caller};
-    my $wantarray = $params{wantarray};
-
-    my $cb   = pop(@$args);
-    my $name = shift(@$args);
-
-    my %mixer = (
-        name       => $name // "mixer at $caller->[1] line $caller->[2]",
-        created    => "$caller->[1] line $caller->[2]",
-        dbs        => {},
-        schemas    => {},
-        conflators => {},
-        plugins    => accept_plugins(),
-    );
-
-    $state->{+PLUGINS} = $mixer{plugins};
-    $state->{+MIXER}   = \%mixer;
-
-    delete $state->{+RELATION};
-    delete $state->{+ACCESSORS};
-    delete $state->{+ORM};
-
-    update_subname("mixer builder $name", $cb)->(\%mixer);
-
-    require DBIx::QuickORM::Mixer;
-    my $mixer = DBIx::QuickORM::Mixer->new(\%mixer);
-
-    croak "Cannot be called in void context without a symbol name"
-        unless defined($name) || defined($wantarray);
-
-    if ($name) {
-        no strict 'refs';
-        *{"$caller->[0]\::$name"} = set_subname $name => sub { $mixer };
-    }
-
-    return $mixer;
-};
-
 sub conflator {
     croak "Too many arguments to conflator()" if @_ > 2;
     my ($cb, $name);
 
     my $state = build_state;
-    my $mixer = $state->{+MIXER};
     my $col   = $state->{+COLUMN};
 
-    croak "conflator() can only be used in void context inside either a column or mixer builder "
-        unless $col || $mixer || wantarray;
+    croak "conflator() can only be used in void context inside a column builder, or with a name"
+        unless $name || $col || wantarray;
 
     for my $arg (@_) {
         $cb = $arg if ref($arg) eq 'CODE';
         $name = $arg;
     }
 
+    require DBIx::QuickORM::Conflator;
+
     my $c;
     if ($cb) {
-        my %params = (name => $name);
+        my %params = ();
+        $params{name} = $name if $name;
 
         build(
             building => 'conflator',
@@ -252,23 +212,18 @@ sub conflator {
         croak "The callback did not define an inflator" unless $params{inflator};
         croak "The callback did not define a deflator"  unless $params{deflator};
 
-        require DBIx::QuickORM::Conflator;
         $c = DBIx::QuickORM::Conflator->new(%params);
     }
-    elsif ($mixer) {
-        $c = $mixer->{conflator}->{$name} or croak "conflator '$name' is not defined";
+    elsif ($name) {
+        $c = DBIx::QuickORM::Conflator->lookup($name) or croak "conflator '$name' is not defined";
     }
     else {
-        croak "a codeblock is required";
+        croak "Either a codeblock or a name is required";
     }
 
     return $col->{conflate} = $c if $col;
 
-    return $c unless $mixer;
-
-    croak "a name is required when used inside a mixer builder but not a column builder" unless $name;
-    croak "Conflator '$name' is already defined in this mixer" if $mixer->{conflators}->{$name};
-    return $mixer->{conflators}->{$name} = $c;
+    return $c;
 }
 
 sub inflate(&) {
@@ -323,12 +278,16 @@ build_top_builder orm => sub {
     my $caller    = $params{caller};
     my $wantarray = $params{wantarray};
 
-    my $name = shift(@$args) or croak "First arguemnt (name) is required";
+    require DBIx::QuickORM::ORM;
+    require DBIx::QuickORM::DB;
+    require DBIx::QuickORM::Schema;
 
-    my $mixer = $state->{+MIXER};
+    if (@$args == 1 && !ref($args->[0])) {
+        croak 'useless use of orm($name) in void context' unless defined $wantarray;
+        return DBIx::QuickORM::ORM->lookup($args->[0]);
+    }
 
-    my (@dbs, @schemas);
-    my ($db, $schema, $cb);
+    my ($name, $db, $schema, $cb, @other);
     while (my $arg = shift(@$args)) {
         if (blessed($arg)) {
             $schema = $arg and next if $arg->isa('DBIx::QuickORM::Schema');
@@ -343,66 +302,49 @@ build_top_builder orm => sub {
 
         if ($arg eq 'db' || $arg eq 'database') {
             my $db_name = shift(@$args);
-            croak "Cannot lookup database '$db_name' as we are not under a mixer builder" unless $mixer;
-            $db = $mixer->{dbs}->{$db_name} or croak "'$db_name' is not a defined database in miver '$mixer->{name}'";
+            $db = DBIx::QuickORM::DB->lookup($db_name) or croak "Database '$db_name' is not a defined";
             next;
         }
         elsif ($arg eq 'schema') {
             my $schema_name = shift(@$args);
-            croak "Cannot lookup schema '$schema_name' as we are not under a mixer builder" unless $mixer;
-            $db = $mixer->{dbs}->{$schema_name} or croak "'$schema_name' is not a defined database in miver '$mixer->{name}'";
+            $schema = DBIx::QuickORM::Schema->lookup($schema_name) or croak "Database '$schema_name' is not a defined";
+            next;
+        }
+        elsif ($arg eq 'name') {
+            $name = shift(@$args);
+            croak "ORM '$name' is already defined" if DBIx::QuickORM::ORM->lookup($name);
             next;
         }
 
-        croak "Cannot lookup '$arg' as we are not under a mixer builder" unless $mixer;
-
-        my $s = $mixer->{schemas}->{$arg};
-        my $d = $mixer->{dbs}->{$arg};
-        croak "'$arg' is not a defined schema or database on mixer '$mixer->{name}'" unless $s || $d;
-
-        push @dbs     => $d if $d && !$db;
-        push @schemas => $s if $s && !$schema;
+        push @other => $arg;
     }
 
-    unless ($db && $schema) {
-        if ($db && !$schema) {
-            $schema = shift(@schemas) if @schemas;
+    for my $arg (@other) {
+        unless($name) {
+            $name = $arg;
+            croak "ORM '$name' is already defined" if DBIx::QuickORM::ORM->lookup($name);
+            next;
         }
-        elsif ($schema && !$db) {
-            $db = shift(@dbs) if @dbs;
+
+        unless ($db) {
+            $db = DBIx::QuickORM::DB->lookup($arg) or croak "Database '$arg' is not defined";
+            next;
         }
-        else {
-            # If there are more than 1 if either of these then that means 1
-            # name was ambiguous and pulled both a schema and a database, but a
-            # second name only pulled one.
-            shift(@dbs)     if @dbs > @schemas;
-            shift(@schemas) if @schemas > @dbs;
 
-            if (@dbs > 1 || @schemas > 1) {
-                my %seen;
-                my @names = sort grep { !$seen{$_}++ } map { $_->name } @dbs, @schemas;
-
-                croak(
-                    # Comments to keep formatter from making this all one line.
-                    "Ambiguity, not sure which of the plain-text names is the database, and which is the schema. Please prefix one or the other with the 'schema' or 'db' prefix:\n"    #
-                        . "    orm '$name' => (db => $names[0], schema => $names[1], ...);\n"                                                                                           #
-                        . "    orm '$name' => (db => $names[1], schema => $names[0], ...);\n"                                                                                           #
-                        . "  Ambiguous names are (" . join(', ' => @names) . ")"                                                                                                        #
-                );
-            }
-
-            $db     = shift(@dbs);
-            $schema = shift(@schemas);
+        unless ($schema) {
+            $schema = DBIx::QuickORM::Schema->lookup($arg) or croak "Schema '$arg' is not defined";
+            next;
         }
+
+        croak "Too many plain string arguments, not sure what to do with '$arg' as name, database, and schema are all defined already"
     }
 
     my %orm = (
-        name    => $name // "orm at $caller->[1] line $caller->[2]",
         created => "$caller->[1] line $caller->[2]",
         plugins => accept_plugins(),
-        $mixer ? (mixer_name => $mixer->{name}) : (),
     );
 
+    $orm{name}   //= $name   if $name;
     $orm{schema} //= $schema if $schema;
     $orm{db}     //= $db     if $db;
 
@@ -413,7 +355,7 @@ build_top_builder orm => sub {
     delete $state->{+SCHEMA};
     delete $state->{+RELATION};
 
-    update_subname("orm builder $name", $cb)->(\%orm);
+    update_subname($name ? "orm builder $name" : "orm builder", $cb)->(\%orm) if $cb;
 
     if (my $db = $state->{+DB}) {
         croak "ORM already has a database defined, but a second one has been built" if $orm{db};
@@ -428,25 +370,14 @@ build_top_builder orm => sub {
     croak "No database specified" unless $orm{db};
     croak "No schema specified" unless $orm{schema};
 
-    $orm{schema} = _build_schema($orm{schema}) unless blessed($orm{schema});
     $orm{db}     = _build_db($orm{db})         unless blessed($orm{db});
+    $orm{schema} = _build_schema($orm{schema}) unless blessed($orm{schema});
 
     require DBIx::QuickORM::ORM;
     my $orm = DBIx::QuickORM::ORM->new(%orm);
 
-    if ($mixer) {
-        $mixer->{orms}->{$name} = $orm;
-    }
-    else {
-        croak "Cannot be called in void context outside of a mixer without a symbol name"
-            unless defined($name) || defined($wantarray);
-
-        if ($name && !defined($wantarray)) {
-            no strict 'refs';
-            my $subname = "$caller->[0]\::$name";
-            *{$subname} = set_subname $subname => sub { $orm };
-        }
-    }
+    croak "Cannot be called in void context without a name"
+        unless $orm->name || defined($wantarray);
 
     return $orm;
 };
@@ -474,13 +405,16 @@ sub autofill {
 sub _new_db_params {
     my ($name, $caller) = @_;
 
-    return (
-        name       => $name,
+    my %out = (
         created    => "$caller->[1] line $caller->[2]",
         db_name    => $name,
         attributes => {},
         plugins    => accept_plugins(),
     );
+
+    $out{name} = $name if $name;
+
+    return %out;
 }
 
 sub _build_db {
@@ -497,37 +431,41 @@ sub _build_db {
 build_top_builder db => sub {
     my %params = @_;
 
-    my $args   = $params{args};
-    my $state  = $params{state};
-    my $caller = $params{caller};
+    my $args      = $params{args};
+    my $state     = $params{state};
+    my $caller    = $params{caller};
+    my $wantarray = $params{wantarray};
 
-    my ($name, $cb) = @$args;
-
-    my $orm   = $state->{+ORM};
-    my $mixer = $state->{+MIXER};
-
-    my $db;
-
-    if ($cb) {
-        my %db = _new_db_params($name => $caller);
-
-        $state->{+DB} = \%db;
-
-        update_subname("db builder $name", $cb);
-        $cb->(\%db);
-
-        $db = _build_db(\%db);
-
-        if ($mixer) {
-            croak "Quick ORM mixer already has a db named '$name'" if $mixer->{dbs}->{$name};
-            $mixer->{dbs}->{$name} = $db;
-        }
+    require DBIx::QuickORM::DB;
+    if (@$args == 1 && !ref($args->[0])) {
+        croak 'useless use of db($name) in void context' unless defined $wantarray;
+        return DBIx::QuickORM::DB->lookup($args->[0]);
     }
-    else {
-        croak "db() requires a builder block unless it is called under both a 'mixer' and 'orm' block" unless $orm && $mixer;
 
-        $db = $mixer->{dbs}->{$name} or croak "the '$name' database is not defined under the current mixer";
+    my ($name, $cb);
+    for my $arg (@$args) {
+        $name = $arg and next unless ref($arg);
+        $cb = $arg and next if ref($arg) eq 'CODE';
+        croak "Not sure what to do with argument '$arg'";
     }
+
+    croak "A codeblock is required to build a database" unless $cb;
+
+    my $orm = $state->{+ORM};
+    if ($orm) {
+        croak "Quick ORM '$orm->{name}' already has a database" if $orm->{db};
+    }
+    elsif (!$name) {
+        croak "useless use of db(sub { ... }) in void context. Either provide a name, or assign the result";
+    }
+
+    my %db = _new_db_params($name => $caller);
+
+    $state->{+DB} = \%db;
+
+    update_subname($name ? "db builder $name" : "db builder", $cb)->(\%db) if $cb;
+
+    my $db = _build_db(\%db);
 
     if ($orm) {
         croak "Quick ORM instance already has a db" if $orm->{db};
@@ -546,7 +484,7 @@ sub _get_db {
     croak "Attempt to use db builder tools outside of a db builder in an orm that already has a db defined"
         if $state->{+ORM}->{db};
 
-    my %params = _new_db_params(default => [caller(1)]);
+    my %params = _new_db_params(undef, [caller(1)]);
 
     $state->{+DB} = \%params;
 }
@@ -592,12 +530,15 @@ BEGIN {
 sub _new_schema_params {
     my ($name, $caller) = @_;
 
-    return (
-        name      => $name,
-        created   => "$caller->[1] line $caller->[2]",
-        includes  => [],
-        plugins   => accept_plugins(),
+    my %out = (
+        created  => "$caller->[1] line $caller->[2]",
+        includes => [],
+        plugins  => accept_plugins(),
     );
+
+    $out{name} = $name if $name;
+
+    return %out;
 }
 
 sub _build_schema {
@@ -625,42 +566,48 @@ sub _build_schema {
 build_top_builder schema => sub {
     my %params = @_;
 
-    my $args   = $params{args};
-    my $state  = $params{state};
-    my $caller = $params{caller};
+    my $args      = $params{args};
+    my $state     = $params{state};
+    my $caller    = $params{caller};
+    my $wantarray = $params{wantarray};
 
-    my ($name, $cb) = @$args;
+    require DBIx::QuickORM::Schema;
 
-    my $orm   = $state->{+ORM};
-    my $mixer = $state->{+MIXER};
-
-    my $schema;
-
-    if ($cb) {
-        my %schema = _new_schema_params($name => $caller);
-
-        $state->{+SCHEMA}    = \%schema;
-        $state->{+PLUGINS}   = $schema{plugins};
-
-        delete $state->{+COLUMN};
-        delete $state->{+TABLE};
-        delete $state->{+RELATION};
-
-        update_subname("schema builder $name", $cb)->(\%schema);
-
-        $schema = _build_schema(\%schema);
-
-        if ($mixer) {
-            croak "A schema with name '$name' is already defined" if $mixer->{schemas}->{$name};
-
-            $mixer->{schemas}->{$name} = $schema;
-        }
+    if (@$args == 1 && !ref($args->[0])) {
+        croak 'useless use of schema($name) in void context' unless defined $wantarray;
+        return DBIx::QuickORM::Schema->lookup($args->[0]);
     }
-    else {
-        croak "schema() requires a builder block unless it is called under both a 'mixer' and 'orm' block" unless $orm && $mixer;
 
-        $schema = $mixer->{schemas}->{$name} or croak "the '$name' schema is not defined under the current mixer";
+    my ($name, $cb);
+    for my $arg (@$args) {
+        $name = $arg and next unless ref($arg);
+        $cb = $arg and next if ref($arg) eq 'CODE';
+        croak "Got an undefined argument";
+        croak "Not sure what to do with argument '$arg'";
     }
+
+    croak "A codeblock is required to build a schema" unless $cb;
+
+    my $orm = $state->{+ORM};
+    if ($orm) {
+        croak "Quick ORM '$orm->{name}' already has a schema" if $orm->{schema};
+    }
+    elsif(!$name && !defined($wantarray)) {
+        croak "useless use of schema(sub { ... }) in void context. Either provide a name, or assign the result";
+    }
+
+    my %schema = _new_schema_params($name => $caller);
+
+    $state->{+SCHEMA}    = \%schema;
+    $state->{+PLUGINS}   = $schema{plugins};
+
+    delete $state->{+COLUMN};
+    delete $state->{+TABLE};
+    delete $state->{+RELATION};
+
+    update_subname($name ? "schema builder $name" : "schema builder", $cb)->(\%schema) if $cb;
+
+    my $schema = _build_schema(\%schema);
 
     if ($orm) {
         croak "This orm instance already has a schema" if $orm->{schema};
@@ -677,7 +624,7 @@ sub _get_schema {
 
     return $orm->{schema} if $orm->{schema};
 
-    my %params = _new_schema_params(default => [caller(1)]);
+    my %params = _new_schema_params(undef, [caller(1)]);
 
     $orm->{schema} = $state->{+SCHEMA} = \%params;
 
@@ -689,17 +636,10 @@ sub include {
 
     my $state  = build_state;
     my $schema = $state->{+SCHEMA} or croak "'include()' must be used inside a 'schema' builder";
-    my $mixer  = $state->{+MIXER};
 
+    require DBIx::QuickORM::Schema;
     for my $item (@schemas) {
-        my $it;
-        if ($mixer) {
-            $it = blessed($item) ? $item : $mixer->{schemas}->{$item};
-            croak "'$item' is not a defined schema inside the current mixer" unless $it;
-        }
-        else {
-            $it = $item;
-        }
+        my $it = blessed($item) ? $item : (DBIx::QuickORM::Schema->lookup($item) or "Schema '$item' is not defined");
 
         croak "'" . ($it // $item) . "' is not an instance of 'DBIx::QuickORM::Schema'" unless $it && blessed($it) && $it->isa('DBIx::QuickORM::Schema');
 
@@ -979,7 +919,7 @@ build_clean_builder _meta_table => sub {
 sub accessors {
     return _table_accessors(@_) if build_state(TABLE);
     return _other_accessors(@_) if build_state(ACCESSORS);
-    croak "accesors() must be called inside one of the following builders: table, orm, schema, mixer"
+    croak "accesors() must be called inside one of the following builders: table, orm, schema"
 }
 
 sub _other_accessors {

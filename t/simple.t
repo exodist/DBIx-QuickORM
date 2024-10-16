@@ -40,7 +40,7 @@ imported_ok qw{
 
     plugin plugins
 
-    autofill mixer orm
+    autofill orm
 
     include schema
 
@@ -183,17 +183,17 @@ orm sqlite_noauto => sub {
     _schema();
 } if $sqlite;
 
+    use Carp::Always;
 
 my %DB_COUNT;
 for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mariadb mysql percona sqlite/) {
     my ($db, $name) = @$set;
 
     subtest $name => sub {
-        skip_all "Could not find $name" unless __PACKAGE__->can($name);
+        my $orm = orm($name) or skip_all "Could not find $name";
 
         my $id = 1;
 
-        my $orm = __PACKAGE__->$name();
         isa_ok($orm, ['DBIx::QuickORM::ORM'], "Got correct ORM type");
 
         my $pdb = $orm->db;
@@ -219,7 +219,7 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
         is($bob->from_db->{person_id}, $bob_id, "First row inserted, got id");
         is($bob->from_db->{name}, 'bob', "Name was set correctly");
         ref_is($bob->real_source, $source, "Can get original source");
-        isa_ok($bob->source, [qw/DBIx::QuickORM::Util::SubWrapper DBIx::QuickORM::Source/], "Source is both a a source, and a SubWrapper");
+        isa_ok($bob->source, [qw/DBIx::QuickORM::Util::Mask DBIx::QuickORM::Source/], "Source has been masked");
 
         # This failed insert will increment the sequence for all db's except sqlite
         $id++ unless $db eq 'sqlite';

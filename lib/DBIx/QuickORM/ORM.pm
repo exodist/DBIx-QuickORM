@@ -9,7 +9,6 @@ require DBIx::QuickORM::Source;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <name
-    <mixer_name
     <db
     +connection
     <schema
@@ -24,11 +23,20 @@ use DBIx::QuickORM::Util::Has qw/Plugins Created/;
 sub temp_table_supported { $_[0]->connection->temp_table_supported }
 sub temp_view_supported  { $_[0]->connection->temp_view_supported }
 
+my %LOOKUP;
+sub lookup { $LOOKUP{$_[-1]} }
+
 sub init {
     my $self = shift;
 
-    my $name = $self->{+NAME} //= $self->created;
-    my $db   = $self->{+DB}   or croak "'db' is a required attribute";
+    if ($self->{+NAME}) {
+        croak "Database '$self->{+NAME}' is already defined" if $self->{+NAME} && $LOOKUP{$self->{+NAME}};
+        $LOOKUP{$self->{+NAME}} = $self if $self->{+NAME};
+    }
+
+    delete $self->{+NAME} unless defined $self->{+NAME};
+
+    my $db = $self->{+DB} or croak "'db' is a required attribute";
 
     $self->{+AUTOFILL}     //= 1;
     $self->{+TEMP_SOURCES} //= {};
@@ -44,8 +52,7 @@ sub clone {
 
     my $type = blessed($self);
 
-    # Do not clone mixer name
-    for my $field (NAME(), DB(), SCHEMA(), AUTOFILL(), ACCESSOR_NAME_CB()) {
+    for my $field (DB(), SCHEMA(), AUTOFILL(), ACCESSOR_NAME_CB()) {
         $params{$field} //= $self->{$field};
     }
 
@@ -76,7 +83,7 @@ sub con_schema {
 
 sub temp_schema {
     my $self = shift;
-    return $self->{+TEMP_SCHEMA} //= DBIx::QuickORM::Schema->new(name => "TEMP $self->{+NAME}");
+    return $self->{+TEMP_SCHEMA} //= DBIx::QuickORM::Schema->new();
 }
 
 sub reconnect {

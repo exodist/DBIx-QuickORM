@@ -50,7 +50,7 @@ sub generate_schema {
 
     my %tables;
     my @todo;
-    my $schema = schema $con->db->name, sub {
+    my $schema = schema sub {
         for my $table ($con->tables(details => 1)) {
             my $name = $table->{name};
 

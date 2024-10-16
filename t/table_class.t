@@ -85,16 +85,14 @@ BEGIN { $INC{'BEGIN/Lift.pm'} = 0 }
 dbs_do db => sub {
     my ($dbname, $dbc, $st) = @_;
 
-    my $orm = orm myorm => sub {
-        db mydb => sub {
+    my $orm = orm sub {
+        db sub {
             db_class $dbname;
             db_name 'quickdb';
             db_connect sub { $dbc->connect };
         };
 
-        schema myschema => sub {
-            table 'My::Table::AAA';
-        };
+        schema sub { table 'My::Table::AAA' };
     };
 
     ok(lives { $orm->generate_and_load_schema() }, "Generate and load schema");

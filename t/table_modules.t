@@ -6,16 +6,14 @@ use DBIx::QuickORM::V0;
 dbs_do db => sub {
     my ($dbname, $dbc, $st) = @_;
 
-    my $orm = orm myorm => sub {
-        db mydb => sub {
+    my $orm = orm sub {
+        db sub {
             db_class $dbname;
             db_name 'quickdb';
             db_connect sub { $dbc->connect };
         };
 
-        schema myschema => sub {
-            tables 'DBIx::QuickORM::Test::Tables';
-        };
+        schema sub { tables 'DBIx::QuickORM::Test::Tables' };
     };
 
     ok(lives { $orm->generate_and_load_schema() }, "Generate and load schema");

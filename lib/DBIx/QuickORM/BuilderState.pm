@@ -20,7 +20,6 @@ BEGIN {
         CONFLATOR        => 'CONFLATOR',
         DB               => 'DB',
         DEFAULT_BASE_ROW => 'DEFAULT_BASE_ROW',
-        MIXER            => 'MIXER',
         ORM              => 'ORM',
         PLUGINS          => 'PLUGINS',
         RELATION         => 'RELATION',

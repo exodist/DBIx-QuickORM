@@ -15,10 +15,18 @@ use DBIx::QuickORM::Util::HashBase qw{
 
 use DBIx::QuickORM::Util::Has qw/Created Plugins/;
 
+my %LOOKUP;
+sub lookup { $LOOKUP{$_[-1]} }
+
 sub init {
     my $self = shift;
 
-    croak "'name' is a required attribute" unless $self->{+NAME};
+    if ($self->{+NAME} && !$self->{__CLONE__} && !$self->{__MERGE__}) {
+        croak "Schema '$self->{+NAME}' is already defined" if $self->{+NAME} && $LOOKUP{$self->{+NAME}};
+        $LOOKUP{$self->{+NAME}} = $self if $self->{+NAME};
+    }
+
+    delete $self->{+NAME} unless defined $self->{+NAME};
 }
 
 my $GEN_ID = 1;
@@ -127,7 +135,7 @@ sub merge {
     $params{+PLUGINS} //= $self->{+PLUGINS}->merge($other->{+PLUGINS});
     $params{+NAME}    //= $self->{+NAME};
 
-    return ref($self)->new(%$self, %params)->compile;
+    return ref($self)->new(%$self, %params, __MERGE__ => 1)->compile;
 }
 
 sub clone {
@@ -138,7 +146,7 @@ sub clone {
     $params{+NAME}    //= $self->{+NAME};
     $params{+PLUGINS} //= $self->{+PLUGINS}->clone();
 
-    return ref($self)->new(%$self, %params);
+    return ref($self)->new(%$self, %params, __CLONE__ => 1);
 }
 
 1;

@@ -4,7 +4,7 @@ use warnings;
 
 use Carp qw/croak confess/;
 use List::Util qw/min zip/;
-use Scalar::Util qw/blessed weaken/;
+use Scalar::Util qw/blessed weaken refaddr/;
 use DBIx::QuickORM::Util qw/parse_hash_arg mod2file/;
 
 use DBIx::QuickORM::Row;
@@ -24,6 +24,9 @@ use DBIx::QuickORM::Util::Has qw/Created Plugins/;
 
 sub db { $_[0]->{+CONNECTION}->db }
 
+my %LOOKUP;
+sub lookup { $LOOKUP{$_[0]} }
+
 sub init {
     my $self = shift;
 
@@ -40,6 +43,11 @@ sub init {
     weaken($self->{+ORM});
 
     $self->{+IGNORE_CACHE} //= 0;
+
+    $LOOKUP{refaddr($self)} = $self;
+    weaken($LOOKUP{refaddr($self)});
+
+    return $self;
 }
 
 sub set_row_class {
@@ -82,7 +90,7 @@ sub transaction {
 sub clone {
     my $self   = shift;
     my %params = @_;
-    my $class  = blessed($self);
+    my $class  = $params{source_class} // blessed($self);
 
     unless ($params{+CREATED}) {
         my @caller = caller();
@@ -527,6 +535,64 @@ sub expand_relations {
     }
 
     return $data;
+}
+
+sub FREEZE {
+    my $self = shift;
+    my ($serializer) = @_;
+    return ($self->TO_JSON);
+}
+
+sub THAW {
+    my $class = shift;
+    my ($serializer, $data) = @_;
+
+    return $class->FROM_JSON($data);
+}
+
+sub FROM_JSON {
+    my $class = shift;
+    my ($data) = @_;
+
+    if (my $found = $LOOKUP{$data->{source_addr}}) {
+        my $data2 = $found->TO_JSON;
+
+        return $found unless grep { $data->{$_} ne $data2->{$_} } keys %$data;
+    }
+
+    require DBIx::QuickORM::ORM;
+    my $orm = DBIx::QuickORM::ORM->lookup($data->{orm_name});
+
+    my $self = $orm->source($data->{table_name});
+    my $data2 = $self->TO_JSON;
+
+    if (grep { $data->{$_} ne $data2->{$_} } qw/row_class ignore_cache source_class/) {
+        $self = $self->clone(map {($_ => $data->{$_})} qw/row_class ignore_cache source_class/);
+    }
+
+    return $self;
+}
+
+sub TO_JSON {
+    my $self = shift;
+
+    my $orm   = $self->{+ORM};
+    my $table = $self->{+TABLE};
+
+    # We may be able to relax this later and send the temp table spec, but not
+    # going to write that until it is needed.
+    croak "Cannot serialize, references a temporary table that may not exist when deserialized" if $table->is_temp;
+
+    return {
+        orm_name   => $orm->name   // '',
+        table_name => $table->name // '',
+
+        row_class    => $self->{+ROW_CLASS} // '',
+        ignore_cache => $self->{+IGNORE_CACHE} ? 1 : 0,
+
+        source_class => blessed($self),
+        source_addr  => refaddr($self),
+    };
 }
 
 1;

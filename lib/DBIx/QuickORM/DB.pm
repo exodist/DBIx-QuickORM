@@ -78,8 +78,18 @@ sub driver_name {
     return $class;
 }
 
+my %LOOKUP;
+sub lookup { $LOOKUP{$_[-1]} }
+
 sub init {
     my $self = shift;
+
+    if ($self->{+NAME}) {
+        croak "Database '$self->{+NAME}' is already defined" if $self->{+NAME} && $LOOKUP{$self->{+NAME}};
+        $LOOKUP{$self->{+NAME}} = $self if $self->{+NAME};
+    }
+
+    delete $self->{+NAME} unless defined $self->{+NAME};
 
     croak "${ \__PACKAGE__ } cannot be used directly, use a subclass" if blessed($self) eq __PACKAGE__;
 
