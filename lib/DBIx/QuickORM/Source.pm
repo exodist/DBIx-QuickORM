@@ -155,22 +155,14 @@ sub _parse_find_and_fetch_args {
     return {where => {$pk->[0] => $_[0]}};
 }
 
-sub select_async {
+sub aggregate {
     my $self = shift;
-    my %params = @_;
+    $self->select()->aggregate(@_);
+}
 
-    croak "Cannot use async select inside a transaction (use `ignore_transaction => 1` to do it anyway, knowing that the async select will not see any uncommited changes)"
-        if $self->{+CONNECTION}->in_transaction && !$params{ignore_transaction};
-
-    my $params;
-    if (ref($_[0]) eq 'HASH') {
-        $params = $self->_parse_find_and_fetch_args(shift(@_));
-        $params->{order_by} = shift(@_) if @_ == 1;
-    }
-
-    $params = {%{$params // {}}, @_} if @_;
-
-    return DBIx::QuickORM::Select::Async->new(source => $self, %$params);
+sub any {
+    my $self = shift;
+    $self->select(@_)->first;
 }
 
 sub select {

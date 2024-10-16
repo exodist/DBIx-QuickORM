@@ -120,6 +120,30 @@ sub table {
     return $table;
 }
 
+sub find {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->find(@_);
+}
+
+sub select {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->select(@_);
+}
+
+sub aggregate {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->aggregate(@_);
+}
+
+sub any {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->any(@_);
+}
+
 sub source {
     my $self = shift;
     my ($name) = @_;

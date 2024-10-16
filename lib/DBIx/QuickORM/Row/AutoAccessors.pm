@@ -10,6 +10,7 @@ use parent 'DBIx::QuickORM::Row';
 use DBIx::QuickORM::Util::HashBase;
 
 sub import {}
+sub unimport {}
 sub DESTROY {}
 
 our $AUTOLOAD;

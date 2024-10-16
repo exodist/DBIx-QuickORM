@@ -2,7 +2,7 @@ package DBIx::QuickORM::Select;
 use strict;
 use warnings;
 
-use Carp qw/croak/;
+use Carp qw/croak confess/;
 use Sub::Util qw/set_subname/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/parse_hash_arg/;
@@ -103,6 +103,19 @@ sub params {
     return $self->{+PARAMS} = \%out;
 }
 
+sub aggregate { confess "Not implemented" } # FIXME TODO
+sub async     { confess "Not Implemented" } # FIXME TODO
+
+sub find {
+    my $self = shift;
+    my $r = $self->_rows or return undef;
+    return undef unless @$r;
+
+    croak "Multiple rows returned for fetch/find operation" if @$r > 1;
+
+    return $r->[0];
+}
+
 sub count {
     my $self = shift;
 
@@ -119,6 +132,7 @@ sub _rows {
 }
 
 sub all   { @{shift->_rows} }
+sub any   { my $r = shift->_rows; return undef unless @$r; return $r->[0] }
 sub first { my $r = shift->_rows; return undef unless @$r; return $r->[0] }
 sub last  { my $r = shift->_rows; return undef unless @$r; return $r->[-1] }
 
