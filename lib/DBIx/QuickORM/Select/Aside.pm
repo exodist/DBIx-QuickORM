@@ -31,6 +31,8 @@ sub ignoring_transactions { $_[0]->{+IGNORE_TRANSACTIONS} }
 sub start {
     my $self = shift;
 
+    croak "Aside query already started" if $self->{+STARTED};
+
     my $orig = $self->{+ORIG_SOURCE};
     $self->{+SOURCE} = $orig->orm->clone->source($orig->table->name);
 
@@ -39,7 +41,7 @@ sub start {
             if $self->{+ORIG_SOURCE}->connection->in_transaction;
     }
 
-    $self->SUPER::start();
+    $self->{+STARTED} = $self->{+SOURCE}->do_select($self->params, async => 1, aside => $self->{+IGNORE_TRANSACTIONS} ? 0 : 1);
 
     return $self;
 }

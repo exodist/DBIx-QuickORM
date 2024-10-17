@@ -20,6 +20,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     +cache
     +cache_stack
     +async
+    +side
 };
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created/;
@@ -37,7 +38,6 @@ sub create_temp_table    { my $self = shift; $self->{+DB}->create_temp_table($se
 sub temp_table_supported { my $self = shift; $self->{+DB}->temp_table_supported($self->dbh, @_) }
 sub temp_view_supported  { my $self = shift; $self->{+DB}->temp_view_supported($self->dbh, @_) }
 
-sub start_txn          { my $self = shift; $self->{+TXN_DEPTH} += 1; $self->{+DB}->start_txn($self->dbh, @_) }
 sub commit_txn         { my $self = shift; $self->{+TXN_DEPTH} -= 1; $self->{+DB}->commit_txn($self->dbh, @_) }
 sub rollback_txn       { my $self = shift; $self->{+TXN_DEPTH} -= 1; $self->{+DB}->rollback_txn($self->dbh, @_) }
 sub create_savepoint   { my $self = shift; $self->{+TXN_DEPTH} += 1; $self->{+DB}->create_savepoint($self->dbh, @_) }
@@ -56,6 +56,19 @@ sub async_ready     { my $self = shift; $self->{+DB}->async_ready($self->dbh, @_
 sub async_result    { my $self = shift; $self->{+DB}->async_result($self->dbh, @_) }
 sub async_cancel    { my $self = shift; $self->{+DB}->async_cancel($self->dbh, @_) }
 
+sub start_txn {
+    my $self = shift;
+
+    croak "Cannnot start a transaction while an async query is running"
+        if $self->{+ASYNC};
+
+    croak 'Cannnot start a transaction while side connections have active queries (use $sel->ignore_transactions() to bypass)'
+        if $self->{+SIDE};
+
+    $self->{+TXN_DEPTH} += 1;
+    $self->{+DB}->start_txn($self->dbh, @_)
+}
+
 sub async_start {
     my $self = shift;
     croak "Already engaged in an async query" if $self->{+ASYNC};
@@ -68,6 +81,10 @@ sub async_stop {
 }
 
 sub async_started { $_[0]->{+ASYNC} ? 1 : 0 }
+
+sub add_side_connection { $_[0]->{+SIDE}++ }
+sub pop_side_connection { $_[0]->{+SIDE}-- }
+sub has_side_connection { $_[0]->{+SIDE} }
 
 sub quote_binary_data { my $self = shift; $self->{+DB}->quote_binary_data($self->dbh, @_) }
 sub dbi_driver        { my $self = shift; $self->{+DB}->dbi_driver($self->dbh, @_) }

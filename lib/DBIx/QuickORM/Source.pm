@@ -7,6 +7,7 @@ use List::Util qw/min zip/;
 use Scalar::Util qw/blessed weaken refaddr/;
 use DBIx::QuickORM::Util qw/parse_hash_arg mod2file/;
 
+use Scope::Guard;
 use DBIx::QuickORM::Row;
 use DBIx::QuickORM::Select;
 use DBIx::QuickORM::GlobalLookup;
@@ -259,10 +260,11 @@ sub do_select {
     my $self = shift;
     my ($params, %extra) = @_;
 
-    my $async = $extra{async};
+    my $aside  = $extra{aside};
+    my $async  = $extra{async};
     my $forked = $extra{forked};
-    my $where = $params->{where};
-    my $order = $params->{order_by};
+    my $where  = $params->{where};
+    my $order  = $params->{order_by};
 
     my $con = $self->{+CONNECTION};
 
@@ -281,10 +283,17 @@ sub do_select {
     $sth->execute(@$bind);
     $con->async_start() if $async;
 
+    my $guard;
+    if ($aside) {
+        $con->add_side_connection;
+        $guard = Scope::Guard->new(sub { $con->pop_side_connection });
+    }
+
     return {
         sth    => $sth,
         cols   => $cols,
         relmap => $relmap,
+        guard  => $guard,
     } if $forked;
 
     my $fetch = sub {
@@ -299,6 +308,7 @@ sub do_select {
         }
 
         $con->async_stop() if $async;
+        $con->pop_side_connection;
 
         return \@out;
     };
@@ -308,6 +318,7 @@ sub do_select {
     return {
         fetch  => $fetch,
         sth    => $sth,
+        guard  => $guard,
         ready  => sub { $con->async_ready($sth) },
         result => sub { $con->async_result($sth) },
         cancel => sub { $con->async_cancel($sth) },

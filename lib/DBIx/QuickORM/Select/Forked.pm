@@ -44,9 +44,18 @@ sub start {
     if ($pid) {
         close($wh);
 
+        my $con = $self->source->connection;
+
+        my $guard;
+        unless ($self->{+IGNORE_TRANSACTIONS}) {
+            $con->add_side_connection;
+            $guard = Scope::Guard->new(sub { $con->pop_side_connection });
+        }
+
         $self->{+STARTED} = {
-            pid => $pid,
-            rh  => $rh,
+            pid   => $pid,
+            rh    => $rh,
+            guard => $guard,
         };
 
         return $self;
@@ -70,7 +79,7 @@ sub run_child {
     $self->source->reconnect;
 
     my $ok = eval {
-        my $ret = $self->{+SOURCE}->do_select($self->params, forked => 1);
+        my $ret = $self->{+SOURCE}->do_select($self->params, forked => 1, aside => 1);
         my $sth = $ret->{sth};
         my $cols = $ret->{cols};
         my $relmap = $ret->{relmap};
@@ -175,6 +184,8 @@ sub wait {
     }
 
     $self->{+ROWS} = \@rows;
+
+    delete $started->{guard};
 
     my $pid = delete $started->{pid};
     local $? = 0;
