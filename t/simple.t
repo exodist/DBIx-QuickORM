@@ -183,8 +183,6 @@ orm sqlite_noauto => sub {
     _schema();
 } if $sqlite;
 
-    use Carp::Always;
-
 my %DB_COUNT;
 for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mariadb mysql percona sqlite/) {
     my ($db, $name) = @$set;

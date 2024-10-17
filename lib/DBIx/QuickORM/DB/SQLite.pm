@@ -40,6 +40,7 @@ sub load_schema_sql {
 # used.
 sub supports_uuid { () }
 sub supports_datetime { 'DATETIME(6)' }
+sub supports_async  { 0 }
 
 sub supports_json {
     my $self = shift;

@@ -70,6 +70,12 @@ sub supports_uuid { () }
 sub supports_json { () }
 sub supports_datetime { 'DATETIME' }
 
+sub supports_async  { 0 }
+sub async_query_arg { croak "$_[0]->async_query_arg() is not implemented" }
+sub async_ready     { croak "$_[0]->async_ready() is not implemented" }
+sub async_result    { croak "$_[0]->async_result() is not implemented" }
+sub async_cancel    { croak "$_[0]->async_cancel() is not implemented" }
+
 sub insert_returning_supported { 0 }
 sub update_returning_supported { 0 }
 

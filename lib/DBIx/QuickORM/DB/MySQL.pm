@@ -60,6 +60,12 @@ sub rollback_savepoint { $_[1]->do("ROLLBACK TO SAVEPOINT $_[2]") }
 sub supports_uuid { () }
 sub supports_datetime { 'DATETIME' }
 
+sub supports_async  { 1 }
+sub async_query_arg { $_[0]->dbi_driver($_[1]) eq 'DBD::mysql' ? {async => 1}                : {mariadb_async => 1} }
+sub async_ready     { $_[0]->dbi_driver($_[1]) eq 'DBD::mysql' ? $_[-1]->mysql_async_ready()  : $_[-1]->mariadb_async_ready() }
+sub async_result    { $_[0]->dbi_driver($_[1]) eq 'DBD::mysql' ? $_[-1]->mysql_async_result() : $_[-1]->mariadb_async_result() }
+sub async_cancel    { my $d = $_[0]->dbi_driver($_[1]); croak "Driver '$d' does not have a way to cancel async queries" }
+
 sub supports_json {
     my $self = shift;
     my ($dbh) = @_;

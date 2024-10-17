@@ -27,8 +27,10 @@ sub init {
     $self->{+INDEX} = 0;
 }
 
-sub reset   { shift->{+INDEX} = 0 }
-sub discard { delete(shift->{+ROWS}); return }
+sub reset   { $_[0]->{+INDEX} = 0; $_[0] }
+sub discard { delete($_[0]->{+ROWS}); $_[0] }
+
+sub busy { $_[0]->source->busy }
 
 BEGIN {
     for my $attr_const (WHERE(), LIMIT(), ORDER_BY(), PREFETCH()) {
@@ -104,7 +106,22 @@ sub params {
 }
 
 sub aggregate { confess "Not implemented" } # FIXME TODO
-sub async     { confess "Not Implemented" } # FIXME TODO
+
+sub async {
+    my $self = shift;
+    require DBIx::QuickORM::Select::Async;
+    DBIx::QuickORM::Select::Async->copy($self);
+}
+
+sub aside {
+    my $self = shift;
+    require DBIx::QuickORM::Select::Aside;
+    DBIx::QuickORM::Select::Aside->copy($self);
+}
+
+sub forked {
+
+}
 
 sub find {
     my $self = shift;
@@ -125,6 +142,10 @@ sub count {
 
     return $self->{+SOURCE}->count_select($self->params);
 }
+
+# This should return a new select that will find all the obejects of the
+# relation associated with the objects of this select.
+sub relations { die "FIXME" }
 
 sub _rows {
     my $self = shift;
@@ -158,21 +179,28 @@ sub previous {
     return $rows->[$i];
 }
 
+sub copy {
+    my $class = shift;
+    my ($select, %params) = @_;
+
+    return $class->new(
+        SOURCE()   => $select->{+SOURCE},
+        LIMIT()    => $select->{+LIMIT},
+        ORDER_BY() => $select->{+ORDER_BY},
+        PREFETCH() => $select->{+PREFETCH},
+        WHERE()    => $select->{+WHERE},
+
+        %params,
+    );
+}
+
 sub clone {
     my $self = shift;
     my %params = @_;
 
     my $class = blessed($self);
 
-    return $class->new(
-        SOURCE()   => $self->{+SOURCE},
-        LIMIT()    => $self->{+LIMIT},
-        ORDER_BY() => $self->{+ORDER_BY},
-        PREFETCH() => $self->{+PREFETCH},
-        WHERE()    => $self->{+WHERE},
-
-        %params,
-    );
+    return $class->copy($self);
 }
 
 sub _parse_boolean_args {

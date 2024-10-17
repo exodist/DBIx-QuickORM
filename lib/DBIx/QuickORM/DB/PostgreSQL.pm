@@ -2,7 +2,7 @@ package DBIx::QuickORM::DB::PostgreSQL;
 use strict;
 use warnings;
 
-use DBD::Pg;
+use DBD::Pg qw/PG_ASYNC/;
 
 use Carp qw/croak/;
 use DateTime::Format::Pg;
@@ -59,6 +59,12 @@ sub supports_json {
 
     return ();
 }
+
+sub supports_async  { 1 }
+sub async_query_arg { {pg_async => PG_ASYNC} }
+sub async_ready     { $_[-1]->pg_ready() }
+sub async_result    { $_[-1]->pg_result() }
+sub async_cancel    { $_[-1]->pg_cancel() }
 
 sub load_schema_sql {
     my $self = shift;

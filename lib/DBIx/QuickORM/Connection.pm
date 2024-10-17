@@ -19,6 +19,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <sqla
     +cache
     +cache_stack
+    +async
 };
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created/;
@@ -48,6 +49,25 @@ sub load_schema_sql { my $self = shift; $self->{+DB}->load_schema_sql($self->dbh
 sub supports_uuid     { my $self = shift; $self->{+DB}->supports_uuid($self->dbh, @_) }
 sub supports_json     { my $self = shift; $self->{+DB}->supports_json($self->dbh, @_) }
 sub supports_datetime { my $self = shift; $self->{+DB}->supports_datetime($self->dbh, @_) }
+
+sub supports_async  { my $self = shift; $self->{+DB}->supports_async($self->dbh, @_) }
+sub async_query_arg { my $self = shift; $self->{+DB}->async_query_arg($self->dbh, @_) }
+sub async_ready     { my $self = shift; $self->{+DB}->async_ready($self->dbh, @_) }
+sub async_result    { my $self = shift; $self->{+DB}->async_result($self->dbh, @_) }
+sub async_cancel    { my $self = shift; $self->{+DB}->async_cancel($self->dbh, @_) }
+
+sub async_start {
+    my $self = shift;
+    croak "Already engaged in an async query" if $self->{+ASYNC};
+    $self->{+ASYNC} = 1;
+}
+
+sub async_stop {
+    my $self = shift;
+    delete $self->{+ASYNC} or croak "Not currently engaged in an async query";
+}
+
+sub async_started { $_[0]->{+ASYNC} ? 1 : 0 }
 
 sub quote_binary_data { my $self = shift; $self->{+DB}->quote_binary_data($self->dbh, @_) }
 sub dbi_driver        { my $self = shift; $self->{+DB}->dbi_driver($self->dbh, @_) }

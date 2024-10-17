@@ -6,89 +6,83 @@ use Carp qw/croak/;
 
 use parent 'DBIx::QuickORM::Select';
 use DBIx::QuickORM::Util::HashBase qw{
-    +fetch_complete
-    +pid
-    +exception
+    +ready
+    +started
+    +result
 };
 
-# Use an Atomic::Pipe to send stderr, stdout, and objects back to parent
-
-sub init {
+sub start {
     my $self = shift;
 
-    $self->SUPER::init();
+    croak "Async query already started" if $self->{+STARTED};
 
-    $self->_start;
+    $self->{+STARTED} = $self->{+SOURCE}->do_select($self->params, async => 1);
+
+    return $self;
 }
+
+sub started { $_[0]->{+STARTED} ? 1 : 0 }
+
+sub ready {
+    my $self = shift;
+    return 1 if defined $self->{+READY};
+
+    my $started = $self->{+STARTED} or croak 'Async query has not been started (did you forget to call $s->start)?';
+
+    return 0 unless $started->{ready}->();
+
+    return $self->{+READY} = 1;
+}
+
+sub cancel { $_[0]->discard }
+
+sub result {
+    my $self = shift;
+    return $self->{+RESULT} if defined $self->{+RESULT};
+
+    $self->wait();
+
+    return $self->{+RESULT};
+}
+
+sub _rows {
+    my $self = shift;
+    return $self->{+ROWS} if $self->{+ROWS};
+
+    $self->wait();
+
+    return $self->{+ROWS};
+}
+
+sub wait {
+    my $self = shift;
+
+    return if exists $self->{+RESULT};
+    return if exists $self->{+ROWS};
+
+    my $started = $self->{+STARTED} or croak 'Async query has not been started (did you forget to call $s->start)?';
+
+    $self->{+RESULT} = $started->{result}->();
+    $self->{+ROWS}   = $started->{fetch}->();
+
+    return $self;
+}
+
+sub count { @{$_[0]->_rows} }
 
 sub discard {
     my $self = shift;
 
-    $self->cancel;
-    delete $self->{+ROWS};
-    delete $self->{+FETCH_COMPLETE};
-    $self->_start;
-
-    return;
-}
-
-sub count {
-    my $self = shift;
-
-    return scalar @{$self->{+ROWS}} if $self->{+FETCH_COMPLETE};
-
-    return $self->{+SOURCE}->count_select($self->params);
-}
-
-sub _start {}
-
-# Ignores exceptions
-sub cancel {}
-
-# Returns an exception (not throw)
-sub broken {}
-
-# Throw exceptions if we see any
-sub ready {}
-
-sub _rows { croak "unsupported" }
-
-sub _fetch_row {
-    # Throw exception
-}
-
-# Exceptions get thrown
-sub all   {}
-sub first {}
-sub last  {}
-
-# Exceptions get thrown
-sub next {
-    my $self = shift;
-    my $i = $self->{+INDEX}++;
-#    my $rows = $self->_rows;
-#    return if $i > @$rows;
-#    return $rows->[$i];
-}
-
-# Exceptions get thrown
-sub previous {
-    my $self = shift;
-    my $i = $self->{+INDEX}--;
-
-    if ($i < 0) {
-        $self->{+INDEX} = 0;
-        return;
+    my $done = 0;
+    for my $field (ROWS(), READY(), RESULT()) {
+        $done = 1 if delete $self->{$field};
     }
 
-    my $rows = $self->{+ROWS};
-    return if $i > @$rows;
-    return $rows->[$i];
-}
+    if (my $started = delete $self->{+STARTED}) {
+        $started->{cancel}->() unless $done;
+    }
 
-sub DESTROY {
-    my $self = shift;
-    $self->cancel;
+    return $self;
 }
 
 1;

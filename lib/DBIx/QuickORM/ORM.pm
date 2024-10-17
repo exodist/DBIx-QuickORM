@@ -3,6 +3,7 @@ use strict;
 use warnings;
 
 use Carp qw/confess croak/;
+use Scalar::Util qw/blessed/;
 
 require DBIx::QuickORM::GlobalLookup;
 require DBIx::QuickORM::Schema;
@@ -40,7 +41,6 @@ sub init {
         unless $self->{+SCHEMA} || $self->{+AUTOFILL};
 
     $self->{+LOCATOR} = DBIx::QuickORM::GlobalLookup->register($self);
-
 }
 
 sub clone {
@@ -49,7 +49,7 @@ sub clone {
 
     my $type = blessed($self);
 
-    for my $field (DB(), SCHEMA(), AUTOFILL(), ACCESSOR_NAME_CB()) {
+    for my $field (NAME(), DB(), SCHEMA(), AUTOFILL(), ACCESSOR_NAME_CB()) {
         $params{$field} //= $self->{$field};
     }
 
@@ -136,6 +136,24 @@ sub select {
     $self->source($source)->select(@_);
 }
 
+sub async {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->async(@_);
+}
+
+sub aside {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->aside(@_);
+}
+
+sub forked {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->forked(@_);
+}
+
 sub aggregate {
     my $self = shift;
     my ($source, @args) = @_;
@@ -146,6 +164,24 @@ sub any {
     my $self = shift;
     my ($source, @args) = @_;
     $self->source($source)->any(@_);
+}
+
+sub first {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->first(@_);
+}
+
+sub last {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->last(@_);
+}
+
+sub all {
+    my $self = shift;
+    my ($source, @args) = @_;
+    $self->source($source)->all(@_);
 }
 
 sub source {

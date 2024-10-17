@@ -9,7 +9,6 @@ use DBIx::QuickORM::Util qw/parse_hash_arg mod2file/;
 
 use DBIx::QuickORM::Row;
 use DBIx::QuickORM::Select;
-use DBIx::QuickORM::Select::Async;
 use DBIx::QuickORM::GlobalLookup;
 
 use DBIx::QuickORM::Util::HashBase qw{
@@ -168,7 +167,37 @@ sub aggregate {
 
 sub any {
     my $self = shift;
-    $self->select(@_)->first;
+    $self->select(@_)->first();
+}
+
+sub async {
+    my $self = shift;
+    $self->select(@_)->async();
+}
+
+sub aside {
+    my $self = shift;
+    $self->select(@_)->aside();
+}
+
+sub forked {
+    my $self = shift;
+    $self->select(@_)->forked();
+}
+
+sub first {
+    my $self = shift;
+    $self->select(@_)->first();
+}
+
+sub last {
+    my $self = shift;
+    $self->select(@_)->last();
+}
+
+sub all {
+    my $self = shift;
+    $self->select(@_)->all();
 }
 
 sub select {
@@ -189,6 +218,8 @@ sub select {
     return DBIx::QuickORM::Select->new(source => $self, %$params);
 }
 
+sub busy { $_[0]->{+CONNECTION}->async_started }
+
 sub count_select {
     my $self = shift;
     my ($params) = @_;
@@ -197,6 +228,8 @@ sub count_select {
 
     my $table = $self->{+TABLE};
     my $con = $self->{+CONNECTION};
+
+    confess "This database connection is currently engaged in an async query" if $con->async_started;
 
     my $source = $table->sqla_source;
     $source = \"$source AS me" unless ref($source);
@@ -218,12 +251,16 @@ sub count_select {
 
 sub do_select {
     my $self = shift;
-    my ($params) = @_;
+    my ($params, %extra) = @_;
 
+    my $async = $extra{async};
     my $where = $params->{where};
     my $order = $params->{order_by};
 
     my $con = $self->{+CONNECTION};
+
+    confess "This database connection is currently engaged in an async query" if $con->async_started;
+    confess "Async is not supported by this database engine" if $async && !$con->supports_async;
 
     my ($source, $cols, $relmap) = $self->_source_and_cols($params->{prefetch});
     my ($stmt, $bind) = $self->build_select_sql($source, $cols, $where, $order ? $order : ());
@@ -233,18 +270,35 @@ sub do_select {
         push @$bind => $limit;
     }
 
-    my $sth = $con->dbh->prepare($stmt);
+    my $sth = $con->dbh->prepare($stmt, $async ? ($con->async_query_arg) : ());
     $sth->execute(@$bind);
+    $con->async_start() if $async;
 
-    my @out;
-    while (my $data = $sth->fetchrow_arrayref) {
-        my $row = {};
-        @{$row}{@$cols} = @$data;
-        $self->expand_relations($row, $relmap);
-        push @out => $self->_expand_row($row);
-    }
+    my $fetch = sub {
+        my $source = shift // $self;
 
-    return \@out;
+        my @out;
+        while (my $data = $sth->fetchrow_arrayref) {
+            my $row = {};
+            @{$row}{@$cols} = @$data;
+            $source->expand_relations($row, $relmap);
+            push @out => $source->_expand_row($row);
+        }
+
+        $con->async_stop() if $async;
+
+        return \@out;
+    };
+
+    return $fetch->() unless $async;
+
+    return {
+        fetch  => $fetch,
+        sth    => $sth,
+        ready  => sub { $con->async_ready($sth) },
+        result => sub { $con->async_result($sth) },
+        cancel => sub { $con->async_cancel($sth) },
+    };
 }
 
 sub find {
