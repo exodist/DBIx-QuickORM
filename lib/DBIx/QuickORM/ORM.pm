@@ -22,6 +22,12 @@ use DBIx::QuickORM::Util::HashBase qw{
     <created
 };
 
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::SelectLike';
+with 'DBIx::QuickORM::Role::HasORM';
+
+sub orm { $_[0] }
+
 sub temp_table_supported { $_[0]->connection->temp_table_supported }
 sub temp_view_supported  { $_[0]->connection->temp_view_supported }
 
@@ -132,65 +138,26 @@ sub table {
     return $table;
 }
 
-sub find {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->find(@_);
-}
+sub aggregate        { my ($self, $source, @args) = @_; $self->source($source)->aggregate(@args) }
+sub all              { my ($self, $source, @args) = @_; $self->source($source)->all(@args) }
+sub any              { my ($self, $source, @args) = @_; $self->source($source)->any(@args) }
+sub aside            { my ($self, $source, @args) = @_; $self->source($source)->aside(@args) }
+sub async            { my ($self, $source, @args) = @_; $self->source($source)->async(@args) }
+sub count            { my ($self, $source, @args) = @_; $self->source($source)->count(@args) }
+sub find             { my ($self, $source, @args) = @_; $self->source($source)->find(@args) }
+sub find_or_insert   { my ($self, $source, @args) = @_; $self->source($source)->find_or_insert(@args) }
+sub first            { my ($self, $source, @args) = @_; $self->source($source)->first(@args) }
+sub forked           { my ($self, $source, @args) = @_; $self->source($source)->forked(@args) }
+sub insert           { my ($self, $source, @args) = @_; $self->source($source)->insert(@args) }
+sub insert_row       { my ($self, $source, @args) = @_; $self->source($source)->insert_row(@args) }
+sub last             { my ($self, $source, @args) = @_; $self->source($source)->last(@args) }
+sub relations        { my ($self, $source, @args) = @_; $self->source($source)->relations(@args) }
+sub select           { my ($self, $source, @args) = @_; $self->source($source)->select(@args) }
+sub uncached         { my ($self, $source, @args) = @_; $self->source($source)->uncached(@args) }
+sub update           { my ($self, $source, @args) = @_; $self->source($source)->update(@args) }
+sub update_or_insert { my ($self, $source, @args) = @_; $self->source($source)->update_or_insert(@args) }
 
-sub select {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->select(@_);
-}
-
-sub async {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->async(@_);
-}
-
-sub aside {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->aside(@_);
-}
-
-sub forked {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->forked(@_);
-}
-
-sub aggregate {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->aggregate(@_);
-}
-
-sub any {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->any(@_);
-}
-
-sub first {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->first(@_);
-}
-
-sub last {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->last(@_);
-}
-
-sub all {
-    my $self = shift;
-    my ($source, @args) = @_;
-    $self->source($source)->all(@_);
-}
+sub shotgun { die "FIXME" }
 
 sub source {
     my $self = shift;

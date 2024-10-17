@@ -20,6 +20,10 @@ use DBIx::QuickORM::Util::HashBase qw{
     +params
 };
 
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::SelectLike';
+with 'DBIx::QuickORM::Role::HasORM';
+
 sub init {
     my $self = shift;
 
@@ -89,6 +93,25 @@ BEGIN {
         *$without_meth = set_subname($without_meth => $without);
     }
 }
+
+sub orm              { $_[0]->{+SOURCE}->orm }
+sub find_or_insert   { shift->{+SOURCE}->find_or_insert(@_) }
+sub insert           { shift->{+SOURCE}->insert(@_) }
+sub insert_row       { shift->{+SOURCE}->insert_row(@_) }
+sub update_or_insert { shift->{+SOURCE}->update_or_insert(@_) }
+sub table            { shift->{+SOURCE}->table(@_) }
+sub select           { shift->{+SOURCE}->select(@_) }
+
+sub uncached {
+    my $self = shift;
+
+    return $self if $self->{+SOURCE}->ignore_cache;
+
+    my $s2 = $self->{+SOURCE}->uncached;
+    return $self->clone(source => $s2);
+}
+
+sub update { die "FIXME" }
 
 sub params {
     my $self = shift;

@@ -22,10 +22,16 @@ use DBIx::QuickORM::Util::HashBase qw{
     <created
 };
 
-sub db         { $_[0]->{+ORM} ? $_[0]->{+ORM}->connection->db : undef }
-sub dbh        { $_[0]->{+ORM} ? $_[0]->{+ORM}->reconnect->dbh : undef }
-sub connection { $_[0]->{+ORM} ? $_[0]->{+ORM}->connection     : undef }
-sub reconnect  { $_[0]->{+ORM} ? $_[0]->{+ORM}->reconnect      : undef }
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::SelectLike';
+with 'DBIx::QuickORM::Role::HasORM';
+
+sub source  { $_[0] }
+sub count   { shift->select()->count(@_) }
+sub update  { shift->select()->update(@_) }
+sub shotgun { shift->select()->shotgun(@_) }
+
+sub relations { die "Fixme" }
 
 sub init {
     my $self = shift;
@@ -74,7 +80,7 @@ sub uncached {
         return $callback->($self);
     }
 
-    return $self->clone(IGNORE_CACHE => 1);
+    return $self->clone(IGNORE_CACHE() => 1);
 }
 
 sub transaction {
@@ -201,7 +207,10 @@ sub select {
     # where => ..., order => ..., ...
     # {where => { ... }, order => ..., ...}
     my $params;
-    if (ref($_[0]) eq 'HASH') {
+    if (!@_) {
+        $params = {where => {}};
+    }
+    elsif (ref($_[0]) eq 'HASH') {
         $params = $self->_parse_find_and_fetch_args(shift(@_));
         $params->{order_by} = shift(@_) if @_ == 1;
     }

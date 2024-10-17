@@ -81,6 +81,8 @@ sub async_stop {
 
 sub async_started { $_[0]->{+ASYNC} ? 1 : 0 }
 
+sub busy { $_[0]->{+ASYNC} ? 1 : 0 }
+
 sub add_side_connection { $_[0]->{+SIDE}++ }
 sub pop_side_connection { $_[0]->{+SIDE}-- }
 sub has_side_connection { $_[0]->{+SIDE} }
