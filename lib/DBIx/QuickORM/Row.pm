@@ -3,12 +3,12 @@ use strict;
 use warnings;
 
 use Scalar::Util qw/weaken blessed/;
-use Carp qw/croak/;
+use Carp qw/croak confess/;
 
 use DBIx::QuickORM::Util qw/parse_hash_arg mask unmask masked/;
 
 use DBIx::QuickORM::Util::HashBase qw{
-    <source
+    +source
     +table_name
     <from_db
     <inflated
@@ -23,7 +23,7 @@ sub init {
     my $source = delete $self->{+SOURCE} or croak "'source' is a required attribute";
     croak "'source' must be an instance of 'DBIx::QuickORM::Source'" unless $source->isa('DBIx::QuickORM::Source');
 
-    $source = mask($source, weaken => 1) unless masked($source);
+    $source = mask($source, weaken => 1) if blessed($source) && !masked($source);
     $self->{+SOURCE} = $source;
 
     $self->{+TXN_ID} = $source->connection->txn_id;
@@ -46,6 +46,17 @@ sub set_uncached {
     delete $self->{+FETCHED_RELATIONS};
 
     return;
+}
+
+sub source {
+    my $self = shift;
+    my $source = $self->{+SOURCE} or croak "The row has no source!";
+    return $source if blessed($source) && $source->isa('DBIx::QuickORM::Source');
+
+    confess($source->{error}) if ref($source) eq 'HASH' && $source->{error};
+
+    require Data::Dumper;
+    confess "Something is wrong with the source: " . Data::Dumper::Dumper($source);
 }
 
 sub real_source { unmask($_[0]->source) }

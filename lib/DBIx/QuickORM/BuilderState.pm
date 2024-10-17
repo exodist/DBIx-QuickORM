@@ -3,6 +3,7 @@ use strict;
 use warnings;
 
 use Carp qw/croak confess/;
+use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/mesh_accessors update_subname/;
 
 use Importer Importer => 'import';

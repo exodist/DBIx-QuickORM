@@ -4,6 +4,7 @@ use warnings;
 
 use Carp qw/confess croak/;
 
+require DBIx::QuickORM::GlobalLookup;
 require DBIx::QuickORM::Schema;
 require DBIx::QuickORM::Source;
 
@@ -16,6 +17,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     +temp_schema <temp_sources
     <autofill
     <accessor_name_cb
+    <locator
 };
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created/;
@@ -23,16 +25,8 @@ use DBIx::QuickORM::Util::Has qw/Plugins Created/;
 sub temp_table_supported { $_[0]->connection->temp_table_supported }
 sub temp_view_supported  { $_[0]->connection->temp_view_supported }
 
-my %LOOKUP;
-sub lookup { $LOOKUP{$_[-1]} }
-
 sub init {
     my $self = shift;
-
-    if ($self->{+NAME}) {
-        croak "Database '$self->{+NAME}' is already defined" if $self->{+NAME} && $LOOKUP{$self->{+NAME}};
-        $LOOKUP{$self->{+NAME}} = $self if $self->{+NAME};
-    }
 
     delete $self->{+NAME} unless defined $self->{+NAME};
 
@@ -44,6 +38,9 @@ sub init {
 
     croak "You must either provide the 'schema' attribute or enable 'autofill'"
         unless $self->{+SCHEMA} || $self->{+AUTOFILL};
+
+    $self->{+LOCATOR} = DBIx::QuickORM::GlobalLookup->register($self);
+
 }
 
 sub clone {

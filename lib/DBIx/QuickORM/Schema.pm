@@ -5,28 +5,25 @@ use warnings;
 use Carp qw/confess croak/;
 use Scalar::Util qw/blessed/;
 
+use DBIx::QuickORM::GlobalLookup;
+
 use DBIx::QuickORM::Util qw/merge_hash_of_objs mod2file/;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <name
     +tables
+    <locator
     <accessor_name_cb
 };
 
 use DBIx::QuickORM::Util::Has qw/Created Plugins/;
 
-my %LOOKUP;
-sub lookup { $LOOKUP{$_[-1]} }
-
 sub init {
     my $self = shift;
 
-    if ($self->{+NAME} && !$self->{__CLONE__} && !$self->{__MERGE__}) {
-        croak "Schema '$self->{+NAME}' is already defined" if $self->{+NAME} && $LOOKUP{$self->{+NAME}};
-        $LOOKUP{$self->{+NAME}} = $self if $self->{+NAME};
-    }
-
     delete $self->{+NAME} unless defined $self->{+NAME};
+
+    $self->{+LOCATOR} = DBIx::QuickORM::GlobalLookup->register($self);
 }
 
 my $GEN_ID = 1;

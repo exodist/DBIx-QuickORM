@@ -7,6 +7,7 @@ use List::Util qw/first/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/alias/;
 
+require DBIx::QuickORM::GlobalLookup;
 require DBIx::QuickORM::Connection;
 require DBIx::QuickORM::Util::SchemaBuilder;
 require DateTime;
@@ -23,6 +24,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <socket
     <user
     password
+    <locator
 };
 
 use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
@@ -78,16 +80,8 @@ sub driver_name {
     return $class;
 }
 
-my %LOOKUP;
-sub lookup { $LOOKUP{$_[-1]} }
-
 sub init {
     my $self = shift;
-
-    if ($self->{+NAME}) {
-        croak "Database '$self->{+NAME}' is already defined" if $self->{+NAME} && $LOOKUP{$self->{+NAME}};
-        $LOOKUP{$self->{+NAME}} = $self if $self->{+NAME};
-    }
 
     delete $self->{+NAME} unless defined $self->{+NAME};
 
@@ -101,6 +95,8 @@ sub init {
     $self->{+ATTRIBUTES}->{AutoInactiveDestroy} //= 1;
 
     croak "Cannot provide both a socket and a host" if $self->{+SOCKET} && $self->{+HOST};
+
+    $self->{+LOCATOR} = DBIx::QuickORM::GlobalLookup->register($self);
 }
 
 sub dsn_socket_field { 'host' };

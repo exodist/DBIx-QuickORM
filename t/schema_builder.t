@@ -1,5 +1,5 @@
 use Test2::V0;
-use Test2::Tools::QuickDB;
+use Importer 'Test2::Tools::QuickDB' => (get_db => {-as => 'get_qdb'});
 use DBIx::QuickORM::V0;
 use Data::Dumper;
 
@@ -17,11 +17,11 @@ $mysql_file   =~ s/\.t$/_mysql.sql/;
 $mariadb_file =~ s/\.t$/_mariadb.sql/;
 $sqlite_file  =~ s/\.t$/_sqlite.sql/;
 
-my $psql    = eval { get_db({driver => 'PostgreSQL', load_sql => [quickdb => $psql_file]}) }    or diag(clean_err($@));
-my $mariadb = eval { get_db({driver => 'MariaDB',    load_sql => [quickdb => $mariadb_file]}) } or diag(clean_err($@));
-my $mysql   = eval { get_db({driver => 'MySQL',      load_sql => [quickdb => $mysql_file]}) }   or diag(clean_err($@));
-my $percona = eval { get_db({driver => 'Percona',    load_sql => [quickdb => $mysql_file]}) }   or diag(clean_err($@));
-my $sqlite  = eval { get_db({driver => 'SQLite',     load_sql => [quickdb => $sqlite_file]}) }  or diag(clean_err($@));
+my $psql    = eval { get_qdb({driver => 'PostgreSQL', load_sql => [quickdb => $psql_file]}) }    or diag(clean_err($@));
+my $mariadb = eval { get_qdb({driver => 'MariaDB',    load_sql => [quickdb => $mariadb_file]}) } or diag(clean_err($@));
+my $mysql   = eval { get_qdb({driver => 'MySQL',      load_sql => [quickdb => $mysql_file]}) }   or diag(clean_err($@));
+my $percona = eval { get_qdb({driver => 'Percona',    load_sql => [quickdb => $mysql_file]}) }   or diag(clean_err($@));
+my $sqlite  = eval { get_qdb({driver => 'SQLite',     load_sql => [quickdb => $sqlite_file]}) }  or diag(clean_err($@));
 
 sub clean_err {
     my $err = shift;
@@ -844,11 +844,11 @@ my $tables = {
     lights        => $lights,
 };
 
-is($pg_schema,      {plugins => $plugins, tables => $tables, created => T()}, "Got PG Schema")      if $psql;
-is($mariadb_schema, {plugins => $plugins, tables => $tables, created => T()}, "Got MariaDB Schema") if $mariadb;
-is($mysql_schema,   {plugins => $plugins, tables => $tables, created => T()}, "Got MySQL Schema")   if $mysql;
-is($percona_schema, {plugins => $plugins, tables => $tables, created => T()}, "Got Percona Schema") if $percona;
-is($sqlite_schema,  {plugins => $plugins, tables => $tables, created => T()}, "Got SQLite Schema")  if $sqlite;
+is($pg_schema,      {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got PG Schema")      if $psql;
+is($mariadb_schema, {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got MariaDB Schema") if $mariadb;
+is($mysql_schema,   {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got MySQL Schema")   if $mysql;
+is($percona_schema, {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got Percona Schema") if $percona;
+is($sqlite_schema,  {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got SQLite Schema")  if $sqlite;
 
 #system($sqlite->shell_command('quickdb')) unless $ENV{HARNESS_ACTIVE};
 

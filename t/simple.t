@@ -1,16 +1,16 @@
 use Test2::V0;
-use Test2::Tools::QuickDB;
+use Importer 'Test2::Tools::QuickDB' => (get_db => {-as => 'get_qdb'});
 use DBIx::QuickORM::V0;
 
 BEGIN {
     $ENV{PATH} = "/home/exodist/percona/bin:$ENV{PATH}" if -d "/home/exodist/percona/bin";
 }
 
-my $psql    = eval { get_db({driver => 'PostgreSQL'}) } or diag(clean_err($@));
-my $mysql   = eval { get_db({driver => 'MySQL'}) }      or diag(clean_err($@));
-my $mariadb = eval { get_db({driver => 'MariaDB'}) }    or diag(clean_err($@));
-my $percona = eval { get_db({driver => 'Percona'}) }    or diag(clean_err($@));
-my $sqlite  = eval { get_db({driver => 'SQLite'}) }     or diag(clean_err($@));
+my $psql    = eval { get_qdb({driver => 'PostgreSQL'}) } or diag(clean_err($@));
+my $mysql   = eval { get_qdb({driver => 'MySQL'}) }      or diag(clean_err($@));
+my $mariadb = eval { get_qdb({driver => 'MariaDB'}) }    or diag(clean_err($@));
+my $percona = eval { get_qdb({driver => 'Percona'}) }    or diag(clean_err($@));
+my $sqlite  = eval { get_qdb({driver => 'SQLite'}) }     or diag(clean_err($@));
 
 sub clean_err {
     my $err = shift;

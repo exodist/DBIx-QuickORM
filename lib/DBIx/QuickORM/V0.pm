@@ -104,7 +104,7 @@ my @SCHEMA_EXPORTS = uniq (
     },
 );
 
-our @FETCH_EXPORTS = qw/orm schema db/;
+our @FETCH_EXPORTS = qw/get_orm get_schema get_db get_conflator/;
 
 our %EXPORT_GEN = (
     '&meta_table' => \&_gen_meta_table,
@@ -147,9 +147,39 @@ our %EXPORT_TAGS = (
     FETCH         => \@FETCH_EXPORTS,
 );
 
+my %LOOKUP;
 my $COL_ORDER = 1;
 
 alias column => 'columns';
+
+sub _get {
+    my $type = shift;
+    my $caller = shift;
+    my ($name, $class) = reverse @_;
+
+    $class //= $caller;
+    croak "Not enough arguments" unless $name;
+
+    return $LOOKUP{$class}{$type}{$name};
+}
+
+sub _set {
+    my $type = shift;
+    my $caller = shift;
+    my ($obj, $name, $class) = reverse @_;
+
+    $class //= $caller;
+    croak "Not enough arguments" unless $obj && $name;
+
+    croak "A $type named '$name' has already been defined" if $LOOKUP{$class}{$type}{$name};
+
+    return $LOOKUP{$class}{$type}{$name} = $obj;
+}
+
+sub get_orm       { _get('orm',       scalar(caller()), @_) }
+sub get_db        { _get('db',        scalar(caller()), @_) }
+sub get_schema    { _get('schema',    scalar(caller()), @_) }
+sub get_conflator { _get('conflator', scalar(caller()), @_) }
 
 sub plugins { build_state(PLUGINS) }
 
@@ -215,13 +245,15 @@ sub conflator {
         $c = DBIx::QuickORM::Conflator->new(%params);
     }
     elsif ($name) {
-        $c = DBIx::QuickORM::Conflator->lookup($name) or croak "conflator '$name' is not defined";
+        $c = _get('conflator', scalar(caller()), $name) or croak "conflator '$name' is not defined";
     }
     else {
         croak "Either a codeblock or a name is required";
     }
 
-    return $col->{conflate} = $c if $col;
+    _set('conflator', scalar(caller()), $name) if $name;
+
+    $col->{conflate} = $c if $col;
 
     return $c;
 }
@@ -284,7 +316,7 @@ build_top_builder orm => sub {
 
     if (@$args == 1 && !ref($args->[0])) {
         croak 'useless use of orm($name) in void context' unless defined $wantarray;
-        return DBIx::QuickORM::ORM->lookup($args->[0]);
+        return _get('orm', $caller->[0], $args->[0]);
     }
 
     my ($name, $db, $schema, $cb, @other);
@@ -302,17 +334,16 @@ build_top_builder orm => sub {
 
         if ($arg eq 'db' || $arg eq 'database') {
             my $db_name = shift(@$args);
-            $db = DBIx::QuickORM::DB->lookup($db_name) or croak "Database '$db_name' is not a defined";
+            $db = _get('db', $caller->[0], $db_name) or croak "Database '$db_name' is not a defined";
             next;
         }
         elsif ($arg eq 'schema') {
             my $schema_name = shift(@$args);
-            $schema = DBIx::QuickORM::Schema->lookup($schema_name) or croak "Database '$schema_name' is not a defined";
+            $schema = _get('schema', $caller->[0], $schema_name) or croak "Database '$schema_name' is not a defined";
             next;
         }
         elsif ($arg eq 'name') {
             $name = shift(@$args);
-            croak "ORM '$name' is already defined" if DBIx::QuickORM::ORM->lookup($name);
             next;
         }
 
@@ -322,17 +353,16 @@ build_top_builder orm => sub {
     for my $arg (@other) {
         unless($name) {
             $name = $arg;
-            croak "ORM '$name' is already defined" if DBIx::QuickORM::ORM->lookup($name);
             next;
         }
 
         unless ($db) {
-            $db = DBIx::QuickORM::DB->lookup($arg) or croak "Database '$arg' is not defined";
+            $db = _get('db', $caller->[0], $arg) or croak "Database '$arg' is not defined";
             next;
         }
 
         unless ($schema) {
-            $schema = DBIx::QuickORM::Schema->lookup($arg) or croak "Schema '$arg' is not defined";
+            $schema = _get('schema', $caller->[0], $arg) or croak "Schema '$arg' is not defined";
             next;
         }
 
@@ -376,8 +406,12 @@ build_top_builder orm => sub {
     require DBIx::QuickORM::ORM;
     my $orm = DBIx::QuickORM::ORM->new(%orm);
 
+    $name //= $orm->name;
+
     croak "Cannot be called in void context without a name"
-        unless $orm->name || defined($wantarray);
+        unless $name || defined($wantarray);
+
+    _set('orm', $caller->[0], $name, $orm) if $name;
 
     return $orm;
 };
@@ -439,7 +473,7 @@ build_top_builder db => sub {
     require DBIx::QuickORM::DB;
     if (@$args == 1 && !ref($args->[0])) {
         croak 'useless use of db($name) in void context' unless defined $wantarray;
-        return DBIx::QuickORM::DB->lookup($args->[0]);
+        return _get('db', $caller->[0], $args->[0]);
     }
 
     my ($name, $cb);
@@ -471,6 +505,8 @@ build_top_builder db => sub {
         croak "Quick ORM instance already has a db" if $orm->{db};
         $orm->{db} = $db;
     }
+
+    _set('db', $caller->[0], $name, $db) if $name;
 
     return $db;
 };
@@ -575,7 +611,7 @@ build_top_builder schema => sub {
 
     if (@$args == 1 && !ref($args->[0])) {
         croak 'useless use of schema($name) in void context' unless defined $wantarray;
-        return DBIx::QuickORM::Schema->lookup($args->[0]);
+        _get('schema', $caller->[0], $args->[0]);
     }
 
     my ($name, $cb);
@@ -614,6 +650,8 @@ build_top_builder schema => sub {
         $orm->{schema} = $schema;
     }
 
+    _set('schema', $caller->[0], $name, $schema) if $name;
+
     return $schema;
 };
 
@@ -639,7 +677,7 @@ sub include {
 
     require DBIx::QuickORM::Schema;
     for my $item (@schemas) {
-        my $it = blessed($item) ? $item : (DBIx::QuickORM::Schema->lookup($item) or "Schema '$item' is not defined");
+        my $it = blessed($item) ? $item : (_get('schema', scalar(caller), $item) or "Schema '$item' is not defined");
 
         croak "'" . ($it // $item) . "' is not an instance of 'DBIx::QuickORM::Schema'" unless $it && blessed($it) && $it->isa('DBIx::QuickORM::Schema');
 

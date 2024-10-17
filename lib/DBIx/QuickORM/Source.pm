@@ -10,6 +10,7 @@ use DBIx::QuickORM::Util qw/parse_hash_arg mod2file/;
 use DBIx::QuickORM::Row;
 use DBIx::QuickORM::Select;
 use DBIx::QuickORM::Select::Async;
+use DBIx::QuickORM::GlobalLookup;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <connection
@@ -18,14 +19,12 @@ use DBIx::QuickORM::Util::HashBase qw{
     <orm
     <ignore_cache
     +row_class
+    <locator
 };
 
 use DBIx::QuickORM::Util::Has qw/Created Plugins/;
 
 sub db { $_[0]->{+CONNECTION}->db }
-
-my %LOOKUP;
-sub lookup { $LOOKUP{$_[0]} }
 
 sub init {
     my $self = shift;
@@ -44,8 +43,7 @@ sub init {
 
     $self->{+IGNORE_CACHE} //= 0;
 
-    $LOOKUP{refaddr($self)} = $self;
-    weaken($LOOKUP{refaddr($self)});
+    $self->{+LOCATOR} = DBIx::QuickORM::GlobalLookup->register($self, weak => 1);
 
     return $self;
 }
@@ -537,6 +535,7 @@ sub expand_relations {
     return $data;
 }
 
+# See the Cpanel::JSON::XS docs
 sub FREEZE {
     my $self = shift;
     my ($serializer) = @_;
@@ -554,23 +553,20 @@ sub FROM_JSON {
     my $class = shift;
     my ($data) = @_;
 
-    if (my $found = $LOOKUP{$data->{source_addr}}) {
-        my $data2 = $found->TO_JSON;
+    return $data if $data->{error};
 
-        return $found unless grep { $data->{$_} ne $data2->{$_} } keys %$data;
+    if (my $locator = $data->{locator}) {
+        if (my $found = DBIx::QuickORM::GlobalLookup->lookup(@$locator)) {
+            my $check = $found->TO_JSON;
+
+            return {error => "Source content mismatch between origin and local copy (Source objects can only be serialized between parent and child processes, and only using source objects established prior to forking)"}
+                if grep { $_ eq 'locator' || $data->{$_} ne $check->{$_} } keys %$check;
+
+            return $found;
+        }
     }
 
-    require DBIx::QuickORM::ORM;
-    my $orm = DBIx::QuickORM::ORM->lookup($data->{orm_name});
-
-    my $self = $orm->source($data->{table_name});
-    my $data2 = $self->TO_JSON;
-
-    if (grep { $data->{$_} ne $data2->{$_} } qw/row_class ignore_cache source_class/) {
-        $self = $self->clone(map {($_ => $data->{$_})} qw/row_class ignore_cache source_class/);
-    }
-
-    return $self;
+    return { error => "Could not find the source in this processes memory" }
 }
 
 sub TO_JSON {
@@ -581,17 +577,16 @@ sub TO_JSON {
 
     # We may be able to relax this later and send the temp table spec, but not
     # going to write that until it is needed.
-    croak "Cannot serialize, references a temporary table that may not exist when deserialized" if $table->is_temp;
+    return { error => "Cannot serialize, references a temporary table that may not exist when deserialized" }
+        if $table->is_temp;
 
     return {
         orm_name   => $orm->name   // '',
         table_name => $table->name // '',
-
         row_class    => $self->{+ROW_CLASS} // '',
         ignore_cache => $self->{+IGNORE_CACHE} ? 1 : 0,
-
         source_class => blessed($self),
-        source_addr  => refaddr($self),
+        locator => $self->{+LOCATOR},
     };
 }
 
