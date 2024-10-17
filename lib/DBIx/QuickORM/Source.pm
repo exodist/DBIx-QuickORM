@@ -25,6 +25,12 @@ use DBIx::QuickORM::Util::Has qw/Created Plugins/;
 
 sub db { $_[0]->{+CONNECTION}->db }
 
+sub reconnect {
+    my $self = shift;
+    my $orm = $self->orm;
+    $self->{+CONNECTION} = $orm->reconnect;
+}
+
 sub init {
     my $self = shift;
 
@@ -254,6 +260,7 @@ sub do_select {
     my ($params, %extra) = @_;
 
     my $async = $extra{async};
+    my $forked = $extra{forked};
     my $where = $params->{where};
     my $order = $params->{order_by};
 
@@ -273,6 +280,12 @@ sub do_select {
     my $sth = $con->dbh->prepare($stmt, $async ? ($con->async_query_arg) : ());
     $sth->execute(@$bind);
     $con->async_start() if $async;
+
+    return {
+        sth    => $sth,
+        cols   => $cols,
+        relmap => $relmap,
+    } if $forked;
 
     my $fetch = sub {
         my $source = shift // $self;

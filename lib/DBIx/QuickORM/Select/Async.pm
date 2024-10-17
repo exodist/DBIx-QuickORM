@@ -63,6 +63,7 @@ sub wait {
 
     my $started = $self->{+STARTED} or croak 'Async query has not been started (did you forget to call $s->start)?';
 
+    $self->{+READY}  = 1;
     $self->{+RESULT} = $started->{result}->();
     $self->{+ROWS}   = $started->{fetch}->();
 

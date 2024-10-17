@@ -4,6 +4,7 @@ use warnings;
 
 use Carp qw/croak confess/;
 use Sub::Util qw/set_subname/;
+use Test2::Util qw/CAN_REALLY_FORK/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/parse_hash_arg/;
 
@@ -109,22 +110,36 @@ sub aggregate { confess "Not implemented" } # FIXME TODO
 
 sub async {
     my $self = shift;
+    croak "This database engine does not support async queries" unless $self->source->connection->supports_async;
     require DBIx::QuickORM::Select::Async;
     DBIx::QuickORM::Select::Async->copy($self);
 }
 
 sub aside {
     my $self = shift;
+    croak "This database engine does not support async queries" unless $self->source->connection->supports_async;
     require DBIx::QuickORM::Select::Aside;
     DBIx::QuickORM::Select::Aside->copy($self);
 }
 
 sub forked {
+    my $self = shift;
+    croak "This sytem does not support true forking" unless CAN_REALLY_FORK;
+    require DBIx::QuickORM::Select::Forked;
+    DBIx::QuickORM::Select::Forked->copy($self);
+}
 
+sub shotgun {
+    die "TODO";
+
+    #Send multiple aside/forked queries and returns an iterator for results as they come in.
 }
 
 sub find {
     my $self = shift;
+
+    return $self->and(@_)->find if @_;
+
     my $r = $self->_rows or return undef;
     return undef unless @$r;
 

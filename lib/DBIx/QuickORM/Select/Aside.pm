@@ -35,7 +35,7 @@ sub start {
     $self->{+SOURCE} = $orig->orm->clone->source($orig->table->name);
 
     unless ($self->{+IGNORE_TRANSACTIONS}) {
-        croak 'Currently inside a transaction, refusing to start a side connection (call $aside->ignore_transaction to override)'
+        croak 'Currently inside a transaction, refusing to start a side connection (call $aside->ignore_transactions to override)'
             if $self->{+ORIG_SOURCE}->connection->in_transaction;
     }
 
@@ -53,10 +53,11 @@ sub wait {
     my $started = $self->{+STARTED} or croak 'Async query has not been started (did you forget to call $s->start)?';
 
     unless ($self->{+IGNORE_TRANSACTIONS}) {
-        croak 'Main source is currently inside a transaction, refusing to taint program state (call $aside->ignore_transaction to override)'
+        croak 'Main source is currently inside a transaction, refusing to taint program state (call $aside->ignore_transactions to override)'
             if $self->{+ORIG_SOURCE}->connection->in_transaction;
     }
 
+    $self->{+READY}  = 1;
     $self->{+RESULT} = $started->{result}->();
     $self->{+ROWS}   = $started->{fetch}->($self->{+ORIG_SOURCE});
 

@@ -146,6 +146,8 @@ sub connect {
         $dbh = DBI->connect($self->dsn, $self->user, $self->password, $self->attributes // {AutoInactiveDestroy => 1, AutoCommit => 1});
     }
 
+    $dbh->{AutoInactiveDestroy} = 1;
+
     return DBIx::QuickORM::Connection->new(
         dbh => $dbh,
         db  => $self,
