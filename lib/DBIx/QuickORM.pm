@@ -171,6 +171,9 @@ Send off a query, then do somthing else until it is ready. Even works inside
 transactions! The caveat is you cannot use the db connection for anything else
 while you wait.
 
+This feature is accessed as C<< $select->async >>. See
+L<DBIx::QuickORM::Select>.
+
 =item Using native Async functionality with multiple connections
 
 You can make Async requests where each one operates on a different connection
@@ -178,13 +181,27 @@ so they can operate concurrently. The caching is managed for you as well. The
 main caveat here is that you cannot use it with transactions and multiple
 connections cannot share a transaction.
 
+Exceptions will be thrown if you start one of these during a transaction.
+
+Exceptions will be thrown if you start a transaction while one of these is
+running.
+
+This feature is accessed as C<< $select->aside >>. See
+L<DBIx::QuickORM::Select>.
+
 =item Using fork + Different connections
 
 The queries each run on their own connection and in their own processes, then
-the data will be send to the primary process. The main benefit here is you can
-add pre-processing callbacks that will also run in the child process. This
-allows perl-side collation, filtering, aggregating, etc before the main process
-gets the data.
+the data will be send to the primary process. This is useful for databases that
+do not support async queries natively, such as SQLite.
+
+Exceptions will be thrown if you start one of these during a transaction.
+
+Exceptions will be thrown if you start a transaction while one of these is
+running.
+
+This feature is accessed as C<< $select->forked >>. See
+L<DBIx::QuickORM::Select>.
 
 =back
 

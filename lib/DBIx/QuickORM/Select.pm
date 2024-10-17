@@ -110,6 +110,7 @@ sub aggregate { confess "Not implemented" } # FIXME TODO
 
 sub async {
     my $self = shift;
+    croak "async() cannot be called in void context" unless defined(wantarray);
     croak "This database engine does not support async queries" unless $self->source->connection->supports_async;
     require DBIx::QuickORM::Select::Async;
     DBIx::QuickORM::Select::Async->copy($self);
@@ -117,6 +118,7 @@ sub async {
 
 sub aside {
     my $self = shift;
+    croak "aside() cannot be called in void context" unless defined(wantarray);
     croak "This database engine does not support async queries" unless $self->source->connection->supports_async;
     require DBIx::QuickORM::Select::Aside;
     DBIx::QuickORM::Select::Aside->copy($self);
@@ -124,6 +126,7 @@ sub aside {
 
 sub forked {
     my $self = shift;
+    croak "forked() cannot be called in void context" unless defined(wantarray);
     croak "This sytem does not support true forking" unless CAN_REALLY_FORK;
     require DBIx::QuickORM::Select::Forked;
     DBIx::QuickORM::Select::Forked->copy($self);
@@ -198,6 +201,8 @@ sub copy {
     my $class = shift;
     my ($select, %params) = @_;
 
+    croak "copy() cannot be called in void context" unless defined(wantarray);
+
     return $class->new(
         SOURCE()   => $select->{+SOURCE},
         LIMIT()    => $select->{+LIMIT},
@@ -212,6 +217,8 @@ sub copy {
 sub clone {
     my $self = shift;
     my %params = @_;
+
+    croak "clone() cannot be called in void context" unless defined(wantarray);
 
     my $class = blessed($self);
 
