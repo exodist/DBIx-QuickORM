@@ -14,11 +14,6 @@ use Importer Importer => 'import';
 
 $Carp::Internal{(__PACKAGE__)}++;
 
-my @PLUGIN_EXPORTS = qw{
-    plugin
-    plugins
-};
-
 my @DB_EXPORTS = qw{
     db
     db_attributes
@@ -115,7 +110,6 @@ our %EXPORT_MAGIC = (
 );
 
 our @EXPORT = uniq (
-    @PLUGIN_EXPORTS,
     @DB_EXPORTS,
     @TABLE_EXPORTS,
     @SCHEMA_EXPORTS,
@@ -138,7 +132,6 @@ our @EXPORT_OK = uniq (
 
 our %EXPORT_TAGS = (
     DB            => \@DB_EXPORTS,
-    PLUGIN        => \@PLUGIN_EXPORTS,
     ROGUE_TABLE   => \@ROGUE_TABLE_EXPORTS,
     SCHEMA        => \@SCHEMA_EXPORTS,
     TABLE         => \@TABLE_EXPORTS,
@@ -180,22 +173,6 @@ sub get_orm       { _get('orm',       scalar(caller()), @_) }
 sub get_db        { _get('db',        scalar(caller()), @_) }
 sub get_schema    { _get('schema',    scalar(caller()), @_) }
 sub get_conflator { _get('conflator', scalar(caller()), @_) }
-
-sub plugins { build_state(PLUGINS) }
-
-sub add_plugin {
-    my ($in, %params) = @_;
-
-    my $before = delete $params{before_parent};
-    my $after  = delete $params{after_parent};
-
-    croak "Cannot add a plugin both before AND after the parent" if $before && $after;
-
-    my $plugins = plugins() or croak "Must be used under a supported builder, no builder that accepts plugins found";
-
-    return $plugins->unshift_plugin($in, %params) if $before;
-    return $plugins->push_plugin($in, %params);
-}
 
 sub default_base_row {
     my $state = build_state or croak "Must be used inside an orm, schema, or table builder";
@@ -371,14 +348,12 @@ build_top_builder orm => sub {
 
     my %orm = (
         created => "$caller->[1] line $caller->[2]",
-        plugins => accept_plugins(),
     );
 
     $orm{name}   //= $name   if $name;
     $orm{schema} //= $schema if $schema;
     $orm{db}     //= $db     if $db;
 
-    $state->{+PLUGINS} = $params{plugins};
     $state->{+ORM}     = \%orm;
 
     delete $state->{+DB};
@@ -443,7 +418,6 @@ sub _new_db_params {
         created    => "$caller->[1] line $caller->[2]",
         db_name    => $name,
         attributes => {},
-        plugins    => accept_plugins(),
     );
 
     $out{name} = $name if $name;
@@ -569,7 +543,6 @@ sub _new_schema_params {
     my %out = (
         created  => "$caller->[1] line $caller->[2]",
         includes => [],
-        plugins  => accept_plugins(),
     );
 
     $out{name} = $name if $name;
@@ -590,7 +563,7 @@ sub _build_schema {
     }
 
     my $includes = delete $params->{includes};
-    my $class    = delete($params->{schema_class}) // first { $_ } (map { $_->schema_class(%$params, state => $state) } @{$params->{plugins}->all}), 'DBIx::QuickORM::Schema';
+    my $class    = delete($params->{schema_class}) // 'DBIx::QuickORM::Schema';
     eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
     my $schema = $class->new(%$params);
     $schema = $schema->merge($_) for @$includes;
@@ -635,7 +608,6 @@ build_top_builder schema => sub {
     my %schema = _new_schema_params($name => $caller);
 
     $state->{+SCHEMA}    = \%schema;
-    $state->{+PLUGINS}   = $schema{plugins};
 
     delete $state->{+COLUMN};
     delete $state->{+TABLE};
@@ -750,7 +722,6 @@ sub _table {
     my $caller = delete($params{caller}) // [caller(1)];
 
     $params{name}    = $name;
-    $params{plugins} = accept_plugins();
     $params{created} //= "$caller->[1] line $caller->[2]";
     $params{indexes} //= {};
 
@@ -777,7 +748,7 @@ sub _table {
         $params{columns}{$cname} = $class->new(%$spec);
     }
 
-    my $class = delete($params{table_class}) // first { $_ } (map { $_->table_class(%params, state => $state) } @{$params{plugins}->all}), 'DBIx::QuickORM::Table';
+    my $class = delete($params{table_class}) // 'DBIx::QuickORM::Table';
     eval { require(mod2file($class)); 1 } or croak "Could not load class $class: $@";
     return $class->new(%params);
 }

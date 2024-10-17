@@ -297,7 +297,6 @@ sub generate_schema_sql_header {
     my %params        = @_;
 
     my $specs   = $params{sql_spec} or return;
-    my $plugins = $params{plugins};
     my $schema  = $params{schema};
 
     my @out;

@@ -19,9 +19,8 @@ use DBIx::QuickORM::Util::HashBase qw{
     <ignore_cache
     +row_class
     <locator
+    <created
 };
-
-use DBIx::QuickORM::Util::Has qw/Created Plugins/;
 
 sub db         { $_[0]->{+ORM} ? $_[0]->{+ORM}->connection->db : undef }
 sub dbh        { $_[0]->{+ORM} ? $_[0]->{+ORM}->reconnect->dbh : undef }
@@ -87,11 +86,6 @@ sub clone {
     my $self   = shift;
     my %params = @_;
     my $class  = $params{source_class} // blessed($self);
-
-    unless ($params{+CREATED}) {
-        my @caller = caller();
-        $params{+CREATED} = "$caller[1] line $caller[2]";
-    }
 
     return $class->new(
         %$self,

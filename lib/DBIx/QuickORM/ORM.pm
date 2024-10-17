@@ -19,9 +19,8 @@ use DBIx::QuickORM::Util::HashBase qw{
     <autofill
     <accessor_name_cb
     <locator
+    <created
 };
-
-use DBIx::QuickORM::Util::Has qw/Plugins Created/;
 
 sub temp_table_supported { $_[0]->connection->temp_table_supported }
 sub temp_view_supported  { $_[0]->connection->temp_view_supported }

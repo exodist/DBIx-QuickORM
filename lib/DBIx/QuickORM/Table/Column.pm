@@ -3,8 +3,7 @@ use strict;
 use warnings;
 
 use Carp qw/croak confess/;
-
-use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
+use Role::Tiny::With qw/with/;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <conflate
@@ -16,7 +15,11 @@ use DBIx::QuickORM::Util::HashBase qw{
     <order
     <nullable
     <serial
+    +sql_spec
+    <created
 };
+
+with 'DBIx::QuickORM::Role::HasSQLSpec';
 
 sub init {
     my $self = shift;
@@ -48,7 +51,6 @@ sub merge {
     my ($other, %params) = @_;
 
     $params{+SQL_SPEC} //= $self->{+SQL_SPEC}->merge($other->{+SQL_SPEC});
-    $params{+PLUGINS}  //= $self->{+PLUGINS}->merge($other->{+PLUGINS});
 
     return ref($self)->new(%$self, %params);
 }
@@ -58,7 +60,6 @@ sub clone {
     my %params = @_;
 
     $params{+SQL_SPEC} //= $self->{+SQL_SPEC}->clone();
-    $params{+PLUGINS}  //= $self->{+PLUGINS}->clone();
 
     return ref($self)->new(%$self, %params);
 }

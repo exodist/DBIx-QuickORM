@@ -38,8 +38,6 @@ imported_ok qw{
 
     column columns relation relations relate
 
-    plugin plugins
-
     autofill orm
 
     include schema

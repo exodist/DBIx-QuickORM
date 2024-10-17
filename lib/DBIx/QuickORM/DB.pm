@@ -6,6 +6,7 @@ use Carp qw/confess croak/;
 use List::Util qw/first/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/alias/;
+use Role::Tiny::With qw/with/;
 
 require DBIx::QuickORM::GlobalLookup;
 require DBIx::QuickORM::Connection;
@@ -25,9 +26,11 @@ use DBIx::QuickORM::Util::HashBase qw{
     <user
     password
     <locator
+    +sql_spec
+    <created
 };
 
-use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
+with 'DBIx::QuickORM::Role::HasSQLSpec';
 
 sub in_txn             { $_[1]->{BegunWork} ? 1 : $_[1]->{AutoCommit} ? 0 : 1 }
 sub start_txn          { croak "$_[0]->start_txn() is not implemented" }
@@ -184,26 +187,24 @@ sub generate_schema_sql {
     my %params        = @_;
 
     my $schema  = $params{schema} or croak "'schema' must be provided";
-    my $plugins = $params{plugins};
     my $specs   = $params{sql_spec};
 
     if (blessed($class_or_self)) {
-        $plugins //= $class_or_self->plugins;
         $specs   //= $class_or_self->{+SQL_SPEC};
     }
 
     my @out;
 
-    push @out => $class_or_self->_generate_schema_sql_header(%params, sql_spec => $specs, plugins => $plugins, schema => $schema);
+    push @out => $class_or_self->_generate_schema_sql_header(%params, sql_spec => $specs, schema => $schema);
 
     for my $t (sort { $class_or_self->table_dep_cmp($a, $b) } $schema->tables) {
         my $tname = $t->name;
 
-        push @out => $class_or_self->generate_schema_sql_table(%params, table => $t, schema => $schema, plugins => $plugins);
-        push @out => $class_or_self->generate_schema_sql_indexes_for_table(%params, table => $t, schema => $schema, plugins => $plugins);
+        push @out => $class_or_self->generate_schema_sql_table(%params, table => $t, schema => $schema);
+        push @out => $class_or_self->generate_schema_sql_indexes_for_table(%params, table => $t, schema => $schema);
     }
 
-    push @out => $class_or_self->_generate_schema_sql_footer(%params, sql_spec => $specs, schema => $schema, plugins => $plugins);
+    push @out => $class_or_self->_generate_schema_sql_footer(%params, sql_spec => $specs, schema => $schema);
 
     return join "\n" => @out;
 }
@@ -213,7 +214,6 @@ sub _generate_schema_sql_header {
     my %params        = @_;
 
     my $specs   = $params{sql_spec} or return;
-    my $plugins = $params{plugins};
     my $schema  = $params{schema};
 
     my @out;
@@ -230,7 +230,6 @@ sub _generate_schema_sql_footer {
     my %params        = @_;
 
     my $specs   = $params{sql_spec} or return;
-    my $plugins = $params{plugins};
     my $schema  = $params{schema};
 
     my @out;
@@ -247,7 +246,6 @@ sub generate_schema_sql_table {
     my %params        = @_;
 
     my $table   = $params{table} or croak "A table is required";
-    my $plugins = $params{plugins};
     my $schema  = $params{schema};
 
     my $specs = $table->sql_spec;
@@ -372,7 +370,6 @@ sub generate_schema_sql_indexes_for_table {
     my %params        = @_;
 
     my $table   = $params{table} or croak "A table is required";
-    my $plugins = $params{plugins};
     my $schema  = $params{schema};
 
     my @out;

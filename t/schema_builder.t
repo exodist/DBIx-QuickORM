@@ -557,12 +557,9 @@ subtest SQLite => sub {
     );
 };
 
-my $plugins = T();
-
 my $aliases = {
     name        => 'aliases',
     primary_key => ['alias_id'],
-    plugins     => $plugins,
     is_temp     => F(),
     is_view     => F(),
     created     => T(),
@@ -588,7 +585,6 @@ my $aliases = {
     columns => {
         alias_id => {
             name        => 'alias_id',
-            plugins     => $plugins,
             primary_key => T(),
             unique      => T(),
             created     => T(),
@@ -597,14 +593,12 @@ my $aliases = {
         },
         light_id => {
             name     => 'light_id',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
         },
         name => {
             name     => 'name',
-            plugins  => $plugins,
             unique   => T(),
             created  => T(),
             order    => T(),
@@ -616,7 +610,6 @@ my $aliases = {
 my $complex_keys = {
     name        => 'complex_keys',
     primary_key => ['name_a', 'name_b'],
-    plugins     => $plugins,
     is_temp     => F(),
     is_view     => F(),
     created     => T(),
@@ -643,14 +636,12 @@ my $complex_keys = {
         name_a => {
             created     => T(),
             name        => 'name_a',
-            plugins     => $plugins,
             primary_key => FDNE(),
             order       => T(),
             sql_spec    => T(),
         },
         name_b => {
             name        => 'name_b',
-            plugins     => $plugins,
             primary_key => FDNE(),
             created     => T(),
             order       => T(),
@@ -658,7 +649,6 @@ my $complex_keys = {
         },
         name_c => {
             name     => 'name_c',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
@@ -669,7 +659,6 @@ my $complex_keys = {
 my $complex_ref = {
     name        => 'complex_ref',
     primary_key => ['name_a', 'name_b'],
-    plugins     => $plugins,
     is_temp     => F(),
     is_view     => F(),
     created     => T(),
@@ -694,14 +683,12 @@ my $complex_ref = {
     columns => {
         extras => {
             name     => 'extras',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
         },
         name_a => {
             name        => 'name_a',
-            plugins     => $plugins,
             primary_key => FDNE(),
             created     => T(),
             order       => T(),
@@ -709,7 +696,6 @@ my $complex_ref = {
         },
         name_b => {
             name        => 'name_b',
-            plugins     => $plugins,
             primary_key => FDNE(),
             created     => T(),
             order       => T(),
@@ -720,7 +706,6 @@ my $complex_ref = {
 
 my $light_by_name = {
     name     => 'light_by_name',
-    plugins  => $plugins,
     is_temp  => F(),
     is_view  => T(),
     created  => T(),
@@ -732,21 +717,18 @@ my $light_by_name = {
     columns => {
         alias_id => {
             name     => 'alias_id',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
         },
         color => {
             name     => 'color',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
         },
         light_id => {
             name     => 'light_id',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
@@ -754,14 +736,12 @@ my $light_by_name = {
         light_uuid => {
             name     => 'light_uuid',
             conflate => 'DBIx::QuickORM::Conflator::UUID',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
         },
         name => {
             name     => 'name',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
@@ -769,7 +749,6 @@ my $light_by_name = {
         stamp => {
             name     => 'stamp',
             conflate => 'DBIx::QuickORM::Conflator::DateTime',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
@@ -779,7 +758,6 @@ my $light_by_name = {
 
 my $lights = {
     name        => 'lights',
-    plugins     => $plugins,
     primary_key => ['light_id'],
     is_temp     => F(),
     is_view     => F(),
@@ -803,14 +781,12 @@ my $lights = {
     columns => {
         color => {
             name     => 'color',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
         },
         light_id => {
             name        => 'light_id',
-            plugins     => $plugins,
             primary_key => T(),
             unique      => T(),
             created     => T(),
@@ -820,7 +796,6 @@ my $lights = {
         light_uuid => {
             name     => 'light_uuid',
             conflate => 'DBIx::QuickORM::Conflator::UUID',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
@@ -828,7 +803,6 @@ my $lights = {
         stamp => {
             name     => 'stamp',
             conflate => 'DBIx::QuickORM::Conflator::DateTime',
-            plugins  => $plugins,
             created  => T(),
             order    => T(),
             sql_spec => T(),
@@ -844,11 +818,11 @@ my $tables = {
     lights        => $lights,
 };
 
-is($pg_schema,      {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got PG Schema")      if $psql;
-is($mariadb_schema, {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got MariaDB Schema") if $mariadb;
-is($mysql_schema,   {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got MySQL Schema")   if $mysql;
-is($percona_schema, {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got Percona Schema") if $percona;
-is($sqlite_schema,  {locator => T(), plugins => $plugins, tables => $tables, created => T()}, "Got SQLite Schema")  if $sqlite;
+is($pg_schema,      {locator => T(), tables => $tables, created => T()}, "Got PG Schema")      if $psql;
+is($mariadb_schema, {locator => T(), tables => $tables, created => T()}, "Got MariaDB Schema") if $mariadb;
+is($mysql_schema,   {locator => T(), tables => $tables, created => T()}, "Got MySQL Schema")   if $mysql;
+is($percona_schema, {locator => T(), tables => $tables, created => T()}, "Got Percona Schema") if $percona;
+is($sqlite_schema,  {locator => T(), tables => $tables, created => T()}, "Got SQLite Schema")  if $sqlite;
 
 #system($sqlite->shell_command('quickdb')) unless $ENV{HARNESS_ACTIVE};
 

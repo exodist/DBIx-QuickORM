@@ -14,7 +14,6 @@ our (@EXPORT, %CONST);
 
 BEGIN {
     %CONST = (
-        ACCEPT_PLUGINS   => 'ACCEPT_PLUGINS',
         ACCESSORS        => 'ACCESSORS',
         COLUMN           => 'COLUMN',
         COLUMNS          => 'COLUMN',
@@ -22,7 +21,6 @@ BEGIN {
         DB               => 'DB',
         DEFAULT_BASE_ROW => 'DEFAULT_BASE_ROW',
         ORM              => 'ORM',
-        PLUGINS          => 'PLUGINS',
         RELATION         => 'RELATION',
         SCHEMA           => 'SCHEMA',
         SOURCES          => 'SOURCES',
@@ -34,7 +32,6 @@ BEGIN {
         keys(%CONST),
         qw{
             column_order
-            accept_plugins
             build
             build_clean_builder
             build_meta_state
@@ -82,7 +79,6 @@ sub build {
         croak "New state cannot be the same ref as the current state" if $state == $tstate;
     }
 
-    delete $state->{+ACCEPT_PLUGINS};
     $state->{+ACCESSORS} = mesh_accessors($state->{+ACCESSORS}) if $state->{+ACCESSORS};
 
     push @STACK => \%params;
@@ -142,15 +138,6 @@ sub build_clean_builder {
     my $subname = "$caller\::$name";
     no strict 'refs';
     *{$subname} = update_subname $subname => $sub;
-}
-
-sub accept_plugins {
-    my $state = build_state or croak "No active builder";
-    require DBIx::QuickORM::PluginSet;
-
-    return $state->{+PLUGINS} if $state->{+ACCEPT_PLUGINS}++;
-
-    $state->{+PLUGINS} = DBIx::QuickORM::PluginSet->new($state->{+PLUGINS} ? (parent => $state->{+PLUGINS}) : ());
 }
 
 1;

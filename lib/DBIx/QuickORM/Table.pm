@@ -7,6 +7,7 @@ use Storable qw/dclone/;
 use Sub::Util qw/set_subname/;
 use Scalar::Util qw/blessed/;
 use List::Util qw/max/;
+use Role::Tiny::With qw/with/;
 
 use DBIx::QuickORM::Util qw/mod2file merge_hash_of_objs mesh_accessors/;
 
@@ -21,11 +22,13 @@ use DBIx::QuickORM::Util::HashBase qw{
     <is_temp
     +row_class
     <accessors
+    +sql_spec
 
     +deps
+    <created
 };
 
-use DBIx::QuickORM::Util::Has qw/Plugins Created SQLSpec/;
+with 'DBIx::QuickORM::Role::HasSQLSpec';
 
 sub sqla_columns { [$_[0]->column_names] }
 
@@ -118,7 +121,6 @@ sub merge {
     my ($other, %params) = @_;
 
     $params{+SQL_SPEC}    //= $self->{+SQL_SPEC}->merge($other->{+SQL_SPEC});
-    $params{+PLUGINS}     //= $self->{+PLUGINS}->merge($other->{+PLUGINS});
     $params{+COLUMNS}     //= merge_hash_of_objs($self->{+COLUMNS}, $other->{+COLUMNS});
     $params{+UNIQUE}      //= {map { ($_ => [@{$self->{+UNIQUE}->{$_}}]) } keys %{$self->{+UNIQUE}}};
     $params{+RELATIONS}   //= {%{$other->{+RELATIONS}}, %{$self->{+RELATIONS}}};
@@ -167,7 +169,6 @@ sub clone {
     my %params = @_;
 
     $params{+SQL_SPEC}    //= $self->{+SQL_SPEC}->clone();
-    $params{+PLUGINS}     //= $self->{+PLUGINS}->clone();
     $params{+RELATIONS}   //= {%{$self->{+RELATIONS}}};
     $params{+INDEXES}     //= {%{$self->{+INDEXES}}};
     $params{+PRIMARY_KEY} //= [@{$self->{+PRIMARY_KEY}}] if $self->{+PRIMARY_KEY};

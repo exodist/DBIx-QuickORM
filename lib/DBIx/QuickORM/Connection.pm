@@ -21,9 +21,8 @@ use DBIx::QuickORM::Util::HashBase qw{
     +cache_stack
     +async
     +side
+    <created
 };
-
-use DBIx::QuickORM::Util::Has qw/Plugins Created/;
 
 sub tables      { my $self = shift; $self->{+DB}->tables($self->dbh, @_) }
 sub table       { my $self = shift; $self->{+DB}->table($self->dbh, @_) }
@@ -180,7 +179,7 @@ sub transaction {
 
 sub generate_schema {
     my $self = shift;
-    return DBIx::QuickORM::Util::SchemaBuilder->generate_schema($self, $self->plugins);
+    return DBIx::QuickORM::Util::SchemaBuilder->generate_schema($self);
 }
 
 sub generate_table_schema {
@@ -188,7 +187,7 @@ sub generate_table_schema {
     my ($name) = @_;
 
     my $table = $self->table($name, details => 1);
-    return DBIx::QuickORM::Util::SchemaBuilder->generate_table($self, $table, $self->plugins);
+    return DBIx::QuickORM::Util::SchemaBuilder->generate_table($self, $table);
 }
 
 sub from_cache {

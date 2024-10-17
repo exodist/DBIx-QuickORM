@@ -44,7 +44,7 @@ sub _conflate {
 
 sub generate_schema {
     my $class = shift;
-    my ($con, $plugins) = @_;
+    my ($con) = @_;
 
     require DBIx::QuickORM::Table::Relation;
 
@@ -55,7 +55,7 @@ sub generate_schema {
             my $name = $table->{name};
 
             $tables{$name} = table $name => sub {
-                push @todo => $class->_build_table($con, $table, $plugins);
+                push @todo => $class->_build_table($con, $table);
             };
         }
     };
@@ -79,16 +79,16 @@ sub generate_schema {
 
 sub generate_table {
     my $class = shift;
-    my ($con, $table, $plugins) = @_;
+    my ($con, $table) = @_;
 
     return rogue_table $table->{name} => sub {
-        $class->_build_table($con, $table, $plugins);
+        $class->_build_table($con, $table);
     };
 }
 
 sub _build_table {
     my $class = shift;
-    my ($con, $table, $plugins) = @_;
+    my ($con, $table) = @_;
 
     my $name = $table->{name};
 

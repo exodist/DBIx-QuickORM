@@ -14,9 +14,8 @@ use DBIx::QuickORM::Util::HashBase qw{
     +tables
     <locator
     <accessor_name_cb
+    <created
 };
-
-use DBIx::QuickORM::Util::Has qw/Created Plugins/;
 
 sub init {
     my $self = shift;
@@ -129,7 +128,6 @@ sub merge {
     my ($other, %params) = @_;
 
     $params{+TABLES}  //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES}, \%params);
-    $params{+PLUGINS} //= $self->{+PLUGINS}->merge($other->{+PLUGINS});
     $params{+NAME}    //= $self->{+NAME};
 
     return ref($self)->new(%$self, %params, __MERGE__ => 1)->compile;
@@ -141,7 +139,6 @@ sub clone {
 
     $params{+TABLES}  //= [map { $_->clone } $self->tables];
     $params{+NAME}    //= $self->{+NAME};
-    $params{+PLUGINS} //= $self->{+PLUGINS}->clone();
 
     return ref($self)->new(%$self, %params, __CLONE__ => 1);
 }
