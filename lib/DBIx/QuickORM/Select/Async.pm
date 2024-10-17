@@ -21,17 +21,18 @@ sub start {
     return $self;
 }
 
-sub started { $_[0]->{+STARTED} ? 1 : 0 }
+sub started { $_[0]->{+STARTED} ? $_[0] : undef }
 
 sub ready {
     my $self = shift;
-    return 1 if defined $self->{+READY};
+    return $self if defined $self->{+READY};
 
     my $started = $self->{+STARTED} or croak 'Async query has not been started (did you forget to call $s->start)?';
 
-    return 0 unless $started->{ready}->();
+    return undef unless $started->{ready}->();
 
-    return $self->{+READY} = 1;
+    $self->{+READY} = 1;
+    return $self;
 }
 
 sub cancel { $_[0]->discard }
