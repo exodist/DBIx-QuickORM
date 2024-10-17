@@ -13,7 +13,6 @@ use DBIx::QuickORM::Select;
 use DBIx::QuickORM::GlobalLookup;
 
 use DBIx::QuickORM::Util::HashBase qw{
-    <connection
     <schema
     <table
     <orm
@@ -24,13 +23,10 @@ use DBIx::QuickORM::Util::HashBase qw{
 
 use DBIx::QuickORM::Util::Has qw/Created Plugins/;
 
-sub db { $_[0]->{+CONNECTION}->db }
-
-sub reconnect {
-    my $self = shift;
-    my $orm = $self->orm;
-    $self->{+CONNECTION} = $orm->reconnect;
-}
+sub db         { $_[0]->{+ORM} ? $_[0]->{+ORM}->connection->db : undef }
+sub dbh        { $_[0]->{+ORM} ? $_[0]->{+ORM}->reconnect->dbh : undef }
+sub connection { $_[0]->{+ORM} ? $_[0]->{+ORM}->connection     : undef }
+sub reconnect  { $_[0]->{+ORM} ? $_[0]->{+ORM}->reconnect      : undef }
 
 sub init {
     my $self = shift;
@@ -41,10 +37,6 @@ sub init {
     my $schema = $self->{+SCHEMA} or croak "The 'schema' attribute must be provided";
     croak "The 'schema' attribute must be an instance of 'DBIx::QuickORM::Schema'" unless $schema->isa('DBIx::QuickORM::Schema');
 
-    my $connection = $self->{+CONNECTION} or croak "The 'connection' attribute must be provided";
-    croak "The 'connection' attribute must be an instance of 'DBIx::QuickORM::Connection'" unless $connection->isa('DBIx::QuickORM::Connection');
-
-    weaken($self->{+CONNECTION});
     weaken($self->{+ORM});
 
     $self->{+IGNORE_CACHE} //= 0;
@@ -88,7 +80,7 @@ sub uncached {
 
 sub transaction {
     my $self = shift;
-    $self->{+CONNECTION}->transaction(@_);
+    $self->connection->transaction(@_);
 }
 
 sub clone {
@@ -112,7 +104,7 @@ sub update_or_insert {
     my $row_data = $self->parse_hash_arg(@_);
 
     unless ($self->{+IGNORE_CACHE}) {
-        if (my $cached = $self->{+CONNECTION}->from_cache($self, $row_data)) {
+        if (my $cached = $self->connection->from_cache($self, $row_data)) {
             $cached->update($row_data);
             return $cached;
         }
@@ -127,9 +119,9 @@ sub update_or_insert {
         return $self->insert($row_data);
     });
 
-    $row->set_txn_id($self->{+CONNECTION}->txn_id);
+    $row->set_txn_id($self->connection->txn_id);
 
-    return $self->{+CONNECTION}->cache_source_row($self, $row) unless $self->{+IGNORE_CACHE};
+    return $self->connection->cache_source_row($self, $row) unless $self->{+IGNORE_CACHE};
     return $row;
 }
 
@@ -138,7 +130,7 @@ sub find_or_insert {
     my $row_data = $self->parse_hash_arg(@_);
 
     unless ($self->{+IGNORE_CACHE}) {
-        if (my $cached = $self->{+CONNECTION}->from_cache($self, $row_data)) {
+        if (my $cached = $self->connection->from_cache($self, $row_data)) {
             $cached->update($row_data);
             return $cached;
         }
@@ -146,9 +138,9 @@ sub find_or_insert {
 
     my $row = $self->transaction(sub { $self->find($row_data) // $self->insert($row_data) });
 
-    $row->set_txn_id($self->{+CONNECTION}->txn_id);
+    $row->set_txn_id($self->connection->txn_id);
 
-    return $self->{+CONNECTION}->cache_source_row($self, $row) unless $self->{+IGNORE_CACHE};
+    return $self->connection->cache_source_row($self, $row) unless $self->{+IGNORE_CACHE};
     return $row;
 }
 
@@ -225,7 +217,7 @@ sub select {
     return DBIx::QuickORM::Select->new(source => $self, %$params);
 }
 
-sub busy { $_[0]->{+CONNECTION}->async_started }
+sub busy { $_[0]->connection->async_started }
 
 sub count_select {
     my $self = shift;
@@ -234,7 +226,7 @@ sub count_select {
     my $where = $params->{where};
 
     my $table = $self->{+TABLE};
-    my $con = $self->{+CONNECTION};
+    my $con = $self->connection;
 
     confess "This database connection is currently engaged in an async query" if $con->async_started;
 
@@ -266,7 +258,7 @@ sub do_select {
     my $where  = $params->{where};
     my $order  = $params->{order_by};
 
-    my $con = $self->{+CONNECTION};
+    my $con = $self->connection;
 
     confess "This database connection is currently engaged in an async query" if $con->async_started;
     confess "Async is not supported by this database engine" if $async && !$con->supports_async;
@@ -330,7 +322,7 @@ sub find {
     my $params = $self->_parse_find_and_fetch_args(@_);
     my $where = $params->{where};
 
-    my $con = $self->{+CONNECTION};
+    my $con = $self->connection;
 
     # See if there is a cached copy with the data we have
     unless ($self->{+IGNORE_CACHE}) {
@@ -349,7 +341,7 @@ sub fetch {
     my $params = $self->_parse_find_and_fetch_args(@_);
     my $where = $params->{where};
 
-    my $con = $self->{+CONNECTION};
+    my $con = $self->connection;
 
     my ($source, $cols, $relmap) = $self->_source_and_cols($params->{prefetch});
     my ($stmt, $bind) = $self->build_select_sql($source, $cols, $where);
@@ -387,7 +379,7 @@ sub insert_row {
 
     $row->refresh($data);
 
-    my $con = $self->{+CONNECTION};
+    my $con = $self->connection;
 
     return $row if $self->{+IGNORE_CACHE};
     return $con->cache_source_row($self, $row);
@@ -400,7 +392,7 @@ sub insert {
     my $data = $self->_insert($row_data);
     my $row  = $self->row_class->new(from_db => $data, source => $self);
 
-    my $con = $self->{+CONNECTION};
+    my $con = $self->connection;
     return $row if $self->{+IGNORE_CACHE};
     return $con->cache_source_row($self, $row);
 }
@@ -409,7 +401,7 @@ sub _insert {
     my $self = shift;
     my ($row_data) = @_;
 
-    my $con   = $self->{+CONNECTION};
+    my $con   = $self->connection;
     my $ret   = $con->db->insert_returning_supported;
     my $table = $self->{+TABLE};
     my $tname = $table->name;
@@ -449,7 +441,7 @@ sub _insert {
 
 sub build_select_sql {
     my $self = shift;
-    my ($stmt, $bind, $bind_names) = $self->{+CONNECTION}->sqla->select(@_);
+    my ($stmt, $bind, $bind_names) = $self->connection->sqla->select(@_);
 
     die "Internal error: Length mistmatch between bind elements and bind names (" . @$bind . " vs " . @$bind_names . ")"
         unless @$bind == @$bind_names;
@@ -478,11 +470,11 @@ sub deflate_column_data {
     my $def = $table->column($col) or confess "Table '$tname' does not have a column '$col'";
 
     if (my $conf = $def->{conflate}) {
-        return $conf->qorm_deflate(quote_bin => $self->{+CONNECTION}, source => $self, column => $def, value => $val, type => $self->{+CONNECTION}->column_type($tname, $col));
+        return $conf->qorm_deflate(quote_bin => $self->connection, source => $self, column => $def, value => $val, type => $self->connection->column_type($tname, $col));
     }
 
     if (blessed($val) && $val->can('qorm_deflate')) {
-        return $val->qorm_deflate(quote_bin => $self->{+CONNECTION}, source => $self, column => $def, value => $val, type => $self->{+CONNECTION}->column_type($tname, $col));
+        return $val->qorm_deflate(quote_bin => $self->connection, source => $self, column => $def, value => $val, type => $self->connection->column_type($tname, $col));
     }
 
     return $val;
@@ -497,7 +489,7 @@ sub vivify {
 sub DESTROY {
     my $self = shift;
 
-    my $con = $self->{+CONNECTION} or return;
+    my $con = $self->connection or return;
     $con->remove_source_cache($self);
 
     return;
@@ -522,7 +514,7 @@ sub _expand_row {
     return $self->row_class->new(from_db => $data, source => $self, fetched_relations => \%relations)
         if $self->{+IGNORE_CACHE};
 
-    my $con = $self->{+CONNECTION};
+    my $con = $self->connection;
 
     if (my $cached = $con->from_cache($self, $data)) {
         $cached->refresh($data);

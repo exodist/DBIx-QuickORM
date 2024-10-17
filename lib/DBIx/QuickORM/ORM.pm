@@ -97,7 +97,16 @@ sub reconnect {
 
 sub connection {
     my $self = shift;
-    return $self->{+CONNECTION} //= $self->{+DB}->connect;
+
+    my $con = $self->{+CONNECTION};
+
+    return $self->{+CONNECTION} = $self->{+DB}->connect
+        unless $con;
+
+    return $self->reconnect
+        unless $$ == $con->pid;
+
+    return $con;
 }
 
 sub _table {
