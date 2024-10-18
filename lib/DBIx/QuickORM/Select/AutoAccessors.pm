@@ -42,7 +42,7 @@ sub can {
     my ($name) = @_;
 
     if (my $rel = $self->table->relation($name)) {
-        return set_subname $it => sub { my $self = shift; $self->relations($name) };
+        return set_subname $name => sub { my $self = shift; $self->relations($name) };
     }
 
     return undef;

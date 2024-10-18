@@ -1,4 +1,4 @@
-package DBIx::QuickORM::BuilderState;
+package DBIx::QuickORM::Builder::State;
 use strict;
 use warnings;
 

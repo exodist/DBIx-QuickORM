@@ -1,7 +1,7 @@
 use Test2::V0;
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
-use DBIx::QuickORM::V0;
+use DBIx::QuickORM::Builder;
 
 dbs_do db => sub {
     my ($dbname, $dbc, $st) = @_;
@@ -53,7 +53,7 @@ dbs_do db => sub {
         my $ref = "$row";
 
         $row = undef;
-        $orm->source($tname)->connection->clear_cache();
+        $orm->source($tname)->cache->clear();
 
         $row = $orm->source($tname)->find(1);
         isnt($row, $ref, "New reference");

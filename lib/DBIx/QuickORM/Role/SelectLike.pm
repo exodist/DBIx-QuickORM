@@ -33,7 +33,6 @@ requires qw{
     relations
     select
     aggregate
-    uncached
 };
 
 # Utility

@@ -1,6 +1,6 @@
 use Test2::V0;
 use Importer 'Test2::Tools::QuickDB' => (get_db => {-as => 'get_qdb'});
-use DBIx::QuickORM::V0;
+use DBIx::QuickORM::Builder;
 
 BEGIN {
     $ENV{PATH} = "/home/exodist/percona/bin:$ENV{PATH}" if -d "/home/exodist/percona/bin";
@@ -190,7 +190,7 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
 
         my $id = 1;
 
-        isa_ok($orm, ['DBIx::QuickORM::ORM'], "Got correct ORM type");
+        isa_ok($orm, ['DBIx::QuickORM'], "Got correct ORM type");
 
         my $pdb = $orm->db;
         isa_ok($pdb, ['DBIx::QuickORM::DB'], "Got a database instance");
@@ -212,8 +212,8 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
         my $bob_id = $id++;
         ok(my $bob = $source->insert(name => 'bob'), "Inserted bob");
         isa_ok($bob, ['DBIx::QuickORM::Row'], "Got a row back");
-        is($bob->from_db->{person_id}, $bob_id, "First row inserted, got id");
-        is($bob->from_db->{name}, 'bob', "Name was set correctly");
+        is($bob->stored->{person_id}, $bob_id, "First row inserted, got id");
+        is($bob->stored->{name}, 'bob', "Name was set correctly");
         ref_is($bob->real_source, $source, "Can get original source");
         isa_ok($bob->source, [qw/DBIx::QuickORM::Util::Mask DBIx::QuickORM::Source/], "Source has been masked");
 
@@ -244,15 +244,15 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
 
         $bob = $source->find($bob_id);
         ok("$bob" ne $oldref, "Did not get the same ref");
-        is($bob->from_db, {name => 'bob', person_id => $bob_id}, "Got bob");
+        is($bob->stored, {name => 'bob', person_id => $bob_id}, "Got bob");
         ref_is($source->find($bob_id), $bob, "Got cached copy using pk search");
 
-        my $data_ref = $bob->from_db;
+        my $data_ref = $bob->stored;
         $bob->refresh();
-        is($bob->from_db, $data_ref, "Identical data after fetch");
-        ref_is_not($bob->from_db, $data_ref, "But the data hashref has been swapped out");
+        is($bob->stored, $data_ref, "Identical data after fetch");
+        ref_is_not($bob->stored, $data_ref, "But the data hashref has been swapped out");
 
-        $bob->from_db->{name} = 'foo';
+        $bob->{stored}->{name} = 'foo';
         is($bob->column('name'), 'foo', "Got incorrect stored name");
         $bob->{dirty}->{name} = 'bar';
         is($bob->column('name'), 'bar', "Got dirty name");
@@ -264,12 +264,13 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
 
         my $ted = $source->vivify(name => 'ted');
         isa_ok($ted, ['DBIx::QuickORM::Row'], "Created row");
-        ok(!$ted->from_db, "But did not insert");
+        ok(!$ted->stored, "But did not insert");
 
+use Carp::Always;
         my $ted_id = $id++;
         $ted->save;
 
-        is($ted->from_db, {name => 'ted', person_id => $ted_id}, "Inserted");
+        is($ted->stored, {name => 'ted', person_id => $ted_id}, "Inserted");
         ref_is($source->find($ted_id), $ted, "Got cached copy");
 
         $ted->update(name => 'theador');
@@ -277,16 +278,16 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
         like(
             $ted,
             {
-                from_db  => {name => 'theador', person_id => $ted_id},
+                stored  => {name => 'theador', person_id => $ted_id},
                 dirty    => DNE(),
-                inflated => {name => DNE()},
+                inflated => DNE(),
             },
             "Got expected data and state",
         );
 
-        ok($ted->in_db, "Ted is in the db");
+        ok($ted->is_stored, "Ted is in the db");
         $ted->delete;
-        ok(!$ted->in_db, "Not in the db");
+        ok(!$ted->is_stored, "Not in the db");
 
         is($source->find($ted_id), undef, "No Ted");
 
@@ -342,7 +343,7 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
             "Got relation built with 'relate' (person_link)"
         );
 
-        $source->connection->clear_cache();
+        $source->cache->clear();
         $source->set_row_class('DBIx::QuickORM::Row::AutoAccessors');
 
         $bob = $source->find($bob_id);
@@ -352,12 +353,14 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
         ok($rows = $bob->aliases(order_by => 'alias_id'), "autoloaded aliases method");
         is($rows->all, 2, "Got both aliases");
 
-        $source->connection->clear_cache();
+        $source->cache->clear();
         $als->set_row_class('DBIx::QuickORM::Row::AutoAccessors');
 
         $robert = $als->find(alias => 'robert');
         isa_ok($robert, ['DBIx::QuickORM::Row::AutoAccessors'], "Got correct row type");
         is($robert->person->person_id, $bob_id, "autoloaded person method");
+
+        $bob = $source->find($bob_id);
 
         like(
             dies { $bob->fluggle },

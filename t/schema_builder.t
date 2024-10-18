@@ -1,6 +1,6 @@
 use Test2::V0;
 use Importer 'Test2::Tools::QuickDB' => (get_db => {-as => 'get_qdb'});
-use DBIx::QuickORM::V0;
+use DBIx::QuickORM::Builder;
 use Data::Dumper;
 
 BEGIN {

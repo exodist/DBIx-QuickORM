@@ -1,7 +1,8 @@
 use Test2::V0;
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
-use DBIx::QuickORM::V0;
+use DBIx::QuickORM::Builder;
+#use Test2::Plugin::BailOnFail;
 
 dbs_do db => sub {
     my ($dbname, $dbc, $st) = @_;
@@ -53,8 +54,9 @@ dbs_do db => sub {
         "Cannot issue another query while an async query is in progress"
     );
 
-    sleep(1) while !$as->ready;
+    #sleep(1) while !$as->ready;
 
+    sleep 1;
     ok($as->ready, "We are ready!");
 
     is(

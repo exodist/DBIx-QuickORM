@@ -16,18 +16,20 @@ sub start {
 
     croak "Async query already started" if $self->{+STARTED};
 
-    $self->{+STARTED} = $self->{+SOURCE}->do_select($self->params, async => 1);
+    $self->{+STARTED} = $self->{+SOURCE}->do_select($self->params, async => $self);
 
     return $self;
 }
 
 sub started { $_[0]->{+STARTED} ? $_[0] : undef }
 
+sub sth { $_[0]->{+STARTED} ? $_[0]->{+STARTED}->{sth} : croak 'Async query has not been started (did you forget to call $s->start?)' }
+
 sub ready {
     my $self = shift;
     return $self if defined $self->{+READY};
 
-    my $started = $self->{+STARTED} or croak 'Async query has not been started (did you forget to call $s->start)?';
+    my $started = $self->{+STARTED} or croak 'Async query has not been started (did you forget to call $s->start?)';
 
     return undef unless $started->{ready}->();
 
@@ -61,11 +63,13 @@ sub wait {
     return if exists $self->{+RESULT};
     return if exists $self->{+ROWS};
 
-    my $started = $self->{+STARTED} or croak 'Async query has not been started (did you forget to call $s->start)?';
+    my $started = $self->{+STARTED} or croak 'Async query has not been started (did you forget to call $s->start?)';
 
     $self->{+READY}  = 1;
     $self->{+RESULT} = $started->{result}->();
     $self->{+ROWS}   = $started->{fetch}->();
+
+    $self->connection->async_stop($self);
 
     return $self;
 }
@@ -83,6 +87,8 @@ sub discard {
     if (my $started = delete $self->{+STARTED}) {
         $started->{cancel}->() unless $done;
     }
+
+    $self->connection->async_stop($self);
 
     return $self;
 }

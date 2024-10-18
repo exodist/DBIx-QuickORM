@@ -102,15 +102,6 @@ sub update_or_insert { shift->{+SOURCE}->update_or_insert(@_) }
 sub table            { shift->{+SOURCE}->table(@_) }
 sub select           { shift->{+SOURCE}->select(@_) }
 
-sub uncached {
-    my $self = shift;
-
-    return $self if $self->{+SOURCE}->ignore_cache;
-
-    my $s2 = $self->{+SOURCE}->uncached;
-    return $self->clone(source => $s2);
-}
-
 sub update { die "FIXME" }
 
 sub params {
@@ -251,7 +242,7 @@ sub clone {
 sub _parse_boolean_args {
     my $self = shift;
 
-    return parse_hash_arg(@_) unless @_ == 1 && blessed($_[0]) && $_[0]->isa(__PACKAGE__);
+    return $self->parse_hash_arg(@_) unless @_ == 1 && blessed($_[0]) && $_[0]->isa(__PACKAGE__);
     return $_[0]->where;
 }
 

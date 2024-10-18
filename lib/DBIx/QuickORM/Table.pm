@@ -55,7 +55,7 @@ sub init {
     $self->{+IS_TEMP} //= 0;
 }
 
-sub row_class { shift->{+ROW_CLASS} // 'DBIx::QuickORM::Row' };
+sub row_class { shift->{+ROW_CLASS} // undef };
 
 sub prefetch_relations {
     my $self = shift;

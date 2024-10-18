@@ -15,8 +15,8 @@ use DBIx::QuickORM::GlobalLookup;
 use DBIx::QuickORM::Util::HashBase qw{
     <schema
     <table
+    +table_name
     <orm
-    <ignore_cache
     +row_class
     <locator
     <created
@@ -31,6 +31,8 @@ sub count   { shift->select()->count(@_) }
 sub update  { shift->select()->update(@_) }
 sub shotgun { shift->select()->shotgun(@_) }
 
+sub table_name { $_[0]->{+TABLE_NAME} //= $_[0]->{+TABLE}->name }
+
 sub relations { die "Fixme" }
 
 sub init {
@@ -43,8 +45,6 @@ sub init {
     croak "The 'schema' attribute must be an instance of 'DBIx::QuickORM::Schema'" unless $schema->isa('DBIx::QuickORM::Schema');
 
     weaken($self->{+ORM});
-
-    $self->{+IGNORE_CACHE} //= 0;
 
     $self->{+LOCATOR} = DBIx::QuickORM::GlobalLookup->register($self, weak => 1);
 
@@ -64,28 +64,11 @@ sub row_class {
     my $self = shift;
     return $self->{+ROW_CLASS} if $self->{+ROW_CLASS};
 
-    my $class = $self->{+TABLE}->row_class or return $self->{+ROW_CLASS} = 'DBIx::QuickORM::Row';
+    my $class = $self->{+TABLE}->row_class // $self->orm->row_class or return $self->{+ROW_CLASS} = 'DBIx::QuickORM::Row';
 
     require(mod2file($class));
 
     return $self->{+ROW_CLASS} = $class;
-}
-
-sub uncached {
-    my $self = shift;
-    my ($callback) = @_;
-
-    if ($callback) {
-        local $self->{+IGNORE_CACHE} = 1;
-        return $callback->($self);
-    }
-
-    return $self->clone(IGNORE_CACHE() => 1);
-}
-
-sub transaction {
-    my $self = shift;
-    $self->connection->transaction(@_);
 }
 
 sub clone {
@@ -103,14 +86,15 @@ sub update_or_insert {
     my $self = shift;
     my $row_data = $self->parse_hash_arg(@_);
 
-    unless ($self->{+IGNORE_CACHE}) {
-        if (my $cached = $self->connection->from_cache($self, $row_data)) {
-            $cached->update($row_data);
-            return $cached;
-        }
+    my $cache = $self->cache;
+
+    if (my $cached = $cache->find_row($self, $row_data)) {
+        $cached->update($row_data);
+        return $cached;
     }
 
-    my $row = $self->transaction(sub {
+    # Can we turn this to an upsert?
+    my $row = $self->txn_do(sub {
         if (my $row = $self->find($row_data)) {
             $row->update($row_data);
             return $row;
@@ -119,9 +103,7 @@ sub update_or_insert {
         return $self->insert($row_data);
     });
 
-    $row->set_txn_id($self->connection->txn_id);
-
-    return $self->connection->cache_source_row($self, $row) unless $self->{+IGNORE_CACHE};
+    return $cache->add_source_row($self, $row);
     return $row;
 }
 
@@ -129,18 +111,15 @@ sub find_or_insert {
     my $self = shift;
     my $row_data = $self->parse_hash_arg(@_);
 
-    unless ($self->{+IGNORE_CACHE}) {
-        if (my $cached = $self->connection->from_cache($self, $row_data)) {
-            $cached->update($row_data);
-            return $cached;
-        }
+    my $cache = $self->cache;
+
+    if (my $cached = $cache->find_row($self, $row_data)) {
+        return $cached;
     }
 
-    my $row = $self->transaction(sub { $self->find($row_data) // $self->insert($row_data) });
+    my $row = $self->txn_do(sub { $self->find($row_data) // $self->insert($row_data) });
 
-    $row->set_txn_id($self->connection->txn_id);
-
-    return $self->connection->cache_source_row($self, $row) unless $self->{+IGNORE_CACHE};
+    return $cache->add_source_row($self, $row);
     return $row;
 }
 
@@ -276,7 +255,6 @@ sub do_select {
 
     my $sth = $con->dbh->prepare($stmt, $async ? ($con->async_query_arg) : ());
     $sth->execute(@$bind);
-    $con->async_start() if $async;
 
     my $guard;
     if ($aside) {
@@ -310,7 +288,7 @@ sub do_select {
 
     return $fetch->() unless $async;
 
-    return {
+    my $started = {
         fetch  => $fetch,
         sth    => $sth,
         guard  => $guard,
@@ -318,6 +296,10 @@ sub do_select {
         result => sub { $con->async_result($sth) },
         cancel => sub { $con->async_cancel($sth) },
     };
+
+    $con->async_start($async);
+
+    return $started;
 }
 
 sub find {
@@ -325,13 +307,9 @@ sub find {
     my $params = $self->_parse_find_and_fetch_args(@_);
     my $where = $params->{where};
 
-    my $con = $self->connection;
-
     # See if there is a cached copy with the data we have
-    unless ($self->{+IGNORE_CACHE}) {
-        my $cached = $con->from_cache($self, $where);
-        return $cached if $cached;
-    }
+    my $cached = $self->cache->find_row($self, $where);
+    return $cached if $cached;
 
     my $data = $self->fetch($params) or return;
 
@@ -374,30 +352,26 @@ sub insert_row {
     my $self = shift;
     my ($row) = @_;
 
-    croak "Row already exists in the database" if $row->from_db;
+    croak "Row already exists in the database" if $row->stored;
 
     my $row_data = $row->dirty;
 
     my $data = $self->_insert($row_data);
 
-    $row->refresh($data);
+    $row->refresh($data, $self->transaction, insert => 1);
 
-    my $con = $self->connection;
-
-    return $row if $self->{+IGNORE_CACHE};
-    return $con->cache_source_row($self, $row);
+    return $self->cache->add_source_row($self, $row);
 }
 
 sub insert {
-    my $self     = shift;
+    my $self = shift;
+
     my $row_data = $self->parse_hash_arg(@_);
 
     my $data = $self->_insert($row_data);
-    my $row  = $self->row_class->new(from_db => $data, source => $self);
+    my $row  = $self->row_class->new(stored => $data, source => $self);
 
-    my $con = $self->connection;
-    return $row if $self->{+IGNORE_CACHE};
-    return $con->cache_source_row($self, $row);
+    return $self->cache->add_source_row($self, $row);
 }
 
 sub _insert {
@@ -492,8 +466,11 @@ sub vivify {
 sub DESTROY {
     my $self = shift;
 
-    my $con = $self->connection or return;
-    $con->remove_source_cache($self);
+    if (my $orm = $self->orm) {
+        if (my $cache = $orm->cache) {
+            $cache->remove_source($self);
+        }
+    }
 
     return;
 }
@@ -514,20 +491,17 @@ sub _expand_row {
         $relations{$key} = $source->_expand_row(delete $data->{$key});
     }
 
-    return $self->row_class->new(from_db => $data, source => $self, fetched_relations => \%relations)
-        if $self->{+IGNORE_CACHE};
+    my $cache = $self->cache;
 
-    my $con = $self->connection;
-
-    if (my $cached = $con->from_cache($self, $data)) {
+    if (my $cached = $cache->find_row($self, $data)) {
         $cached->refresh($data);
-        $cached->update_fetched_relations(\%relations);
+        $cached->_update_fetched_relations(\%relations);
         return $cached;
     }
 
-    return $con->cache_source_row(
+    return $cache->add_source_row(
         $self,
-        $self->row_class->new(from_db => $data, source => $self, fetched_relations => \%relations),
+        $self->row_class->new(stored => $data, source => $self, fetched_relations => \%relations),
     );
 }
 
@@ -654,12 +628,11 @@ sub TO_JSON {
         if $table->is_temp;
 
     return {
-        orm_name   => $orm->name   // '',
-        table_name => $table->name // '',
+        orm_name     => $orm->name          // '',
+        table_name   => $self->table_name   // '',
         row_class    => $self->{+ROW_CLASS} // '',
-        ignore_cache => $self->{+IGNORE_CACHE} ? 1 : 0,
         source_class => blessed($self),
-        locator => $self->{+LOCATOR},
+        locator      => $self->{+LOCATOR},
     };
 }
 

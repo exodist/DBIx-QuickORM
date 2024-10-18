@@ -41,7 +41,7 @@ sub start {
             if $self->{+ORIG_SOURCE}->connection->in_transaction;
     }
 
-    $self->{+STARTED} = $self->{+SOURCE}->do_select($self->params, async => 1, aside => $self->{+IGNORE_TRANSACTIONS} ? 0 : 1);
+    $self->{+STARTED} = $self->{+SOURCE}->do_select($self->params, async => $self, aside => $self->{+IGNORE_TRANSACTIONS} ? 0 : 1);
 
     return $self;
 }

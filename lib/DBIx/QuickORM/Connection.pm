@@ -3,26 +3,24 @@ use strict;
 use warnings;
 
 use Carp qw/confess croak/;
-use Scalar::Util qw/blessed weaken isweak/;
-use DBIx::QuickORM::Util qw/alias/;
 
 require DBIx::QuickORM::SQLAbstract;
-require DBIx::QuickORM::Util::SchemaBuilder;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <db
     +dbh
     <pid
-    <txn_depth
-    <txn_id
+    <transaction
     <column_type_cache
     <sqla
-    +cache
-    +cache_stack
     +async
     +side
     <created
 };
+
+##############
+# DB Proxies #
+##############
 
 sub tables      { my $self = shift; $self->{+DB}->tables($self->dbh, @_) }
 sub table       { my $self = shift; $self->{+DB}->table($self->dbh, @_) }
@@ -37,46 +35,181 @@ sub create_temp_table    { my $self = shift; $self->{+DB}->create_temp_table($se
 sub temp_table_supported { my $self = shift; $self->{+DB}->temp_table_supported($self->dbh, @_) }
 sub temp_view_supported  { my $self = shift; $self->{+DB}->temp_view_supported($self->dbh, @_) }
 
-sub commit_txn         { my $self = shift; $self->{+TXN_DEPTH} -= 1; $self->{+DB}->commit_txn($self->dbh, @_) }
-sub rollback_txn       { my $self = shift; $self->{+TXN_DEPTH} -= 1; $self->{+DB}->rollback_txn($self->dbh, @_) }
-sub create_savepoint   { my $self = shift; $self->{+TXN_DEPTH} += 1; $self->{+DB}->create_savepoint($self->dbh, @_) }
-sub commit_savepoint   { my $self = shift; $self->{+TXN_DEPTH} -= 1; $self->{+DB}->commit_savepoint($self->dbh, @_) }
-sub rollback_savepoint { my $self = shift; $self->{+TXN_DEPTH} -= 1; $self->{+DB}->rollback_savepoint($self->dbh, @_) }
-
 sub load_schema_sql { my $self = shift; $self->{+DB}->load_schema_sql($self->dbh, @_) }
 
 sub supports_uuid     { my $self = shift; $self->{+DB}->supports_uuid($self->dbh, @_) }
 sub supports_json     { my $self = shift; $self->{+DB}->supports_json($self->dbh, @_) }
 sub supports_datetime { my $self = shift; $self->{+DB}->supports_datetime($self->dbh, @_) }
 
-sub supports_async  { my $self = shift; $self->{+DB}->supports_async($self->dbh, @_) }
-sub async_query_arg { my $self = shift; $self->{+DB}->async_query_arg($self->dbh, @_) }
-sub async_ready     { my $self = shift; $self->{+DB}->async_ready($self->dbh, @_) }
-sub async_result    { my $self = shift; $self->{+DB}->async_result($self->dbh, @_) }
-sub async_cancel    { my $self = shift; $self->{+DB}->async_cancel($self->dbh, @_) }
+sub ping {
+    my $self = shift;
+    my $dbh = $self->{+DBH} or return 0;
+    return $self->{+DB}->ping($dbh);
+}
 
-sub start_txn {
+##############
+# DB Proxies #
+##############
+
+#################
+# INIT and MISC #
+#################
+
+sub init {
     my $self = shift;
 
-    croak "Cannnot start a transaction while an async query is running"
-        if $self->{+ASYNC};
+    croak "A database is required" unless $self->{+DB};
 
-    croak 'Cannnot start a transaction while side connections have active queries (use $sel->ignore_transactions() to bypass)'
-        if $self->{+SIDE};
+    $self->{+PID}  //= $$;
+    $self->{+SQLA} //= DBIx::QuickORM::SQLAbstract->new();
 
-    $self->{+TXN_DEPTH} += 1;
-    $self->{+DB}->start_txn($self->dbh, @_)
+    $self->{+COLUMN_TYPE_CACHE} //= {};
+
+    $self->{+TRANSACTION} //= 0;
 }
+
+sub active {
+    my $self = shift;
+
+    my $dbh = $self->{+DBH} or return 0;
+    return 0 unless $$ == $self->{+PID};
+
+    local $@;
+
+    # Cannot use ping if there is an async in progress, so instead of a ping we
+    # ask it if the async is ready, if that does not die we return true.
+    if (my $async = $self->{+ASYNC}) {
+        # Have to break some encaptulation here to avoid infinite recursion
+        return 1 if $async->{$async->READY};
+        return 1 if eval { $async->{$async->READY} = 1 if $self->{+DB}->async_ready($dbh, $async->sth); 1 };
+        warn $@;
+        return 0;
+    }
+
+    return 1 if eval { $self->ping // 0 };
+    warn $@;
+    return 0;
+}
+
+sub _disconnect_issues {
+    my $self = shift;
+    my %params = @_;
+
+    my @fatal;
+    push @fatal => "transaction" unless $params{ignore_transaction} || !$self->in_transaction;
+    push @fatal => "async query" unless $params{ignore_async}       || !$self->{+ASYNC};
+
+    return @fatal;
+}
+
+sub dbh {
+    my $self = shift;
+    my %params = @_;
+
+    return $self->_post_fork(%params) unless $$ == $self->{+PID};
+
+    return $self->{+DBH} if $self->{+DBH} && $self->active;
+
+    if ($self->{+DBH}) {
+        my @fatal = $self->_disconnect_issues(%params);
+        die "Lost database connection during " . join(' and ', @fatal) if @fatal;
+
+        $self->disconnect(%params, ignore_transaction => 1, ignore_async => 1);
+
+        warn "Lost database connection, reconnecting...\n";
+    }
+
+    return $self->{+DBH} = $self->db->connect(dbh_only => 1);
+}
+
+sub _post_fork {
+    my $self = shift;
+    my %params = @_;
+
+    confess "Forked while inside a transaction" if $self->in_transaction && !$params{ignore_transaction};
+
+    $self->reconnect(%params, ignore_transaction => 1, ignore_async => 1);
+}
+
+sub disconnect {
+    my $self   = shift;
+    my %params = @_;
+
+    croak "Attempt to disconnect inside a transaction"       unless $params{ignore_transaction} || !$self->in_transaction;
+    croak "Attempt to disconnect with a pending async query" unless $params{ignore_async}       || !$self->{+ASYNC};
+
+    delete $self->{+ASYNC};
+    delete $self->{+TRANSACTION};
+    my $dbh = delete $self->{+DBH};
+
+    if ($self->{+PID} == $$) {
+        if ($dbh) {
+            $dbh->disconnect or croak $dbh->errstr;
+        }
+    }
+    else {
+        $self->{+PID} = $$;
+        delete $self->{+SIDE};
+    }
+
+    return $self;
+}
+
+sub reconnect {
+    my $self = shift;
+    my %params = @_;
+
+    $self->disconnect(%params);
+    $self->dbh(%params);
+
+    return $self;
+}
+
+sub generate_schema {
+    my $self = shift;
+    require DBIx::QuickORM::Util::SchemaBuilder;
+    return DBIx::QuickORM::Util::SchemaBuilder->generate_schema($self);
+}
+
+sub generate_table_schema {
+    my $self = shift;
+    my ($name) = @_;
+
+    my $table = $self->table($name, details => 1);
+    require DBIx::QuickORM::Util::SchemaBuilder;
+    return DBIx::QuickORM::Util::SchemaBuilder->generate_table($self, $table);
+}
+
+#################
+# INIT and MISC #
+#################
+
+#################
+# Async / Aside #
+#################
+
+sub supports_async  { my $self = shift; $self->{+DB}->supports_async($self->dbh, @_) }
+sub async_query_arg { my $self = shift; $self->{+DB}->async_query_arg($self->dbh, @_) }
+sub async_ready     { my $self = shift; $self->{+DB}->async_ready($self->dbh,  @_ ? @_ : $self->{+ASYNC}->sth) }
+sub async_result    { my $self = shift; $self->{+DB}->async_result($self->dbh, @_ ? @_ : $self->{+ASYNC}->sth) }
+sub async_cancel    { my $self = shift; $self->{+DB}->async_cancel($self->dbh, @_ ? @_ : $self->{+ASYNC}->sth) }
 
 sub async_start {
     my $self = shift;
+    my ($async) = @_;
     croak "Already engaged in an async query" if $self->{+ASYNC};
-    $self->{+ASYNC} = 1;
+    $self->{+ASYNC} = $async;
 }
 
 sub async_stop {
     my $self = shift;
-    delete $self->{+ASYNC} or croak "Not currently engaged in an async query";
+    my ($async) = @_;
+
+    return unless $async;
+    return unless $self->{+ASYNC};
+    return unless $async == $self->{+ASYNC};
+
+    delete $self->{+ASYNC};
 }
 
 sub async_started { $_[0]->{+ASYNC} ? 1 : 0 }
@@ -87,251 +220,84 @@ sub add_side_connection { $_[0]->{+SIDE}++ }
 sub pop_side_connection { $_[0]->{+SIDE}-- }
 sub has_side_connection { $_[0]->{+SIDE} }
 
-sub quote_binary_data { my $self = shift; $self->{+DB}->quote_binary_data($self->dbh, @_) }
-sub dbi_driver        { my $self = shift; $self->{+DB}->dbi_driver($self->dbh, @_) }
+#################
+# Async / Aside #
+#################
+
+################
+# Transactions #
+################
+
+sub commit_savepoint   { my $self = shift; $self->{+DB}->commit_savepoint($self->dbh, @_) }
+sub rollback_savepoint { my $self = shift; $self->{+DB}->rollback_savepoint($self->dbh, @_) }
+
+sub create_savepoint {
+    my $self = shift;
+
+    my $in_txn = $self->in_transaction;
+
+    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM'
+        if $in_txn < 0;
+
+    croak 'Connection is not inside a transaction, cannot use create_savepoint outside of one'
+        unless $in_txn;
+
+    croak "Cannot start a transaction while an async query is running"
+        if $self->{+ASYNC};
+
+    croak 'Cannot start a transaction while side connections are active (use $sel->ignore_transactions() to bypass)'
+        if $self->{+SIDE};
+
+    $self->{+DB}->create_savepoint($self->dbh, @_);
+}
+
+sub commit_txn   { my $self = shift; $self->{+DB}->commit_txn($self->dbh, @_);   $self->{+TRANSACTION} = 0 }
+sub rollback_txn { my $self = shift; $self->{+DB}->rollback_txn($self->dbh, @_); $self->{+TRANSACTION} = 0 }
+
+sub start_txn {
+    my $self = shift;
+
+    my $in_txn = $self->in_transaction;
+
+    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM'
+        if $in_txn < 0;
+
+    croak 'Already inside a transaction, create_savepoint() should be used instead'
+        if $in_txn;
+
+    croak "Cannot start a transaction while an async query is running"
+        if $self->{+ASYNC};
+
+    croak 'Cannot start a transaction while side connections are active (use $sel->ignore_transactions() to bypass)'
+        if $self->{+SIDE};
+
+    $self->{+DB}->start_txn($self->dbh, @_);
+
+    $self->{+TRANSACTION} = 1;
+}
 
 sub in_transaction {
     my $self = shift;
-    return 1 if $self->{+TXN_DEPTH};
-    return 1 if $self->{+DB}->in_txn($self->dbh);
-    return 0;
+
+    return 1 if $self->{+TRANSACTION};
+    return 0 unless $self->{+DBH};
+    return -1 if $self->in_external_transaction;
 }
 
-sub init {
+sub in_external_transaction {
     my $self = shift;
+    my $dbh = $self->{+DBH} or return 0;
 
-    croak "A database is required"        unless $self->{+DB};
-    croak "A database handle is required" unless $self->{+DBH};
-
-    $self->{+PID}  //= $$;
-    $self->{+SQLA} //= DBIx::QuickORM::SQLAbstract->new();
-
-    $self->{+COLUMN_TYPE_CACHE} //= {};
-
-    $self->{+TXN_DEPTH} = $self->dbh->{AutoCommit} ? 0 : 1;
-    $self->{+TXN_ID}    = 0;
-
-    $self->{+CACHE} = {};
-    $self->{+CACHE_STACK} = [];
+    return $self->{+DB}->in_txn($dbh) ? 1 : 0;
 }
 
-sub dbh {
-    my $self = shift;
+################
+# Transactions #
+################
 
-    if ($$ != $self->{+PID}) {
-        if ($self->{+DBH}) {
-            confess "Forked while inside a transaction block"
-                if $self->{+TXN_DEPTH};
+1;
 
-            confess "Forked while inside a transaction"
-                unless $self->in_transaction;
-        }
+__END__
 
-        $self->{+DBH} = $self->db->connect(dbh_only => 1);
-    }
-    elsif (!($self->{+DBH}) || !($self->{+ASYNC} || eval { $self->{+DBH}->ping })) {
-        croak "Lost database connection during transaction" if $self->in_transaction;
-        warn "Lost db connection, reconnecting...\n";
-        $self->{+DBH} = $self->db->connect(dbh_only => 1);
-    }
-
-    return $self->{+DBH};
-}
-
-my $TXN_ID = 1;
-sub transaction {
-    my $self = shift;
-    my ($code) = @_;
-
-    # Make sure this gets loaded/reset
-    my $dbh = $self->dbh;
-
-    my $start_depth = $self->{+TXN_DEPTH};
-    local $self->{+TXN_DEPTH} = $self->{+TXN_DEPTH};
-
-    my $sp;
-    if ($start_depth) {
-        $sp = "SAVEPOINT" . $start_depth;
-        $self->create_savepoint($sp);
-    }
-    else {
-        $self->start_txn;
-    }
-
-    local $self->{+TXN_ID} = $TXN_ID++;
-
-    push @{$self->{+CACHE_STACK} //= []} => $self->{+CACHE};
-    $self->{+CACHE} = {};
-
-    my ($ok, $out);
-    $ok = eval { $out = $code->(); 1 };
-    my $err = $@;
-
-    $self->{+CACHE} = pop @{$self->{+CACHE_STACK} //= []};
-
-    if ($ok) {
-        if   ($sp) { $self->commit_savepoint($sp) }
-        else       { $self->commit_txn }
-        return $out;
-    }
-
-    eval {
-        if   ($sp) { $self->rollback_savepoint($sp) }
-        else       { $self->rollback_txn }
-        1;
-    } or warn $@;
-
-    die $err;
-}
-
-sub generate_schema {
-    my $self = shift;
-    return DBIx::QuickORM::Util::SchemaBuilder->generate_schema($self);
-}
-
-sub generate_table_schema {
-    my $self = shift;
-    my ($name) = @_;
-
-    my $table = $self->table($name, details => 1);
-    return DBIx::QuickORM::Util::SchemaBuilder->generate_table($self, $table);
-}
-
-sub from_cache {
-    my $self = shift;
-    my ($source, $data) = @_;
-
-    my $cache_key = $self->_cache_key($source, $data) or return undef;
-    my $cache_ref = $self->_cache_ref($source, $cache_key);
-
-    return undef unless $$cache_ref;
-
-    return $$cache_ref;
-}
-
-sub cache_row {
-    my $self = shift;
-    my ($row) = @_;
-    return $self->cache_source_row($row->source, $row);
-}
-
-sub cache_source_row {
-    my $self = shift;
-    my ($source, $row, %params) = @_;
-
-    $params{weak} //= 1;
-
-    my $cache_key = $self->_cache_key($source, $row) or return undef;
-    my $cache_ref = $self->_cache_ref($source, $cache_key);
-
-    $$cache_ref = $row;
-
-    weaken(${$cache_ref}) if $params{weak};
-
-    return $row;
-}
-
-sub clear_cache {
-    my $self = shift;
-    $self->remove_source_cache($_) for keys %{$self->{+CACHE}};
-}
-
-sub prune_cache {
-    my $self = shift;
-    $self->prune_source_cache($_) for keys %{$self->{+CACHE}};
-}
-
-sub uncache_source_row {
-    my $self = shift;
-    my ($source, $row) = @_;
-
-    my $cache_key = $self->_cache_key($source, $row) or return undef;
-
-    my ($ref, $key) = $self->_cache_ref($source, $cache_key, parent => 1);
-
-    croak "Found wrong object in cache (${$ref}->{$key} vs $row)" unless $row eq ${$ref}->{$key};
-    delete ${$ref}->{$key};
-
-    $row->set_uncached();
-
-    return $row;
-}
-
-sub prune_source_cache {
-    my $self = shift;
-    my ($source) = @_;
-
-    my @sets = map { $_->{$source} ? ([$_, $source, $_->{$source}]) : ()} $self->{+CACHE}, @{$self->{+CACHE_STACK} // []};
-    while (my $set = shift @sets) {
-        my ($parent, $key, $item) = @$set;
-        @$set = ();
-
-        if (!$item) {
-            delete $parent->{$key};    # Prune empty hash keys
-        }
-        elsif (blessed($item) && $item->isa('DBIx::QuickORM::Row')) {
-            my $cnt = Internals::SvREFCNT(%$item);
-
-            next if $cnt > 2;                                 # The cache copy, and the copy here
-            next if $cnt == 1 && is_weak($parent->{$key});    # in cache weakly
-
-            delete $parent->{$key};
-
-            $item->set_uncached();
-        }
-        else {
-            push @sets => map { [$item, $_, $item->{$_}] } grep { $item->{$_} } keys %$item;
-        }
-    }
-}
-
-sub remove_source_cache {
-    my $self = shift;
-    my ($source) = @_;
-
-    delete $_->{$source} for $self->{+CACHE}, @{$self->{+CACHE_STACK} // []};
-}
-
-sub _cache_key {
-    my $self = shift;
-    my ($source, $data) = @_;
-
-    my $table = $source->table;
-    my $pk_fields = $table->primary_key;
-    return unless $pk_fields && @$pk_fields;
-
-    if (blessed($data) && $data->isa('DBIx::QuickORM::Row')) {
-        return [ map { $data->column($_) // return } @$pk_fields ];
-    }
-
-    return [ map { $data->{$_} // return } @$pk_fields ];
-}
-
-sub _cache_ref {
-    my $self = shift;
-    my ($source, $keys, %params) = @_;
-
-    my $cache = $self->{+CACHE};
-
-    my ($prev, $key);
-    my $ref;
-    for my $ck ("$source", @$keys) {
-        if ($ref) {
-            ${$ref} //= {};
-            $prev = $ref;
-            $key  = $ck;
-            $ref  = \(${$ref}->{$ck});
-        }
-        else {
-            $prev = $ref;
-            $key  = $ck;
-            $ref  = \($cache->{$ck});
-        }
-    }
-
-    return ($prev, $key) if $params{parent};
-
-    return $ref;
-}
 
 1;

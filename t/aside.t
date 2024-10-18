@@ -1,7 +1,7 @@
 use Test2::V0;
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
-use DBIx::QuickORM::V0;
+use DBIx::QuickORM::Builder;
 
 dbs_do db => sub {
     my ($dbname, $dbc, $st) = @_;

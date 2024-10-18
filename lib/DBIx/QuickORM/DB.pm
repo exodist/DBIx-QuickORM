@@ -82,6 +82,8 @@ sub async_cancel    { croak "$_[0]->async_cancel() is not implemented" }
 sub insert_returning_supported { 0 }
 sub update_returning_supported { 0 }
 
+sub ping { $_[1]->ping }
+
 sub driver_name {
     my $self_or_class = shift;
     my $class = blessed($self_or_class) || $self_or_class;

@@ -4,6 +4,7 @@ use warnings;
 
 use Carp qw/confess/;
 use Scalar::Util qw/blessed/;
+use Readonly;
 
 use UUID qw/unparse_upper parse uuid7/;
 
@@ -26,16 +27,24 @@ sub init {
 
     if (my $str = $self->{+AS_STRING}) {
         confess "String '$str' does not look like a UUID" unless looks_like_uuid($str);
+        $self->{+AS_BINARY} //= do { my $out; parse($self->{+AS_STRING}, $out); $out };
     }
-    elsif(!$self->{+AS_BINARY}) {
+    elsif ($self->{+AS_BINARY}) {
+        $self->{+AS_STRING} //= do { my $out; unparse_upper($self->{+AS_BINARY}, $out); $out };
+    }
+    else {
         confess q{You must provide either ('as_string' => $UUID_STRING) or ('as_binary' => $UUID_BINARY)};
     }
+
+    Readonly::Hash(%$self, %$self);
+
+    return $self;
 }
 
 sub create { $_[0]->new(AS_STRING() => uc(uuid7())) }
 
-sub as_string { $_[0]->{+AS_STRING} //= do {my $out; unparse_upper($_[0]->{+AS_BINARY}, $out); $out } }
-sub as_binary { $_[0]->{+AS_BINARY} //= do {my $out; parse($_[0]->{+AS_STRING}, $out); $out } }
+sub as_string { $_[0]->{+AS_STRING} // do {my $out; unparse_upper($_[0]->{+AS_BINARY}, $out); $out } }
+sub as_binary { $_[0]->{+AS_BINARY} // do {my $out; parse($_[0]->{+AS_STRING}, $out); $out } }
 
 sub qorm_sql_type {
     my $class = shift;
@@ -103,7 +112,7 @@ sub qorm_deflate {
     if ($type =~ m/(bin|byte|blob)/i) {
         my $out = $inf->as_binary;
         if (my $con = $params{quote_bin}) {
-            return \($con->dbh->quote($out, DBI::SQL_BINARY())) if $con->quote_binary_data;
+            return \($con->dbh->quote($out, DBI::SQL_BINARY())) if $con->db->quote_binary_data;
         }
         return $out;
     }

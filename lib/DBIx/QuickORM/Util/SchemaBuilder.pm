@@ -4,9 +4,9 @@ use warnings;
 
 use List::Util qw/mesh/;
 
-use DBIx::QuickORM::BuilderState qw/plugin_hook/;
+use DBIx::QuickORM::Builder::State qw/plugin_hook/;
 
-use DBIx::QuickORM::V0 qw{
+use DBIx::QuickORM::Builder qw{
     column
     columns
     conflate

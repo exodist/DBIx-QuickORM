@@ -2,7 +2,7 @@ package DBIx::QuickORM::Test::Tables::TestA;
 use strict;
 use warnings;
 
-use DBIx::QuickORM::V0 ':TABLE_CLASS';
+use DBIx::QuickORM::Builder ':TABLE_CLASS';
 use DBIx::QuickORM::MetaTable aaa => 'DBIx::QuickORM::Row::AutoAccessors', sub {
     column aaa_id => sub {
         primary_key;
