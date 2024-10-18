@@ -33,6 +33,136 @@ See L<DBIx::QuickORM::V0> for the primary interface documentation,
 See L<DBIx::QuickORM::Recipes> for documentation on specific scenarios that may
 fit your need.
 
+=head1 FEATURE SUMMARY
+
+=over 4
+
+=item Declarative syntax
+
+See L<DBIx::QuickORM::V0>.
+
+=item Perl schema to SQL conversion/generation
+
+    my $sql = $orm->generate_schema_sql;
+    $orm->generate_and_load_schema();
+
+=item SQL schema to perl conversion/generation
+
+    orm { db { ... }; autofill(); } # Populate from the database!
+
+Also
+
+    my $schema = $db->connect->generate_schema();
+
+Also
+
+    my $schema = DBIx::QuickORM::Util::SchemaBuilder->generate_schema($orm->connection);
+
+=item Async query support - single connection
+
+    my $async = $orm->select({...})->async();
+    until( $async->ready ) { ... }
+    my @rows = $async->all;
+
+=item Multiple concurrent async query support - multiple connections on 1 process
+
+    my $aside1 = $orm->select({...})->aside();
+    my $aside2 = $orm->select({...})->aside();
+    my $aside3 = $orm->select({...})->aside();
+
+    until( $aside1->ready ) { ... }
+    my @rows = $aside1->all;
+    ...
+
+=item Multiple concurrent async query support - emulation via forking
+
+    my $forked1 = $orm->select({...})->forked();
+    my $forked2 = $orm->select({...})->forked();
+    my $forked3 = $orm->select({...})->forked();
+
+    until( $forked1->ready ) { ... }
+    my @rows = $forked1->all;
+    ...
+
+=item Plugin system - Lots of hooks available
+
+    plugin sub { ... }; # On the fly plugin writing
+    plugin Some::Plugin; # Use a plugin class (does not have or need a new method)
+    plugin Other::Plugin->new(...); Plugin that need to be blessed
+
+Define custom plugin hooks in your custom tools:
+
+    plugin_hook NAME => \%params; # Any/All plugins can take action here.
+
+=item Ability to customize relationship names when generating perl schema from SQL schema
+
+This is done va plugins, See L<DBIx::QuickORM::Plugin>.
+
+=item Can have multiple ORMs on any number of databases in a single app
+
+Any number of orms with any number of schemas, they can all talk to the same DB
+or to different ones.
+
+=item Select object system that closely resembles ResultSets from DBIx::Class
+
+ResultSet was a good idea, regardless of your opinion on L<DBIx::Class>. The
+L<DBIx::QuickORM::Select> objects implement most of the same things.
+
+=item Uses SQL::Abstract under the hood, so query syntax should be familiar to DBIx::Class users
+
+See L<SQL::Abstract>.
+
+    my $sel = $orm->select(\%sql_abstract_where, $order_by);
+    my $sel = $orm->select(where => \%where, order_by => $order_by, ...);
+
+=item Build in support for transactions and savepoints
+
+The C<< transaction(sub { ... }) >> method can be accessed via the orm, select,
+source and row objects.
+
+    $orm->transaction(sub { ... });
+    $sel->transaction(sub { ... });
+    $src->transaction(sub { ... });
+    $row->transaction(sub { ... });
+
+=item Per-connection source/row caches
+
+=item First-class Inflation/Deflation (conflation (yes, its a bad pun)) support
+
+=item Multiple databases supported:
+
+See the L<DBIx::QuickORM::DB> for the database base class all drivers build
+upon. You can even add your own if yours is not on this list.
+
+=over 4
+
+=item PostgreSQL
+
+See L<DBIx::QuickORM::DB::PostgreSQL>, which uses L<DBD::Pg> under the hood.
+
+=item MySQL (Generic)
+
+See L<DBIx::QuickORM::DB::MySQL>, which supports both L<DBD::mysql> and
+L<DBD::MariaDB> for connections.
+
+=item MySQL (Percona)
+
+See L<DBIx::QuickORM::DB::Percona>, which supports both L<DBD::mysql> and
+L<DBD::MariaDB> for connections.
+
+=item MariaDB
+
+See L<DBIx::QuickORM::DB::MariaDB>, which supports both L<DBD::mysql> and
+L<DBD::MariaDB> for connections.
+
+=item SQLite
+
+See L<DBIx::QuickORM::DB::SQLite>, which uses L<DBD::SQLite> under the hood.
+
+=back
+
+=back
+
 =head1 MOTIVATION
 
 The most widely accepted ORM for perl, L<DBIx::Class> is for all intents and

@@ -8,13 +8,16 @@ use Carp qw/croak confess/;
 use DBIx::QuickORM::Util qw/parse_hash_arg mask unmask masked/;
 
 use DBIx::QuickORM::Util::HashBase qw{
+    +__TXN_TAGS__
     +source
+    +table
     +table_name
     <from_db
     <inflated
     <dirty
     txn_id
     <fetched_relations
+    <uncached
 };
 
 sub init {
@@ -40,16 +43,28 @@ sub update_fetched_relations {
     $self->{+FETCHED_RELATIONS} = { %{$self->{+FETCHED_RELATIONS} // {}}, %$relations };
 }
 
-sub set_uncached {
+sub uncache {
     my $self = shift;
 
+    return if $self->{+UNCACHED}++;
+
+    $self->{+TABLE} //= $self->table;
+
     delete $self->{+FETCHED_RELATIONS};
+    delete $self->{+SOURCE};
+
+    my $con = $self->connection;
+    $con->uncache_source_row($source, $self);
 
     return;
 }
 
 sub source {
     my $self = shift;
+
+    croak "This row has been 'uncached' and can no longer interact with the database. You need to fetch the row from the database again"
+        if $self->{+UNCACHED};
+
     my $source = $self->{+SOURCE} or croak "The row has no source!";
     return $source if blessed($source) && $source->isa('DBIx::QuickORM::Source');
 
@@ -60,10 +75,10 @@ sub source {
 }
 
 sub real_source { unmask($_[0]->source) }
-sub table       { $_[0]->source->table }
 sub connection  { $_[0]->source->connection }
 sub db          { $_[0]->source->connection->db }
 sub orm         { $_[0]->source->orm }
+sub table       { $_[0]->{+TABLE} // $_[0]->source->table }
 sub table_name  { $_[0]->{+TABLE_NAME} //= $_[0]->table->name }
 
 sub in_db    { $_[0]->{+FROM_DB} ? 1 : 0 }
@@ -269,7 +284,7 @@ sub delete {
 
     $self->{+DIRTY} = { %{delete $self->{+FROM_DB}}, %{$self->{+DIRTY} // {}} };
 
-    return $con->uncache_source_row($source, $self);
+    $self->uncache;
 
     return $self;
 }
