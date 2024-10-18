@@ -4,6 +4,8 @@ use warnings;
 
 use List::Util qw/mesh/;
 
+use DBIx::QuickORM::BuilderState qw/plugin_hook/;
+
 use DBIx::QuickORM::V0 qw{
     column
     columns
@@ -21,6 +23,7 @@ use DBIx::QuickORM::V0 qw{
     is_temp
     is_view
     rogue_table
+    plugin
 };
 
 my %AUTO_CONFLATE = (
@@ -65,7 +68,8 @@ sub generate_schema {
         my $table = $tables{$tname} or die "Invalid table name '$tname'";
 
         if ($type eq 'relation') {
-            my ($alias, %relation_args) = @params;
+            my ($alias, $fk, %relation_args) = @params;
+            $alias = plugin_hook('relation_name', default_name => $alias, table => $table, table_name => $tname, fk => $fk) // $alias;
             my $rel = DBIx::QuickORM::Table::Relation->new(%relation_args);
             $table->add_relation($alias => $rel);
         }
@@ -100,7 +104,12 @@ sub _build_table {
             my $dtype = lc($col->{data_type});
             my $stype = lc($col->{sql_type});
 
-            if (my $conflate = $class->_conflate($dtype) // $class->_conflate($stype)) {
+            my $conflate;
+            $conflate //= plugin_hook auto_conflate => (data_type => $dtype, sql_type => $stype, column => $col, table => $table);
+            $conflate //= $class->_conflate($dtype);
+            $conflate //= $class->_conflate($stype);
+
+            if ($conflate) {
                 conflate($conflate);
 
                 if ($conflate eq 'DBIx::QuickORM::Conflator::JSON') {
@@ -116,9 +125,12 @@ sub _build_table {
 
             primary_key() if $col->{is_pk};
 
-            sql_spec type => $col->{sql_type};
+            my $spec = sql_spec type => $col->{sql_type};
+            plugin_hook sql_spec => (column => $col, table => $table, sql_spec => $spec);
         };
     }
+
+    plugin_hook sql_spec => (table => $table, sql_spec => sql_spec());
 
     my $keys = $con->db_keys($name);
 
@@ -132,8 +144,9 @@ sub _build_table {
 
     my @out;
     for my $fk (@{$keys->{fk} // []}) {
-        relation $fk->{foreign_table} => {mesh($fk->{columns}, $fk->{foreign_columns})};
-        push @out => ['relation', $fk->{foreign_table}, $name, table => $name, method => 'select', on => {mesh($fk->{foreign_columns}, $fk->{columns})}];
+        my $relname = plugin_hook('relation_name', table => $table, table_name => $name, default_name => $fk->{foreign_table}, fk => $fk) // $fk->{foreign_table};
+        relation $relname => {mesh($fk->{columns}, $fk->{foreign_columns})};
+        push @out => ['relation', $fk->{foreign_table}, $name, $fk, table => $name, method => 'select', on => {mesh($fk->{foreign_columns}, $fk->{columns})}];
     }
 
     for my $idx ($con->indexes($name)) {

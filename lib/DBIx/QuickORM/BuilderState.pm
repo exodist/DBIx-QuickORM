@@ -4,7 +4,7 @@ use warnings;
 
 use Carp qw/croak confess/;
 use Scalar::Util qw/blessed weaken/;
-use DBIx::QuickORM::Util qw/mesh_accessors update_subname/;
+use DBIx::QuickORM::Util qw/mesh_accessors update_subname mod2file/;
 
 use Importer Importer => 'import';
 
@@ -25,6 +25,7 @@ BEGIN {
         SCHEMA           => 'SCHEMA',
         SOURCES          => 'SOURCES',
         TABLE            => 'TABLE',
+        PLUGINS          => 'PLUGINS',
     );
 
     my %seen;
@@ -37,6 +38,9 @@ BEGIN {
             build_meta_state
             build_state
             build_top_builder
+            plugin
+            plugins
+            plugin_hook
         },
     );
 
@@ -65,6 +69,25 @@ sub build_state {
     return $state->{$_[0]};
 }
 
+sub plugin_hook {
+    my ($name, %params) = @_;
+
+    my $state = build_state();
+    my $meta = build_meta_state();
+
+    $params{state} //= $state;
+
+    my $return = undef;
+    my %args = (%params, hook => $name, meta_state => $meta, defined(wantarray) ? (return_ref => \$return) : ());
+
+    for my $p (@{$state->{+PLUGINS} // []}) {
+        ref($p) eq 'CODE' ? $p->(%args) : $p->qorm_plugin_action(%args);
+    }
+
+    my @caller = caller;
+    return $return;
+}
+
 sub build {
     my %params = @_;
 
@@ -75,7 +98,7 @@ sub build {
     my $caller   = $params{caller} // [caller(1)];
     my $args     = $params{args}   // [];
 
-    if (my $tstate = build_state) {
+    if (my $tstate = build_state()) {
         croak "New state cannot be the same ref as the current state" if $state == $tstate;
     }
 
@@ -84,7 +107,12 @@ sub build {
     push @STACK => \%params;
 
     my $out;
-    my $ok  = eval { $out = $callback->(%params); 1 };
+    my $ok = eval {
+        plugin_hook pre_build => (build_params => \%params);
+        $out = $callback->(%params);
+        plugin_hook post_build => (build_params => \%params, built => $out, built_ref => \$out);
+        1;
+    };
     my $err = $@;
 
     pop @STACK;
@@ -101,6 +129,7 @@ sub build_top_builder {
 
     my $sub = sub {
         build(
+            build_top => 1,
             building  => $name,
             callback  => $buildsub,
             args      => \@_,
@@ -123,6 +152,7 @@ sub build_clean_builder {
 
     my $sub = sub {
         build(
+            build_clean => 1,
             building  => $name,
             callback  => $buildsub,
             args      => \@_,
@@ -138,6 +168,41 @@ sub build_clean_builder {
     my $subname = "$caller\::$name";
     no strict 'refs';
     *{$subname} = update_subname $subname => $sub;
+}
+
+{
+    no warnings 'once';
+    *plugin = \&plugins;
+}
+sub plugins {
+    my $state = build_state();
+    unless($state) {
+        $state = {};
+        push @STACK => {state => $state};
+    }
+
+    my $plugins = $state->{+PLUGINS} //= [];
+
+    # Copy so that plugins do not leak to parent states
+    $plugins = [@$plugins] if @_;
+
+    for my $plugin (@_) {
+        my $ok = 0;
+        $ok ||= 1 if ref($plugin) eq 'CODE';
+        $ok ||= 1 if blessed($plugin) && $plugin->can('qorm_plugin_action');
+
+        if (!$ok && $plugin =~ m/::/) {
+            eval { require(mod2file($plugin)); 1 } or confess("Could not load plugin class '$plugin': $@");
+            $ok ||= 1 if $plugin->can('qorm_plugin_action');
+        }
+
+        croak "'$plugin' does not appear to be either a coderef or a class/instance that implements `qorm_plugin_action()`"
+            unless $ok;
+
+        push @$plugins => $plugin;
+    }
+
+    return @{$state->{+PLUGINS} = $plugins};
 }
 
 1;

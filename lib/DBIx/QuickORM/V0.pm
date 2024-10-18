@@ -14,6 +14,12 @@ use Importer Importer => 'import';
 
 $Carp::Internal{(__PACKAGE__)}++;
 
+my @PLUGIN_EXPORTS = qw{
+    plugin
+    plugins
+    plugin_hook
+};
+
 my @DB_EXPORTS = qw{
     db
     db_attributes
@@ -72,24 +78,28 @@ my @_TABLE_EXPORTS = qw{
 my @TABLE_EXPORTS = uniq (
     @_TABLE_EXPORTS,
     @REL_EXPORTS,
+    @PLUGIN_EXPORTS,
     qw{ table update_table },
 );
 
 my @ROGUE_TABLE_EXPORTS = uniq (
     @_TABLE_EXPORTS,
     @REL_EXPORTS,
+    @PLUGIN_EXPORTS,
     qw{ rogue_table },
 );
 
 my @TABLE_CLASS_EXPORTS = uniq (
     @_TABLE_EXPORTS,
     @REL_EXPORTS,
+    @PLUGIN_EXPORTS,
     qw{ meta_table },
 );
 
 my @SCHEMA_EXPORTS = uniq (
     @TABLE_EXPORTS,
     @REL_EXPORTS,
+    @PLUGIN_EXPORTS,
     qw{
         include
         schema
@@ -115,6 +125,7 @@ our @EXPORT = uniq (
     @SCHEMA_EXPORTS,
     @REL_EXPORTS,
     @FETCH_EXPORTS,
+    @PLUGIN_EXPORTS,
 
     qw{
         default_base_row
@@ -138,6 +149,7 @@ our %EXPORT_TAGS = (
     TABLE_CLASS   => \@TABLE_CLASS_EXPORTS,
     RELATION      => \@REL_EXPORTS,
     FETCH         => \@FETCH_EXPORTS,
+    PLUGIN        => \@PLUGIN_EXPORTS,
 );
 
 my %LOOKUP;

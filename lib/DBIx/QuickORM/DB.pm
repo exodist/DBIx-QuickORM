@@ -141,13 +141,17 @@ sub connect {
     my $self = shift;
 
     my $dbh;
-    if ($self->{+CONNECT}) {
-        $dbh = $self->{+CONNECT}->();
-    }
-    else {
-        require DBI;
-        $dbh = DBI->connect($self->dsn, $self->user, $self->password, $self->attributes // {AutoInactiveDestroy => 1, AutoCommit => 1});
-    }
+    eval {
+        if ($self->{+CONNECT}) {
+            $dbh = $self->{+CONNECT}->();
+        }
+        else {
+            require DBI;
+            $dbh = DBI->connect($self->dsn, $self->user, $self->password, $self->attributes // {AutoInactiveDestroy => 1, AutoCommit => 1});
+        }
+
+        1;
+    } or confess $@;
 
     $dbh->{AutoInactiveDestroy} = 1;
 
