@@ -139,6 +139,7 @@ sub dsn {
 
 sub connect {
     my $self = shift;
+    my (%params) = @_;
 
     my $dbh;
     eval {
@@ -154,6 +155,8 @@ sub connect {
     } or confess $@;
 
     $dbh->{AutoInactiveDestroy} = 1;
+
+    return $dbh if $params{dbh_only};
 
     return DBIx::QuickORM::Connection->new(
         dbh => $dbh,

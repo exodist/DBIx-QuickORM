@@ -124,10 +124,15 @@ sub dbh {
                 if $self->{+TXN_DEPTH};
 
             confess "Forked while inside a transaction"
-                unless $self->{+DBH}->{AutoCommit};
+                unless $self->in_transaction;
         }
 
-        confess "Attempt to reuse a connection in a forked process";
+        $self->{+DBH} = $self->db->connect(dbh_only => 1);
+    }
+    elsif (!($self->{+DBH}) || !($self->{+ASYNC} || eval { $self->{+DBH}->ping })) {
+        croak "Lost database connection during transaction" if $self->in_transaction;
+        warn "Lost db connection, reconnecting...\n";
+        $self->{+DBH} = $self->db->connect(dbh_only => 1);
     }
 
     return $self->{+DBH};
