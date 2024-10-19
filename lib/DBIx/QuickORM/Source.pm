@@ -521,7 +521,7 @@ sub _expand_row {
 
     if (my $cached = $con->from_cache($self, $data)) {
         $cached->refresh($data);
-        $cached->update_fetched_relations(\%relations);
+        $cached->_update_fetched_relations(\%relations);
         return $cached;
     }
 

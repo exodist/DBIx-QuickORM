@@ -8,17 +8,18 @@ use Carp qw/croak confess/;
 use DBIx::QuickORM::Util qw/parse_hash_arg mask unmask masked/;
 
 use DBIx::QuickORM::Util::HashBase qw{
-    +__TXN_TAGS__
     +source
     +table
     +table_name
-    <from_db
-    <inflated
-    <dirty
-    txn_id
+    +data
     <fetched_relations
     <uncached
 };
+
+use constant FROM_DB     => 'from_db';
+use constant DIRTY       => 'dirty';
+use constant INFLATED    => 'inflated';
+use constant TRANSACTION => 'transaction';
 
 sub init {
     my $self = shift;
@@ -29,14 +30,35 @@ sub init {
     $source = mask($source, weaken => 1) if blessed($source) && !masked($source);
     $self->{+SOURCE} = $source;
 
-    $self->{+TXN_ID} = $source->connection->txn_id;
+    my $data = $self->{+DATA} //= [];
 
-    if (my $fdb = $self->{+FROM_DB}) {
-        croak "Cannot have references in the from_db data" if grep { ref($_) } values %$fdb;
+    my $fdb = delete $self->{from_db};
+    my $dty = delete $self->{dirty};
+    my $inf = delete $self->{inflated};
+    my $txn = delete $self->{txn};
+
+    if ($fdb || $dty || $inf || $txn) {
+        croak "Cannot initialize with a populated data array AND 'from_db', 'dirty', 'inflated', or 'txn' fields"
+            if @$data;
+
+        my $set = [];
+
+        croak "Cannot have references in the from_db data" if $fdb && grep { ref($_) } values %$fdb;
+        croak "Cannot have references in the dirty data"   if $dty && grep { ref($_) } values %$dty;
+
+        $set->{+FROM_DB}     = $fdb if $fdb;
+        $set->{+DIRTY}       = $dty if $dty;
+        $set->{+TRANSACTION} = $txn if $txn;
+        $set->{+INFLATED}    = $inf if $inf;
+
+        @$data => ($set);
+    }
+    else {
+        push @$data => {} unless @$data;
     }
 }
 
-sub update_fetched_relations {
+sub _update_fetched_relations {
     my $self = shift;
     my ($relations) = @_;
 
@@ -48,13 +70,23 @@ sub uncache {
 
     return if $self->{+UNCACHED}++;
 
+    my $con = $self->connection;
+    $con->uncache_source_row($source, $self);
+
     $self->{+TABLE} //= $self->table;
 
     delete $self->{+FETCHED_RELATIONS};
     delete $self->{+SOURCE};
 
-    my $con = $self->connection;
-    $con->uncache_source_row($source, $self);
+    if (my $data = $self->_data) {
+        delete $data->{+TRANSACTION};
+        $data->{+DIRTY} = {
+            %{delete $data->{+FROM_DB} // {}},
+            %{delete $data->{+DIRTY}   // {}},
+        };
+
+        $self->{+DATA} = [$data];
+    }
 
     return;
 }
@@ -81,8 +113,10 @@ sub orm         { $_[0]->source->orm }
 sub table       { $_[0]->{+TABLE} // $_[0]->source->table }
 sub table_name  { $_[0]->{+TABLE_NAME} //= $_[0]->table->name }
 
-sub in_db    { $_[0]->{+FROM_DB} ? 1 : 0 }
-sub is_dirty { $_[0]->{+DIRTY}   ? 1 : 0 }
+sub _data { ($_[0]->{+DATA} //= [])->[0] //= {} }
+
+sub in_db    { $_[0]->_data->{+FROM_DB} ? 1 : 0 }
+sub is_dirty { $_[0]->_data->{+DIRTY}   ? 1 : 0 }
 
 sub primary_key {
     my $self = shift;
@@ -152,12 +186,14 @@ sub column {
 
         $raw //= $val;
 
-        $self->{+DIRTY}->{$col} = $raw;
+        my $data = $self->_data;
+
+        $data->{+DIRTY}->{$col} = $raw;
         if ($inflated) {
-            $self->{+INFLATED}->{$col} = $inflated;
+            $data->{+INFLATED}->{$col} = $inflated;
         }
         else {
-            delete $self->{+INFLATED}->{$col};
+            delete $data->{+INFLATED}->{$col};
         }
     }
 
@@ -170,8 +206,8 @@ sub stored_column   { croak "No such column '$_[1]'" unless $_[0]->has_column($_
 sub inflated_column { croak "No such column '$_[1]'" unless $_[0]->has_column($_[1]); $_[0]->_inflated_col($_[1]) }
 
 sub _raw_col     { $_[0]->_dirty_col($_[1]) // $_[0]->_from_db_col($_[1]) // undef }
-sub _dirty_col   { $_[0]->{+DIRTY}   ? $_[0]->{+DIRTY}->{$_[1]}   // undef : undef }
-sub _from_db_col { $_[0]->{+FROM_DB} ? $_[0]->{+FROM_DB}->{$_[1]} // undef : undef }
+sub _dirty_col   { my $d = $_[0]->_data; $data->{+DIRTY}   ? $data->{+DIRTY}->{$_[1]}   // undef : undef }
+sub _from_db_col { my $d = $_[0]->_data; $data->{+FROM_DB} ? $data->{+FROM_DB}->{$_[1]} // undef : undef }
 
 sub _inflated_col {
     my $self = shift;

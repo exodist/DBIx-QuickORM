@@ -27,7 +27,25 @@ our @EXPORT = qw{
     mask
     unmask
     masked
+    equ
 };
+
+sub equ {
+    my ($a, $b) = @_;
+
+    # Differences in definedness or truthiness
+    return 0 if (defined($a) xor defined($b));
+    return 0 if ($a xor $b);
+
+    # Check if they are the same ref (if they are refs)
+    my($ra, $rb);
+    return 0 if (defined($ra = refaddr($a)) xor defined(refaddr($b)));
+    return 0 if $ra && $ra != $rb;
+
+    # String compare
+    return 0 unless "$a" eq "$b";
+    return 1;
+}
 
 sub update_subname {
     my ($name, $sub) = @_;
