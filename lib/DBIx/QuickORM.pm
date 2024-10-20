@@ -4,15 +4,19 @@ use warnings;
 
 use Carp qw/confess croak/;
 use Scalar::Util qw/blessed/;
+use DBIx::QuickORM::Util qw/alias/;
 
 require DBIx::QuickORM::GlobalLookup;
 require DBIx::QuickORM::Schema;
 require DBIx::QuickORM::Source;
+require DBIx::QuickORM::Transaction;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <name
     <db
     +connection
+    +transactions
+    <cache
     <schema
     +con_schema  <con_sources
     +temp_schema <temp_sources
@@ -25,6 +29,7 @@ use DBIx::QuickORM::Util::HashBase qw{
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::SelectLike';
 with 'DBIx::QuickORM::Role::HasORM';
+with 'DBIx::QuickORM::Role::HasTransactions';
 
 sub orm { $_[0] }
 
@@ -42,10 +47,17 @@ sub init {
     $self->{+TEMP_SOURCES} //= {};
     $self->{+CON_SOURCES}  //= {};
 
+    $self->{+CACHE} //= do {
+        require DBIx::QuickORM::Cache::Naive;
+        DBIx::QuickORM::Cache::Naive->new();
+    };
+
     croak "You must either provide the 'schema' attribute or enable 'autofill'"
         unless $self->{+SCHEMA} || $self->{+AUTOFILL};
 
     $self->{+LOCATOR} = DBIx::QuickORM::GlobalLookup->register($self);
+
+    $self->{+TRANSACTIONS} = [];
 }
 
 sub clone {
@@ -303,6 +315,77 @@ sub generate_schema_sql {
     my $self = shift;
     my $con = $self->connection or die "WTF?";
     $self->{+DB}->generate_schema_sql(schema => $self->{+SCHEMA}, connection => $con, dbh => $con->dbh);
+}
+
+alias txn_do => 'transaction_do';
+sub txn_do {
+    my $self = shift;
+    my $cb = pop;
+    my $name = shift;
+
+    my @caller = caller;
+
+    croak "txn_do takes a coderef as its final argument" unless $cb && ref($cb) eq 'CODE';
+
+    my $txn = $self->start_txn(name => $name, caller => \@caller);
+
+    my $out;
+    my $ok = eval { $out = $cb->($txn); 1 };
+    my $err = $@;
+
+    my $force = 0;
+    if ($ok) {
+        $ok &&= eval { $txn->commit; 1 };
+        $err = $@;
+        return $out if $ok;
+
+        $force = "commit failed: $err" unless $ok;
+    }
+
+    unless ($ok) {
+        eval { $txn->rollback; 1 } or $force = "rollback failed: $@";
+    }
+
+    $txn = undef;
+
+    die $err;
+}
+
+alias start_txn => 'start_transaction';
+sub start_txn {
+    my $self = shift;
+    my %params = @_;
+
+    $params{caller} //= [caller];
+
+    my $con = $self->{+CONNECTION};
+    return -1 if $con->in_external_transaction;
+
+    my $txns = $self->transactions;
+
+    my $sp;
+    if (my $depth = @$txns) {
+        $sp = "SAVEPOINT" . $depth;
+        $con->create_savepoint($sp);
+    }
+    else {
+        $sp = undef;
+        $con->start_txn;
+    }
+
+    my $idx = @$txns;
+    my $txn = DBIx::QuickORM::Transaction->new(
+        %params,
+        connection   => $con,
+        savepoint    => $sp,
+        transactions => $txns,
+        index        => $idx,
+        orm          => $self,
+    );
+
+    weaken($txns->[$idx] = $txn);
+
+    return $txn;
 }
 
 1;

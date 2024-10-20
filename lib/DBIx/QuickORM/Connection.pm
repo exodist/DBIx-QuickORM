@@ -2,23 +2,17 @@ package DBIx::QuickORM::Connection;
 use strict;
 use warnings;
 
-use Carp qw/confess croak cluck/;
-use Scalar::Util qw/blessed weaken isweak/;
-use DBIx::QuickORM::Util qw/alias/;
+use Carp qw/confess croak/;
 
 require DBIx::QuickORM::SQLAbstract;
-require DBIx::QuickORM::Util::SchemaBuilder;
-require DBIx::QuickORM::Cache;
-require DBIx::QuickORM::Transaction;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <db
     +dbh
     <pid
-    <transactions
+    <transaction
     <column_type_cache
     <sqla
-    <row_cache
     +async
     +side
     <created
@@ -66,40 +60,58 @@ sub init {
 
     $self->{+COLUMN_TYPE_CACHE} //= {};
 
-    $self->{+TRANSACTIONS} = [];
-
-    $self->{+ROW_CACHE} = DBIx::QuickORM::Cache->new(transactions => $self->{+TRANSACTIONS});
+    $self->{+TRANSACTION} //= 0;
 }
 
 sub dbh {
     my $self = shift;
 
     if ($$ != $self->{+PID}) {
-        if ($self->{+DBH} && $self->in_transaction) {
-            $self->{+TRANSACTIONS} = [];
-            delete $self->{+DBH};
-            confess "Forked while inside a transaction"
-        }
-
+        confess "Forked while inside a transaction" if $self->in_transaction;
+        delete $self->{+ASYNC};
         return $self->{+DBH} = $self->db->connect(dbh_only => 1);
     }
 
     if (!($self->{+DBH}) || !($self->{+ASYNC} || eval { $self->{+DBH}->ping })) {
-        if ($self->in_transaction) {
-            $self->{+TRANSACTIONS} = [];
-            delete $self->{+DBH};
-            croak "Lost database connection during transaction";
-        }
+        delete $self->{+DBH};
 
-        warn "Lost db connection, reconnecting...\n";
+        my @fatal;
+        push @fatal => "transaction" if $self->in_transaction;
+        push @fatal => "async query" if $self->{+ASYNC};
+
+        die "Lost database connection during " . join(' and ', @fatal) if @fatal;
+
+        warn "Lost database connection, reconnecting...\n";
         return $self->{+DBH} = $self->db->connect(dbh_only => 1);
     }
 
     return $self->{+DBH};
 }
 
+sub disconnect {
+    my $self = shift;
+
+    croak "Attempt to disconnect inside a transaction" if $self->in_transaction;
+    croak "Attempt to disconnect with a pending async query" if $self->{+ASYNC};
+
+    my $dbh = delete $self->{+DBH} or return;
+    $dbh->disconnect or croak $dbh->errstr;
+
+    return $self;
+}
+
+sub reconnect {
+    my $self = shift;
+
+    $self->disconnect;
+    $self->dbh;
+
+    return $self;
+}
+
 sub generate_schema {
     my $self = shift;
+    require DBIx::QuickORM::Util::SchemaBuilder;
     return DBIx::QuickORM::Util::SchemaBuilder->generate_schema($self);
 }
 
@@ -108,6 +120,7 @@ sub generate_table_schema {
     my ($name) = @_;
 
     my $table = $self->table($name, details => 1);
+    require DBIx::QuickORM::Util::SchemaBuilder;
     return DBIx::QuickORM::Util::SchemaBuilder->generate_table($self, $table);
 }
 
@@ -152,155 +165,70 @@ sub has_side_connection { $_[0]->{+SIDE} }
 # Transactions #
 ################
 
-sub _commit_txn         { my $self = shift; $self->{+DB}->commit_txn($self->dbh, @_) }
-sub _rollback_txn       { my $self = shift; $self->{+DB}->rollback_txn($self->dbh, @_) }
-sub _commit_savepoint   { my $self = shift; $self->{+DB}->commit_savepoint($self->dbh, @_) }
-sub _rollback_savepoint { my $self = shift; $self->{+DB}->rollback_savepoint($self->dbh, @_) }
+sub commit_savepoint   { my $self = shift; $self->{+DB}->commit_savepoint($self->dbh, @_) }
+sub rollback_savepoint { my $self = shift; $self->{+DB}->rollback_savepoint($self->dbh, @_) }
 
-sub _create_savepoint {
+sub create_savepoint {
     my $self = shift;
+
+    my $in_txn = $self->in_transaction;
+
+    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM'
+        if $in_txn < 0;
+
+    croak 'Connection is not inside a transaction, cannot use create_savepoint outside of one'
+        unless $in_txn;
 
     croak "Cannot start a transaction while an async query is running"
         if $self->{+ASYNC};
 
-    croak 'Cannot start a transaction while side connections have active queries (use $sel->ignore_transactions() to bypass)'
+    croak 'Cannot start a transaction while side connections are active (use $sel->ignore_transactions() to bypass)'
         if $self->{+SIDE};
-
-    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM'
-        if $self->in_transaction < 0;
 
     $self->{+DB}->create_savepoint($self->dbh, @_);
 }
 
-sub _start_txn {
-    my $self = shift;
-
-    croak "Cannot start a transaction while an async query is running"
-        if $self->{+ASYNC};
-
-    croak 'Cannot start a transaction while side connections have active queries (use $sel->ignore_transactions() to bypass)'
-        if $self->{+SIDE};
-
-    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM'
-        if $self->in_transaction < 0;
-
-    $self->{+DB}->start_txn($self->dbh, @_)
-}
-
-{
-    no warnings 'once';
-    *transaction       = \&txn;
-    *in_transaction    = \&in_txn;
-    *start_transaction = \&start_txn;
-    *transaction_do    = \&txn_do;
-}
-
-sub in_txn {
-    my $self = shift;
-
-    my $txns = $self->{+TRANSACTIONS} //= [];
-    if (my $cnt = @{$txns}) {
-        return $cnt;
-    }
-
-    # Yes, but not ours
-    return -1 if $self->{+DB}->in_txn($self->dbh);
-
-    return 0;
-}
-
-sub txn { my $t = $_[0]->{+TRANSACTIONS}; return undef unless $t && @$t; return $t->[-1] }
-
-sub txn_do {
-    my $self = shift;
-    my ($cb) = @_;
-    croak "txn_do takes a coderef as its only argument" unless $cb && ref($cb) eq 'CODE';
-
-    my $txn = $self->start_txn();
-
-    my $out;
-    my $ok = eval { $out = $cb->($txn); 1 };
-    my $err = $@;
-
-    my $force = 0;
-    if ($ok) {
-        $ok &&= eval { $txn->commit; 1 };
-        $err = $@;
-        return $out if $ok;
-
-        $force = "commit failed: $err" unless $ok;
-    }
-
-    unless ($ok) {
-        eval { $txn->rollback; 1 } or $force = "rollback failed: $@";
-    }
-
-    $self->stop_txn($txn, force => $force)
-        if $force;
-
-    die $err;
-}
+sub commit_txn   { my $self = shift; $self->{+DB}->commit_txn($self->dbh, @_);   $self->{+TRANSACTION} = 0 }
+sub rollback_txn { my $self = shift; $self->{+DB}->rollback_txn($self->dbh, @_); $self->{+TRANSACTION} = 0 }
 
 sub start_txn {
     my $self = shift;
 
-    my $txns = $self->{+TRANSACTIONS};
+    my $in_txn = $self->in_transaction;
 
-    my $sp;
-    if (my $depth = @$txns) {
-        $sp = "SAVEPOINT" . $depth;
-        $self->_create_savepoint($sp);
-    }
-    else {
-        $sp = undef;
-        $self->_start_txn;
-    }
+    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM'
+        if $in_txn < 0;
 
-    my $idx = @$txns;
-    my $txn = DBIx::QuickORM::Transaction->new(
-        connection   => $self,
-        savepoint    => $sp,
-        transactions => $txns,
-        index        => $idx,
-    );
+    croak 'Already inside a transaction, create_savepoint() should be used instead'
+        if $in_txn;
 
-    weaken($txns->[$idx] = $txn);
+    croak "Cannot start a transaction while an async query is running"
+        if $self->{+ASYNC};
 
-    return $txn;
+    croak 'Cannot start a transaction while side connections are active (use $sel->ignore_transactions() to bypass)'
+        if $self->{+SIDE};
+
+    $self->{+DB}->start_txn($self->dbh, @_);
+
+    $self->{+TRANSACTION} = 1;
 }
 
-sub stop_txn {
+sub in_transaction {
     my $self = shift;
-    my ($txn, %params) = @_;
 
-    my $txns = $self->{+TRANSACTIONS};
-    my $stack = $txns->{stack} //= [];
-    my $lookup = $txns->{lookup} //= {};
-
-    # Already gone
-    return unless $lookup->{$txn};
-
-    confess "Attempt to stop transactions/savepoints out of order!" unless @$stack && $stack->[-1] == $txn;
-
-    # Should be 'commit' or 'rollback'
-    my $finalized = $txn->finalized;
-
-    unless ($finalized) {
-        confess "Attempt to stop a transaction that has not been commited or rolled back" unless $params{force};
-        cluck "A transaction was forcefully stopped, $params{force}";
-        $finalized = 'corrupt';
-    }
-
-    delete $txns->{lookup};
-    pop @$stack;
-
-    $self->{+ROW_CACHE}->pop_transaction($txn, $finalized);
-
-    return 1;
+    return 1 if $self->{+TRANSACTION};
+    return -1 if $self->in_external_transaction;
 }
+
+sub in_external_transaction { $_[0]->{+DB}->in_txn($_[0]->dbh) ? 1 : 0 }
 
 ################
 # Transactions #
 ################
+
+1;
+
+__END__
+
 
 1;

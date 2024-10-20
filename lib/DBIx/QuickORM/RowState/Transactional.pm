@@ -1,6 +1,8 @@
-package DBIx::QuickORM::Row::DataStack;
+package DBIx::QuickORM::RowState::Transactional;
 use strict;
 use warnings;
+
+die "Use ::RowState for each item in this stack";
 
 use Carp qw/croak confess/;
 use Scalar::Util qw/refaddr/;
