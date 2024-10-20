@@ -1,4 +1,4 @@
-use Test2::V0 -target => 'DBIx::QuickORM::V0';
+use Test2::V0 -target => 'DBIx::QuickORM::Builder';
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
 
@@ -152,7 +152,7 @@ dbs_do orm => sub {
         };
     };
 
-    isa_ok($foo,             ['DBIx::QuickORM::ORM'],        "Got an orm instance");
+    isa_ok($foo,             ['DBIx::QuickORM'],        "Got an orm instance");
     isa_ok($foo->db,         ['DBIx::QuickORM::DB'],         "Can get the db");
     isa_ok($foo->schema,     ['DBIx::QuickORM::Schema'],     "Can get the schema");
     isa_ok($foo->connection, ['DBIx::QuickORM::Connection'], "Can get the connection");
@@ -178,7 +178,7 @@ dbs_do orm => sub {
         };
     };
 
-    isa_ok($bar,             ['DBIx::QuickORM::ORM'],        "Got an orm instance");
+    isa_ok($bar,             ['DBIx::QuickORM'],        "Got an orm instance");
     isa_ok($bar->db,         ['DBIx::QuickORM::DB'],         "Can get the db");
     isa_ok($bar->schema,     ['DBIx::QuickORM::Schema'],     "Can get the schema");
     isa_ok($bar->connection, ['DBIx::QuickORM::Connection'], "Can get the connection");
@@ -295,8 +295,8 @@ dbs_do orm => sub {
 #        $params{schema} = $schema;
 #    }
 #
-#    require DBIx::QuickORM::ORM;
-#    my $orm = DBIx::QuickORM::ORM->new(%params, %$new_args);
+#    require DBIx::QuickORM;
+#    my $orm = DBIx::QuickORM->new(%params, %$new_args);
 #
 #    if (my $mixer = $STATE{MIXER}) {
 #        $mixer->{orms}->{$name} = $orm;
@@ -361,7 +361,7 @@ subtest mixer => sub {
 
     for my $orm_name (@orms) {
         ok(my $orm = $mixer->orm($orm_name), "Can get orm '$orm_name'");
-        isa_ok($orm, ['DBIx::QuickORM::ORM'], "orm '$orm_name' is the right type");
+        isa_ok($orm, ['DBIx::QuickORM'], "orm '$orm_name' is the right type");
     }
 
     {

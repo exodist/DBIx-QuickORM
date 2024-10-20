@@ -1,4 +1,4 @@
-package DBIx::QuickORM::V0;
+package DBIx::QuickORM::Builder;
 use strict;
 use warnings;
 
@@ -8,7 +8,7 @@ use List::Util qw/first uniq/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/update_subname mod2file alias find_modules mesh_accessors accessor_field_inversion/;
 
-use DBIx::QuickORM::BuilderState;
+use DBIx::QuickORM::Builder::State;
 
 use Importer Importer => 'import';
 
@@ -299,7 +299,7 @@ build_top_builder orm => sub {
     my $caller    = $params{caller};
     my $wantarray = $params{wantarray};
 
-    require DBIx::QuickORM::ORM;
+    require DBIx::QuickORM;
     require DBIx::QuickORM::DB;
     require DBIx::QuickORM::Schema;
 
@@ -390,8 +390,8 @@ build_top_builder orm => sub {
     $orm{db}     = _build_db($orm{db})         unless blessed($orm{db});
     $orm{schema} = _build_schema($orm{schema}) unless blessed($orm{schema});
 
-    require DBIx::QuickORM::ORM;
-    my $orm = DBIx::QuickORM::ORM->new(%orm);
+    require DBIx::QuickORM;
+    my $orm = DBIx::QuickORM->new(%orm);
 
     $name //= $orm->name;
 

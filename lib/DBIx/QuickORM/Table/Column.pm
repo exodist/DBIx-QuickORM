@@ -38,6 +38,28 @@ sub init {
     }
 }
 
+sub compare_type {
+    my $self = shift;
+    my ($db_type) = @_;
+
+    return 'number' if $self->{+SERIAL};
+
+    my $c = $self->{+CONFLATE};
+    $c = undef unless $c && $c->can('qorm_compare_type');
+
+    for my $type ($self->sql_type, $db_type) {
+        next unless $type;
+
+        my $out;
+        $out = $c->qorm_compare_type($type) if $c;
+        return $out if $out;
+
+        return 'number' if $type =~ m/(int|double|bit|bool|dec|float|real|serial|numeric)/i;
+    }
+
+    return 'string';
+}
+
 sub sql_type {
     my $self = shift;
     my (@dbs) = @_;

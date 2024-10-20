@@ -1,4 +1,4 @@
-use Test2::V0 -target => 'DBIx::QuickORM::ORM';
+use Test2::V0 -target => 'DBIx::QuickORM';
 
 use ok $CLASS;
 

@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 use Carp qw/croak cluck/;
-use Scalar::Util qw/blessed/;
+use Scalar::Util qw/blessed looks_like_number/;
 use Sub::Util qw/subname set_subname/;
 
 use Module::Pluggable sub_name => '_find_mods';
@@ -31,20 +31,28 @@ our @EXPORT = qw{
 };
 
 sub equ {
-    my ($a, $b) = @_;
+    my ($a, $b, $type) = @_;
+
+    my ($ra, $rb);
+    my ($an, $bn);
 
     # Differences in definedness or truthiness
     return 0 if (defined($a) xor defined($b));
     return 0 if ($a xor $b);
+    return 0 if (($an = looks_like_number($a)) xor ($bn = looks_like_number($b)));
+    return 0 if (defined($ra = refaddr($a)) xor defined($rb = refaddr($b)));
 
-    # Check if they are the same ref (if they are refs)
-    my($ra, $rb);
-    return 0 if (defined($ra = refaddr($a)) xor defined(refaddr($b)));
-    return 0 if $ra && $ra != $rb;
+    unless ($type) {
+        $type //= 'ref'    if $ra;
+        $type //= 'number' if $an;
+        $type //= 'string';
+    }
 
-    # String compare
-    return 0 unless "$a" eq "$b";
-    return 1;
+    return ((0 + $a) == (0 + $b))                       if $type eq 'number';
+    return "$a" eq "$b"                                 if $type eq 'string';
+    return ($ra // refaddr($a)) == ($rb // refaddr($b)) if $type eq 'ref';
+
+    croak "Invalid compare type '$type'";
 }
 
 sub update_subname {

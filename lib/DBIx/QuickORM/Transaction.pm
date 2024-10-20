@@ -1,20 +1,24 @@
-package DBIx::QuickORM::Connection::Transaction;
+package DBIx::QuickORM::Transaction;
 use strict;
 use warnings;
 
 use Carp qw/croak/;
-use Scalar::Util qw/weaken/;
+use Scalar::Util qw/weaken blessed/;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <connection
     <savepoint
     <finalized
+    <transactions
+    <index
 };
 
 sub init {
     my $self = shift;
 
-    croak "A 'connection' is required" unless $self->{+CONNECTION};
+    croak "The 'connection' is required"         unless $self->{+CONNECTION};
+    croak "The 'transactions' stack is required" unless $self->{+TRANSACTIONS};
+    croak "The 'index' attribute is required"    unless defined $self->{+INDEX};
 
     weaken($self->{+CONNECTION});
 }

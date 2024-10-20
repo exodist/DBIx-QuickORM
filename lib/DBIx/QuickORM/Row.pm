@@ -7,6 +7,8 @@ use Carp qw/croak confess/;
 
 use DBIx::QuickORM::Util qw/parse_hash_arg mask unmask masked/;
 
+require DBIx::QuickORM::Row::DataStack;
+
 use DBIx::QuickORM::Util::HashBase qw{
     +source
     +table
@@ -15,11 +17,6 @@ use DBIx::QuickORM::Util::HashBase qw{
     <fetched_relations
     <uncached
 };
-
-use constant FROM_DB     => 'from_db';
-use constant DIRTY       => 'dirty';
-use constant INFLATED    => 'inflated';
-use constant TRANSACTION => 'transaction';
 
 sub init {
     my $self = shift;
@@ -30,33 +27,47 @@ sub init {
     $source = mask($source, weaken => 1) if blessed($source) && !masked($source);
     $self->{+SOURCE} = $source;
 
-    my $data = $self->{+DATA} //= [];
-
     my $fdb = delete $self->{from_db};
     my $dty = delete $self->{dirty};
     my $inf = delete $self->{inflated};
     my $txn = delete $self->{txn};
 
-    if ($fdb || $dty || $inf || $txn) {
+    if ($self->{+DATA}) {
         croak "Cannot initialize with a populated data array AND 'from_db', 'dirty', 'inflated', or 'txn' fields"
-            if @$data;
-
-        my $set = [];
-
+            if $fdb || $dty || $inf || $txn;
+    }
+    else {
         croak "Cannot have references in the from_db data" if $fdb && grep { ref($_) } values %$fdb;
         croak "Cannot have references in the dirty data"   if $dty && grep { ref($_) } values %$dty;
 
-        $set->{+FROM_DB}     = $fdb if $fdb;
-        $set->{+DIRTY}       = $dty if $dty;
-        $set->{+TRANSACTION} = $txn if $txn;
-        $set->{+INFLATED}    = $inf if $inf;
+        my $set = {};
+        $set->{from_db}     = $fdb if $fdb;
+        $set->{dirty}       = $dty if $dty;
+        $set->{transaction} = $txn if $txn;
+        $set->{inflated}    = $inf if $inf;
+        $set->{types} = $self->column_compare_types;
 
-        @$data => ($set);
-    }
-    else {
-        push @$data => {} unless @$data;
+        $self->{+DATA} = DBIx::QuickORM::Row::DataStack->new($set);
     }
 }
+
+sub column_compare_types {
+    my $self = shift;
+
+    my $table = $self->table;
+    my $cols = $table->columns;
+
+    my $out = {};
+
+    for my $name (keys %$cols) {
+        my $col = $cols->{$name};
+        $out->{$name} = $col->compare_type($self->column_type($name));
+    }
+
+    return $out;
+}
+
+sub column_type { $_[0]->connection->column_type($_[0]->table_name, $_[1]) }
 
 sub _update_fetched_relations {
     my $self = shift;
@@ -71,22 +82,14 @@ sub uncache {
     return if $self->{+UNCACHED}++;
 
     my $con = $self->connection;
-    $con->uncache_source_row($source, $self);
+    $con->uncache_source_row($self->source, $self);
 
     $self->{+TABLE} //= $self->table;
 
     delete $self->{+FETCHED_RELATIONS};
     delete $self->{+SOURCE};
 
-    if (my $data = $self->_data) {
-        delete $data->{+TRANSACTION};
-        $data->{+DIRTY} = {
-            %{delete $data->{+FROM_DB} // {}},
-            %{delete $data->{+DIRTY}   // {}},
-        };
-
-        $self->{+DATA} = [$data];
-    }
+    $self->{+DATA}->uncache;
 
     return;
 }
@@ -113,16 +116,16 @@ sub orm         { $_[0]->source->orm }
 sub table       { $_[0]->{+TABLE} // $_[0]->source->table }
 sub table_name  { $_[0]->{+TABLE_NAME} //= $_[0]->table->name }
 
-sub _data { ($_[0]->{+DATA} //= [])->[0] //= {} }
-
-sub in_db    { $_[0]->_data->{+FROM_DB} ? 1 : 0 }
-sub is_dirty { $_[0]->_data->{+DIRTY}   ? 1 : 0 }
+sub is_tainted { $_[0]->{+DATA}->is_tainted }
+sub is_stored  { $_[0]->{+DATA}->is_stored  }
+sub is_dirty   { $_[0]->{+DATA}->is_dirty   }
 
 sub primary_key {
     my $self = shift;
 
     my $pk_fields = $self->table->primary_key;
-    return { map {($_ => $self->raw_column($_))} @$pk_fields };
+    my $data = $self->{+DATA};
+    return { map {($_ => $data->raw($_))} @$pk_fields };
 }
 
 sub column_def   { $_[0]->table->column($_[1]) }
@@ -173,77 +176,68 @@ sub column {
     my $self = shift;
     my ($col, $val) = @_;
 
-    my $def = $self->column_def($col) or croak "No such column '$col'";
+    croak "No such column '$col'" unless $self->has_column($col);
+
+    my $data = $self->{+DATA};
 
     if (@_ > 1) {
         my ($raw, $inflated);
 
-        if (ref($val)) {
-            if (my $conf = $def->conflate) {
-                ($raw, $inflated) = $conf->qorm_parse(column => $def, value => $val, type => $self->connection->column_type($self->table_name, $col));
-            }
+        my $def = $self->column_def($col) or croak "No such column '$col'";
+
+        if (my $conf = $def->conflate) {
+            ($raw, $inflated) = $conf->qorm_inflate(column => $def, value => $val, type => $self->column_type($col));
         }
 
         $raw //= $val;
 
-        my $data = $self->_data;
-
-        $data->{+DIRTY}->{$col} = $raw;
-        if ($inflated) {
-            $data->{+INFLATED}->{$col} = $inflated;
-        }
-        else {
-            delete $data->{+INFLATED}->{$col};
-        }
+        $data->set($col, $raw, $inflated);
     }
 
-    return $self->_inflated_col($col) // $self->_dirty_col($col) // $self->_from_db_col($col);
+    return $data->val($col);
 }
 
-sub raw_column      { croak "No such column '$_[1]'" unless $_[0]->has_column($_[1]); $_[0]->_raw_col($_[1]) }
-sub dirty_column    { croak "No such column '$_[1]'" unless $_[0]->has_column($_[1]); $_[0]->_dirty_col($_[1]) }
-sub stored_column   { croak "No such column '$_[1]'" unless $_[0]->has_column($_[1]); $_[0]->_from_db_col($_[1]) }
-sub inflated_column { croak "No such column '$_[1]'" unless $_[0]->has_column($_[1]); $_[0]->_inflated_col($_[1]) }
+sub raw_column      { croak "No such column '$_[1]'" unless $_[0]->has_column($_[1]); $_[0]->{+DATA}->raw($_[0]) }
+sub dirty_column    { croak "No such column '$_[1]'" unless $_[0]->has_column($_[1]); $_[0]->{+DATA}->dirty($_[0]) }
+sub stored_column   { croak "No such column '$_[1]'" unless $_[0]->has_column($_[1]); $_[0]->{+DATA}->stored($_[0]) }
 
-sub _raw_col     { $_[0]->_dirty_col($_[1]) // $_[0]->_from_db_col($_[1]) // undef }
-sub _dirty_col   { my $d = $_[0]->_data; $data->{+DIRTY}   ? $data->{+DIRTY}->{$_[1]}   // undef : undef }
-sub _from_db_col { my $d = $_[0]->_data; $data->{+FROM_DB} ? $data->{+FROM_DB}->{$_[1]} // undef : undef }
-
-sub _inflated_col {
+sub inflated_column {
     my $self = shift;
     my ($col) = @_;
 
-    $self->{+INFLATED} //= {};
-    return $self->{+INFLATED}->{$col} if exists $self->{+INFLATED}->{$col};
-    return $self->{+INFLATED}->{$col} = $self->_inflate($col);
-}
+    croak "No such column 'col'" unless $self->has_column($col);
 
-sub _inflate {
-    my $self = shift;
-    my ($col) = @_;
+    my $data = $self->{+DATA};
+
+    my $inf = $data->inflated($col);
+    return $inf if $inf;
 
     my $def      = $self->column_def($col) or return undef;
     my $conflate = $def->conflate          or return undef;
 
-    for my $loc (DIRTY(), FROM_DB()) {
-        next unless exists $self->{$loc}->{$col};
-        my $val = $self->{$loc}->{$col};
-        return $conflate->qorm_inflate(column => $def, value => $val, type => $self->connection->column_type($self->table_name, $col));
-    }
+    my $raw = $data->raw($col);
 
-    return undef;
+    $inf = $conflate->qorm_inflate(column => $def, value => $raw, type => $self->connection->column_type($self->table_name, $col));
+
+    $data->set_inflated($col, $inf) if $inf;
+
+    return $inf;
 }
 
 # Update data form db, but do not reset dirty stuff
-sub refresh {
+sub refresh { $_[0]->_refresh() }
+
+sub _refresh {
     my $self = shift;
-    my ($data) = @_;
+    my ($new_data) = @_;
 
-    $data //= $self->source->fetch($self->primary_key);
-    $self->{+FROM_DB} = $data;
+    my $source = $self->source;
 
-    my $dirty = $self->{+DIRTY} // {};
-    delete $self->{+INFLATED}->{$_} for grep { !$dirty->{$_} } keys %$data;
+    $new_data //= $source->fetch($self->primary_key);
+
+    my $txn = $source->transaction;
+    my $data = $self->{+DATA};
+    $data->refresh(from_db => $new_data, transaction => $txn);
 
     return $self;
 }
@@ -262,16 +256,18 @@ sub update {
     my $self = shift;
     my $row_data = $self->parse_hash_arg(@_);
 
-    croak "Object is not yet in the database, use insert or save" unless $self->{+FROM_DB};
+    my $data = $self->{+DATA};
+
+    croak "Object is not yet in the database, use insert or save" unless $data->is_stored;
 
     my $source = $self->real_source;
 
-    $row_data = $source->deflate_row_data(%{delete($self->{+DIRTY}) // {}}, %$row_data);
+    $row_data = $source->deflate_row_data(%{$data->dirty // {}}, %$row_data);
 
     my $primary_key = $self->primary_key;
 
     my $table  = $source->table;
-    my $tname  = $table->name;
+    my $tname  = $self->name;
     my @cols   = $table->column_names;
     my $con    = $source->connection;
     my $ret    = $con->db->update_returning_supported;
@@ -282,9 +278,9 @@ sub update {
     my $sth = $dbh->prepare($stmt);
     $sth->execute(@bind);
 
-    my $data;
+    my $new_data;
     if ($ret) {
-        $data = $sth->fetchrow_hashref;
+        $new_data = $sth->fetchrow_hashref;
     }
     else {
         # An update could theoretically update the primary key values, so get
@@ -292,16 +288,18 @@ sub update {
         my ($stmt, $bind) = $source->build_select_sql($tname, \@cols, $self->primary_key);
         my $sth = $dbh->prepare($stmt);
         $sth->execute(@$bind);
-        $data = $sth->fetchrow_hashref;
+        $new_data = $sth->fetchrow_hashref;
     }
 
-    return $self->refresh($data);
+    return $self->_refresh($new_data);
 }
 
 sub delete {
     my $self = shift;
 
-    croak "Object is not yet in the database, use insert or save" unless $self->{+FROM_DB};
+    my $data = $self->{+DATA};
+
+    croak "Object is not yet in the database, use insert or save" unless $data->is_stored;
 
     my $primary_key = $self->primary_key;
 
@@ -318,22 +316,13 @@ sub delete {
     my $sth = $dbh->prepare($stmt);
     $sth->execute(@bind);
 
-    $self->{+DIRTY} = { %{delete $self->{+FROM_DB}}, %{$self->{+DIRTY} // {}} };
-
     $self->uncache;
 
     return $self;
 }
 
 # Clear dirty stuff
-sub reset {
-    my $self = shift;
-
-    delete $self->{+DIRTY};
-    delete $self->{+INFLATED};
-
-    return $self;
-}
+sub reset { $_[0]->{+DATA}->reset }
 
 # refresh and reset
 sub reload {

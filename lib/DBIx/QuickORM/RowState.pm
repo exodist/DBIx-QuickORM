@@ -11,6 +11,8 @@ use constant DIRTY       => 'dirty';
 use constant INFLATED    => 'inflated';
 use constant TRANSACTION => 'transaction';
 use constant TAINTED     => 'tainted';
+use constant TYPES       => 'types';
+use constant UNCACHED    => 'uncached';
 
 use constant CURRENT => 0;
 
@@ -19,11 +21,14 @@ my %VALID_KEYS = (
     DIRTY()       => DIRTY(),
     INFLATED()    => INFLATED(),
     TRANSACTION() => TRANSACTION(),
+    TYPES()       => TYPES(),
+    TAINTED()     => TAINTED(),
+    UNCACHED()    => UNCACHED(),
 );
 
 sub new {
     my $class = shift;
-    my $data  = (@_ == 1 && ref(@_) eq 'HASH') ? $_[0] : {@_};
+    my ($data) = @_;
 
     if (my @bad = sort grep { !$VALID_KEYS{$_} } keys %$data) {
         croak "Invalid row data keys: " . join(', ' => @bad);
@@ -33,20 +38,39 @@ sub new {
 }
 
 sub current    { $_[0]->squash->[+CURRENT] //= {} }
-sub is_tainted { $_[0]->current->{+TAINTED} ? 1 : 0 }
-sub is_stored  { $_[0]->current->{+FROM_DB} ? 1 : 0 }
-sub is_dirty   { $_[0]->current->{+DIRTY}   ? 1 : 0 }
+sub is_tainted { $_[0]->current->{+TAINTED}  ? 1 : 0 }
+sub is_stored  { $_[0]->current->{+FROM_DB}  ? 1 : 0 }
+sub is_dirty   { $_[0]->current->{+DIRTY}    ? 1 : 0 }
+sub uncached   { $_[0]->current->{+UNCACHED} ? 1 : 0 }
 
 sub stored   { my $s = $_[0]->current->{+FROM_DB};  $s ? ($_[1] ? $s->{$_[1]} : $s) : undef }
 sub dirty    { my $d = $_[0]->current->{+DIRTY};    $d ? ($_[1] ? $d->{$_[1]} : $d) : undef }
 sub inflated { my $i = $_[0]->current->{+INFLATED}; $i ? ($_[1] ? $i->{$_[1]} : $i) : undef }
+sub types    { my $t = $_[0]->current->{+TYPES};    $t ? ($_[1] ? $t->{$_[1]} : $t) : undef }
 
 sub raw { $_[0]->dirty($_[1])    // $_[0]->stored($_[1]) // undef }
 sub val { $_[0]->inflated($_[1]) // $_[0]->raw($_[1])    // undef }
 
 sub inflate { $_[0]->current->{+INFLATED}->{$_[1]} = $_[2] }
 
-my @SQUASH_LIST = (FROM_DB(), DIRTY(), INFLATED());
+my @SQUASH_LIST = (FROM_DB(), DIRTY(), INFLATED(), TYPES());
+
+sub uncache {
+    my $self = shift;
+
+    my $cur = $self->current;
+    @$self = ($cur);
+
+    $cur->{+UNCACHED} = 1;
+    delete $cur->{+TRANSACTION};
+
+    if (my $fdb = delete $cur->{+FROM_DB}) {
+        my $dirty = $cur->{+DIRTY} //= {};
+        $dirty->{$_} //= $fdb->{$_} for keys %$fdb;
+    }
+
+    return $self;
+}
 
 sub squash {
     my $self = shift;
@@ -112,7 +136,7 @@ sub refresh {
         my $cur_db = $cur->{+FROM_DB} //= {};
 
         for my $field (keys %$new_db) {
-            next if equ($cur_db->{$field}, $new_db->{$field});
+            next if equ($cur_db->{$field}, $new_db->{$field}, $cur->{+TYPES}->{$field});
             $cur_db->{$field} = $new_db->{$field};
             delete $cur_inf->{$field} if $cur_inf;
         }
@@ -123,7 +147,7 @@ sub refresh {
     confess "Attempt to refresh data from outside of a transaction while row has an active transaction"
         if $cur_txn && !$new_txn;
 
-    my $new = {FROM_DB() => $new_db, TRANSACTION() => $cur_txn};
+    my $new = {FROM_DB() => $new_db, TRANSACTION() => $new_txn, TYPES => $cur->{+TYPES}};
 
     if (my $t = $cur->{+DIRTY} // $cur->{+TAINTED}) {
         $new->{+TAINTED} = $t;
@@ -137,11 +161,41 @@ sub refresh {
 
 sub reset {
     my $self = shift;
+    my ($name) = @_;
 
     my $cur = $self->current;
 
-    delete $cur->{+DIRTY};
-    delete $cur->{+TAINTED};
+    if ($name) {
+        delete $cur->{+DIRTY}->{$name};
+        delete $cur->{+DIRTY} unless keys %{$self->{+DIRTY}};
+        $self->clear_inflated($name);
+    }
+    else {
+        delete $cur->{+DIRTY};
+        delete $cur->{+TAINTED};
+    }
+
+    return $self;
+}
+
+sub set_inflated {
+    my $self = shift;
+    my ($name, $inf) = @_;
+
+    my $c = $self->current;
+
+    $c->{+INFLATED}->{$name} = $inf;
+
+    return $self;
+}
+
+sub unset_inflated {
+    my $self = shift;
+    my ($name) = @_;
+
+    my $c = $self->current;
+
+    delete $c->{+INFLATED}->{$name};
 
     return $self;
 }
@@ -153,7 +207,19 @@ sub set {
     my $c = $self->current;
 
     $c->{+DIRTY}->{$name} = $raw;
-    $inf ? $c->{+INFLATED}->{$name} = $inf : delete $c->{+INFLATED}->{$name};
+    defined($inf) ? $self->set_inflated($name, $inf) : $self->unset_inflated($name);
+
+    return $self;
+}
+
+sub unset {
+    my $self = shift;
+    my ($name) = @_;
+
+    my $c = $self->current;
+
+    $c->{+DIRTY}->{$name} = undef;
+    $self->unset_inflated($name);
 
     return $self;
 }

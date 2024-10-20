@@ -8,8 +8,8 @@ use DBIx::QuickORM::Util qw/alias/;
 
 require DBIx::QuickORM::SQLAbstract;
 require DBIx::QuickORM::Util::SchemaBuilder;
-require DBIx::QuickORM::Connection::Cache;
-require DBIx::QuickORM::Connection::Transaction;
+require DBIx::QuickORM::Cache;
+require DBIx::QuickORM::Transaction;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <db
@@ -66,9 +66,9 @@ sub init {
 
     $self->{+COLUMN_TYPE_CACHE} //= {};
 
-    $self->{+TRANSACTIONS} = {stack => [], lookup => {}};
+    $self->{+TRANSACTIONS} = [];
 
-    $self->{+ROW_CACHE} = DBIx::QuickORM::Connection::Cache->new(transactions => $self->{+TRANSACTIONS});
+    $self->{+ROW_CACHE} = DBIx::QuickORM::Cache->new(transactions => $self->{+TRANSACTIONS});
 }
 
 sub dbh {
@@ -76,19 +76,23 @@ sub dbh {
 
     if ($$ != $self->{+PID}) {
         if ($self->{+DBH} && $self->in_transaction) {
-            warn "Go through cache, do txn revert, only way to be sure recovery is actually possible";
+            $self->{+TRANSACTIONS} = [];
+            delete $self->{+DBH};
             confess "Forked while inside a transaction"
         }
 
-        $self->{+DBH} = $self->db->connect(dbh_only => 1);
+        return $self->{+DBH} = $self->db->connect(dbh_only => 1);
     }
-    elsif (!($self->{+DBH}) || !($self->{+ASYNC} || eval { $self->{+DBH}->ping })) {
+
+    if (!($self->{+DBH}) || !($self->{+ASYNC} || eval { $self->{+DBH}->ping })) {
         if ($self->in_transaction) {
-            warn "Go through cache, do txn revert, only way to be sure recovery is actually possible";
-            croak "Lost database connection during transaction"
+            $self->{+TRANSACTIONS} = [];
+            delete $self->{+DBH};
+            croak "Lost database connection during transaction";
         }
+
         warn "Lost db connection, reconnecting...\n";
-        $self->{+DBH} = $self->db->connect(dbh_only => 1);
+        return $self->{+DBH} = $self->db->connect(dbh_only => 1);
     }
 
     return $self->{+DBH};
@@ -153,7 +157,7 @@ sub _rollback_txn       { my $self = shift; $self->{+DB}->rollback_txn($self->db
 sub _commit_savepoint   { my $self = shift; $self->{+DB}->commit_savepoint($self->dbh, @_) }
 sub _rollback_savepoint { my $self = shift; $self->{+DB}->rollback_savepoint($self->dbh, @_) }
 
-sub _create_savepoint{
+sub _create_savepoint {
     my $self = shift;
 
     croak "Cannot start a transaction while an async query is running"
@@ -185,17 +189,17 @@ sub _start_txn {
 
 {
     no warnings 'once';
-    *transaction = \&txn;
-    *in_transaction = \&in_txn;
+    *transaction       = \&txn;
+    *in_transaction    = \&in_txn;
     *start_transaction = \&start_txn;
-    *transaction_do = \&txn_do;
+    *transaction_do    = \&txn_do;
 }
 
 sub in_txn {
     my $self = shift;
 
-    my $txns = $self->{+TRANSACTIONS};
-    if (my $cnt = @{$txns->{stack} //= []}) {
+    my $txns = $self->{+TRANSACTIONS} //= [];
+    if (my $cnt = @{$txns}) {
         return $cnt;
     }
 
@@ -205,7 +209,7 @@ sub in_txn {
     return 0;
 }
 
-sub txn { my $t = $_[0]->{+TRANSACTIONS}; return undef unless $t->{stack} && @{$t->{stack}}; return $t->{stack}->[-1] }
+sub txn { my $t = $_[0]->{+TRANSACTIONS}; return undef unless $t && @$t; return $t->[-1] }
 
 sub txn_do {
     my $self = shift;
@@ -241,28 +245,26 @@ sub start_txn {
     my $self = shift;
 
     my $txns = $self->{+TRANSACTIONS};
-    my $stack = $txns->{stack} //= [];
-    my $lookup = $txns->{lookup} //= {};
 
     my $sp;
-    if (my $depth = @$stack) {
+    if (my $depth = @$txns) {
         $sp = "SAVEPOINT" . $depth;
-        $self->create_savepoint($sp);
+        $self->_create_savepoint($sp);
     }
     else {
         $sp = undef;
-        $self->start_txn;
+        $self->_start_txn;
     }
 
-    my $txn = DBIx::QuickORM::Connection::Transaction->new(
-        connection => $self,
-        savepoint => $sp,
+    my $idx = @$txns;
+    my $txn = DBIx::QuickORM::Transaction->new(
+        connection   => $self,
+        savepoint    => $sp,
+        transactions => $txns,
+        index        => $idx,
     );
 
-    push @$stack => $txn;
-    $lookup->{"$txn"} = @$stack;
-
-    weaken($stack->[-1]);
+    weaken($txns->[$idx] = $txn);
 
     return $txn;
 }
