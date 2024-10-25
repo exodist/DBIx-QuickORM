@@ -236,7 +236,7 @@ sub create_savepoint {
 
     my $in_txn = $self->in_transaction;
 
-    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM::ORM'
+    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM'
         if $in_txn < 0;
 
     croak 'Connection is not inside a transaction, cannot use create_savepoint outside of one'
@@ -259,7 +259,7 @@ sub start_txn {
 
     my $in_txn = $self->in_transaction;
 
-    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM::ORM'
+    croak 'Connection is already inside a transaction, but it is not controlled by DBIx::QuickORM'
         if $in_txn < 0;
 
     croak 'Already inside a transaction, create_savepoint() should be used instead'
