@@ -1478,7 +1478,8 @@ __END__
 
 =head1 NAME
 
-DBIx::QuickORM - Actively maintained, quick to start, powerful ORM tool.
+DBIx::QuickORM - Actively maintained Object Relational Mapping that makes
+getting started Quick and has a rich feature set.
 
 =head1 DESCRIPTION
 
@@ -1489,10 +1490,6 @@ L<DBIx::Class>, but not a drop-in replacement.
 =head1 SYNOPSIS
 
 FIXME!
-
-=head1 PRIMARY INTERFACE
-
-See L<DBIx::QuickORM> for the primary interface documentation,
 
 =head1 RECIPES
 
@@ -1505,14 +1502,36 @@ fit your need.
 
 =item Declarative syntax
 
-See L<DBIx::QuickORM>.
+You declare databases, schemas, and orms which combine the two. You can use
+plugins to customize behavior.
+
+The bare mminimum to get going is to provide some basic information to connect
+to the database.
+
+If you want to go the opposite route you can, define your schema in code and generate the
+SQL to put the tables into the database.
+
+Almost everything is configurable in a declarative "builder" style.
 
 =item Perl schema to SQL conversion/generation
 
+    orm myorm => {
+        db { ... };
+        schema { ... };
+    };
+
+Then produce the SQL
+
     my $sql = $orm->generate_schema_sql;
+
+Or directly load it
+
     $orm->generate_and_load_schema();
 
 =item SQL schema to perl conversion/generation
+
+If you can provide enough to get a database connection the tools can
+autogenerate the rest from your database.
 
     orm { db { ... }; autofill(); } # Populate from the database!
 
@@ -1526,11 +1545,25 @@ Also
 
 =item Async query support - single connection
 
+You can do async queries. Only 1 at a time with a single connection, but it is
+usable inside transactions!
+
     my $async = $orm->select({...})->async();
     until( $async->ready ) { ... }
     my @rows = $async->all;
 
 =item Multiple concurrent async query support - multiple connections on 1 process
+
+You can do multiple async queries (which QuickORM called "aside"'s) where it
+will create additional connections, 1 per aside. You can use this to fire off
+several queries at once. They will all use the same cache, and you xan get
+their results in any order as they become ready.
+
+B<Note> Transactions are single connection only, so for safety this will throw
+an exception inside a transaction unless you tell it to ignore transactions. It
+will still work if you do so, but you have to be certain not to try to
+manipulate the same data both inside and outside of the transaction. If it
+breaks you get to keep all the broken bits.
 
     my $aside1 = $orm->select({...})->aside();
     my $aside2 = $orm->select({...})->aside();
@@ -1542,6 +1575,10 @@ Also
 
 =item Multiple concurrent async query support - emulation via forking
 
+Same idea as aside, except instead of using multiple connections in a single
+process, you do several processes with one connection each. This is usefulf or
+databases that do not support async queries (like SQLite).
+
     my $forked1 = $orm->select({...})->forked();
     my $forked2 = $orm->select({...})->forked();
     my $forked3 = $orm->select({...})->forked();
@@ -1550,11 +1587,17 @@ Also
     my @rows = $forked1->all;
     ...
 
+B<Note> Transactions are single connection only, so for safety this will throw
+an exception inside a transaction unless you tell it to ignore transactions. It
+will still work if you do so, but you have to be certain not to try to
+manipulate the same data both inside and outside of the transaction. If it
+breaks you get to keep all the broken bits.
+
 =item Plugin system - Lots of hooks available
 
     plugin sub { ... }; # On the fly plugin writing
     plugin Some::Plugin; # Use a plugin class (does not have or need a new method)
-    plugin Other::Plugin->new(...); Plugin that need to be blessed
+    plugin Other::Plugin->new(...); Plugin that needs to be blessed
 
 Define custom plugin hooks in your custom tools:
 
@@ -1564,10 +1607,14 @@ Define custom plugin hooks in your custom tools:
 
 This is done va plugins, See L<DBIx::QuickORM::Plugin>.
 
+TODO: Provide example of doing it on the fly
+
 =item Can have multiple ORMs on any number of databases in a single app
 
 Any number of orms with any number of schemas, they can all talk to the same DB
-or to different ones.
+or to different ones. The db specifications and schema specifications are all
+reusable and composable. You can define 4 databases and 4 schemas and have 16
+total ORM instances from the combinations.
 
 =item Select object system that closely resembles ResultSets from DBIx::Class
 
@@ -1584,16 +1631,69 @@ See L<SQL::Abstract>.
 =item Build in support for transactions and savepoints
 
 The C<< transaction(sub { ... }) >> method can be accessed via the orm, select,
-source and row objects.
+and source objects.
 
-    $orm->transaction(sub { ... });
-    $sel->transaction(sub { ... });
-    $src->transaction(sub { ... });
-    $row->transaction(sub { ... });
+    $orm->txn_do(sub { ... });
+    $sel->txn_do(sub { ... });
+    $src->txn_do(sub { ... });
 
-=item Per-connection source/row caches
+Or if you prefer:
+
+    my $txn = $orm->start_txn;
+
+    ...
+
+    # Commit or rollback
+    if ($ok) { $txn->commit }
+    else     { $txn->rollback }
+
+    # Or automatic rollback when the $txn object falls out of scope:
+    $txn = undef;
+
+=item Per-orm caches, ability to write custom cache classes
+
+Each L<DBIx::QuickORM::ORM> instance has its own cache object. By default
+L<DBIx::QuickORM::Cache::Naive>, which is a basic caching system that insures
+you only have 1 copy of any specific row at any given time (assuming it has a
+primary key, no cahcing is attempted for rows with no primary key).
+
+You can also choose to use L<DBIx::QuickORM::Cache::None> which is basically a
+no-op for everything meaning there is no cache, every time you get an object
+from the db it is a new copy.
+
+Or even write your own based on the L<DBIx::QuickORM::Cache> base class.
 
 =item First-class Inflation/Deflation (conflation (yes, its a bad pun)) support
+
+Inflation and Deflation of columns is a first-class feature. But since saying
+'inflation and deflation' every time is a chore DBIx::QuickORM shortens the
+concept to 'conflation'. No, the word "conflation" is not actually related to
+"inflation" or "deflation", but it is an amusing pun, specially since it still
+kind of works with the actual definition of "conflation".
+
+If you specify that a column has a conflator, then using
+C<< my $val = $row->column('name') >> will give you the inflated form. You can
+also set the column by giving it either the inflated or deflated form. You also
+always have access to the raw values, and asking for either the 'stored' or
+'dirty' value will give the raw form.
+
+The rows are also smart enough to check if your inflated forms have been
+mutated and consider the row dirty (in need of saving or discarding) after the
+mutation. This is done by deflating the values to compare to the stored form
+when checking for dirtyness.
+
+If your inflated values are readonly, locked restricted hashes, or objects that
+implement the 'qorm_immutible' method (and it returns true). Then the row is
+smart enough to skip checking them for mutations as they cannot be mutated.
+
+Oh, also of note, inflated forms do not need to be blessed, nor do they even
+need to be references. You could write a conflator that inflates string to have
+"inflated: " prefixed to them, and no prefix when they are raw/deflated. A
+conflator that encrypts/decrypts passively is also possible, assuming the
+encrypted and decrypted forms are easily distinguishable.
+
+See L<DBIx::QuickORM::Conflator::UUID>, L<DBIx::QuickORM::Conflator::JSON>, and
+L<DBIx::QuickORM::Conflator::DateTime> for some included conflators.
 
 =item Multiple databases supported:
 
