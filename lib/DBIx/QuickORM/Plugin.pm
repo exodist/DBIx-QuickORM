@@ -90,7 +90,7 @@ As well this class can be used to build a custom plugin on the fly.
 
 =head1 SYNOPSIS
 
-    DBIx::QuickORM::Builder qw/plugin/;
+    DBIx::QuickORM qw/plugin/;
     use DBIx::QuickORM::Plugin;
 
     plugin DBIx::QuickORM::Plugin->new(
@@ -114,7 +114,7 @@ As well this class can be used to build a custom plugin on the fly.
 
 =head1 OVERVIEW OF THE PLUGIN SYSTEM
 
-In general you define everything you want using L<DBIx::QuickORM::Builder>.
+In general you define everything you want using L<DBIx::QuickORM>.
 Sometimes this includes auto-generating things from the database itself. In
 both cases each step is a distinct operation that takes data and builds an
 object.
@@ -145,7 +145,7 @@ Here is a vague example of how you plugin may use the return_ref:
 To add a plugin hook you can simply call plugin_hook() in whatever place you
 want to add it:
 
-    use DBIx::QuickORM::Builder::State qw/plugin_hook/;
+    use DBIx::QuickORM::BuilderState qw/plugin_hook/;
 
     sub doing_stuff {
         ...;
@@ -157,7 +157,7 @@ want to add it:
 
 To enable plugins use the plugin() or plugins() functions:
 
-    use DBIx::QuickORM::Builder::State qw/plugin plugins/;
+    use DBIx::QuickORM::BuilderState qw/plugin plugins/;
 
     # Plugins can be a simple coderef, it gets called for ALL plugin hooks.
     plugin sub { my %params = @_; ... };
@@ -183,8 +183,8 @@ To enable plugins use the plugin() or plugins() functions:
 
 =head1 PLUGIN FUNCTIONS
 
-All of these functions are exported by the L<DBIx::QuickORM::Builder::State>
-module, they can also be imported from L<DBIx::QuickORM::Builder>.
+All of these functions are exported by the L<DBIx::QuickORM::BuilderState>
+module, they can also be imported from L<DBIx::QuickORM>.
 
 =over 4
 
@@ -196,7 +196,7 @@ module, they can also be imported from L<DBIx::QuickORM::Builder>.
 
 Calls to this function can be sprinkled inside any tools, functions, etc that
 are part of the ORM build system. This includes most functions in
-L<DBIx::QuickORM::Builder> and L<DBIx::QuickORM::Builder::State>.
+L<DBIx::QuickORM> and L<DBIx::QuickORM::BuilderState>.
 
 Each call defines a hook by name, and provides parameters to be used by or
 mutated by plugins. Plugins may choose to ignore a hook, or take whatever
@@ -249,7 +249,7 @@ If you want to just quickly implement or modiy some behavior without writing a
 custom plugin class, you can just pass in a sub that intercepts all hooks and
 chooses what to do.
 
-    use DBIx::QuickORM::Builder qw/plugin/;
+    use DBIx::QuickORM qw/plugin/;
 
     plugin sub {
         my %params = @_;
@@ -293,7 +293,7 @@ This is the same as the simple-sub, but in class form
 
 Somewhere else:
 
-    use DBIx::QuickORM::Builder qw/plugin/;
+    use DBIx::QuickORM qw/plugin/;
 
     plugin 'My::Plugin';
 
@@ -325,7 +325,7 @@ This is the same as the simple-sub, but in blessed-class form
 
 Somewhere else:
 
-    use DBIx::QuickORM::Builder qw/plugin/;
+    use DBIx::QuickORM qw/plugin/;
 
     plugin My::Plugin->new(...);
 
@@ -333,7 +333,7 @@ Somewhere else:
 
 This is the same as the simple-sub, but using this helper class
 
-    use DBIx::QuickORM::Builder qw/plugin/;
+    use DBIx::QuickORM qw/plugin/;
     use DBIx::QuickORM::Plugin;
 
     plugin DBIx::QuickORM::Plugin->new(

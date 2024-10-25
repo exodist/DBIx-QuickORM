@@ -1,6 +1,6 @@
 use Test2::V0;
 use Importer 'Test2::Tools::QuickDB' => (get_db => {-as => 'get_qdb'});
-use DBIx::QuickORM::Builder;
+use DBIx::QuickORM;
 
 BEGIN {
     $ENV{PATH} = "/home/exodist/percona/bin:$ENV{PATH}" if -d "/home/exodist/percona/bin";
@@ -190,7 +190,7 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
 
         my $id = 1;
 
-        isa_ok($orm, ['DBIx::QuickORM'], "Got correct ORM type");
+        isa_ok($orm, ['DBIx::QuickORM::ORM'], "Got correct ORM type");
 
         my $pdb = $orm->db;
         isa_ok($pdb, ['DBIx::QuickORM::DB'], "Got a database instance");

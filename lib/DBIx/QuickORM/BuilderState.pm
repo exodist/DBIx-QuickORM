@@ -1,4 +1,4 @@
-package DBIx::QuickORM::Builder::State;
+package DBIx::QuickORM::BuilderState;
 use strict;
 use warnings;
 
@@ -20,7 +20,7 @@ BEGIN {
         CONFLATOR        => 'CONFLATOR',
         DB               => 'DB',
         DEFAULT_BASE_ROW => 'DEFAULT_BASE_ROW',
-        ORM              => 'ORM',
+        ORM_STATE        => 'ORM',
         RELATION         => 'RELATION',
         SCHEMA           => 'SCHEMA',
         SOURCES          => 'SOURCES',

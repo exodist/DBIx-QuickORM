@@ -1,7 +1,7 @@
 use Test2::V0;
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
-use DBIx::QuickORM::Builder;
+use DBIx::QuickORM;
 #use Test2::Plugin::BailOnFail;
 
 dbs_do db => sub {

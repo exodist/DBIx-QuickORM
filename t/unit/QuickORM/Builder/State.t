@@ -1,4 +1,4 @@
-use Test2::V0 -target => 'DBIx::QuickORM::Builder::State';
+use Test2::V0 -target => 'DBIx::QuickORM::BuilderState';
 
 use ok $CLASS;
 

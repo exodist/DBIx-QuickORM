@@ -4,7 +4,7 @@ use ok $CLASS;
 
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
-use DBIx::QuickORM::Builder;
+use DBIx::QuickORM;
 
 use Scalar::Util qw/readonly/;
 use Hash::Util qw/hashref_locked/;

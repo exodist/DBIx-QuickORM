@@ -1,7 +1,7 @@
 use Test2::V0;
 use lib 't/lib';
 use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
-use DBIx::QuickORM::Builder;
+use DBIx::QuickORM;
 use Time::HiRes qw/sleep/;
 
 use Carp::Always;

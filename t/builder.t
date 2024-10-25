@@ -1,6 +1,6 @@
 use Test2::V0;
 use Importer 'Test2::Tools::QuickDB' => (get_db => {-as => 'get_qdb'});
-use DBIx::QuickORM::Builder;
+use DBIx::QuickORM;
 
 BEGIN {
     $ENV{PATH} = "/home/exodist/percona/bin:$ENV{PATH}" if -d "/home/exodist/percona/bin";
@@ -146,7 +146,7 @@ subtest PostgreSQL => sub {
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::PostgreSQL'], "Got a database instance");
 
     my $orm = orm('simple_pg', schema => 'simple', db => 'postgresql');
-    isa_ok($orm, ['DBIx::QuickORM'], "Got correct ORM type");
+    isa_ok($orm, ['DBIx::QuickORM::ORM'], "Got correct ORM type");
     ref_is(orm('simple_pg'), $orm, "Instance cached");
     is($orm->db, $pdb, "Orm uses the postgresql database");
 
@@ -166,7 +166,7 @@ subtest MySQL => sub {
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::MySQL'], "Got a database instance");
 
     my $orm = orm('simple_mysql', schema => 'simple', db => 'mysql');
-    isa_ok($orm, ['DBIx::QuickORM'], "Got correct ORM type");
+    isa_ok($orm, ['DBIx::QuickORM::ORM'], "Got correct ORM type");
     ref_is(orm('simple_mysql'), $orm, "Instance cached");
     is($orm->db, $pdb, "Orm uses the mysql database");
 
@@ -183,7 +183,7 @@ subtest Percona => sub {
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::MySQL', 'DBIx::QuickORM::DB::Percona'], "Got a database instance");
 
     my $orm = orm('simple_percona', schema => 'simple', db => 'percona');
-    isa_ok($orm, ['DBIx::QuickORM'], "Got correct ORM type");
+    isa_ok($orm, ['DBIx::QuickORM::ORM'], "Got correct ORM type");
     ref_is(orm('simple_percona'), $orm, "Instance cached");
     is($orm->db, $pdb, "Orm uses the percona database");
 
@@ -200,7 +200,7 @@ subtest MariaDB => sub {
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::MySQL', 'DBIx::QuickORM::DB::MariaDB'], "Got a database instance");
 
     my $orm = orm('simple_mariadb', schema => 'simple', db => 'mariadb');
-    isa_ok($orm, ['DBIx::QuickORM'], "Got correct ORM type");
+    isa_ok($orm, ['DBIx::QuickORM::ORM'], "Got correct ORM type");
     ref_is(orm('simple_mariadb'), $orm, "Instance cached");
     is($orm->db, $pdb, "Orm uses the mariadb database");
 
@@ -217,7 +217,7 @@ subtest SQLite => sub {
     isa_ok($pdb, ['DBIx::QuickORM::DB', 'DBIx::QuickORM::DB::SQLite'], "Got a database instance");
 
     my $orm = orm('simple_sqlite', schema => 'simple', db => 'sqlite');
-    isa_ok($orm, ['DBIx::QuickORM'], "Got correct ORM type");
+    isa_ok($orm, ['DBIx::QuickORM::ORM'], "Got correct ORM type");
     ref_is(orm('simple_sqlite'), $orm, "Instance cached");
     is($orm->db, $pdb, "Orm uses the sqlite database");
 

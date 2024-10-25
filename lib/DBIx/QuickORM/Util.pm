@@ -48,9 +48,14 @@ sub equ {
         $type //= 'string';
     }
 
+#    require Carp::Always;
+#    Carp::Always->import();
+
     return ((0 + $a) == (0 + $b))                       if $type eq 'number';
     return "$a" eq "$b"                                 if $type eq 'string';
     return ($ra // refaddr($a)) == ($rb // refaddr($b)) if $type eq 'ref';
+
+#    Carp::Always->unimport();
 
     croak "Invalid compare type '$type'";
 }
