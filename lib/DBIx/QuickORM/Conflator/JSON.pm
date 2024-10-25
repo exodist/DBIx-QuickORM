@@ -4,6 +4,9 @@ use warnings;
 
 use Cpanel::JSON::XS qw/decode_json/;
 
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::Conflator';
+
 my $JSON = Cpanel::JSON::XS->new->utf8(1)->convert_blessed(1)->allow_nonref(1);
 sub JSON { $JSON }
 

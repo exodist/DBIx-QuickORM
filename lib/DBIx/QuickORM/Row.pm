@@ -4,6 +4,7 @@ use warnings;
 
 use Carp qw/croak confess carp longmess/;
 use Scalar::Util qw/weaken blessed refaddr readonly reftype/;
+use Hash::Util qw/hashref_locked/;
 
 use DBIx::QuickORM::Util qw/parse_hash_arg mask unmask masked equ/;
 
@@ -113,9 +114,12 @@ sub is_dirty {
             next unless $stored; # Nothing to verify
 
             my $val = $inf->{$col};
-            my $ref = reftype($val) or next;    # If it is not a reference it has probably not mutated
+            next if readonly($val);
 
-            if    ($ref eq 'HASH')   { next if readonly(%$val) }
+            my $ref = reftype($val) or next;    # If it is not a reference it has probably not mutated
+            next if blessed($val) && $val->can('qorm_immutible') && $val->qorm_immutible;
+
+            if    ($ref eq 'HASH')   { next if hashref_locked($val) || readonly(%$val) }
             elsif ($ref eq 'ARRAY')  { next if readonly(@$val) }
             elsif ($ref eq 'SCALAR') { next if readonly($$val) }
             elsif ($ref eq 'CODE')   { next if readonly(&$val) }

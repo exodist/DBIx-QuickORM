@@ -4,14 +4,19 @@ use warnings;
 
 use Carp qw/confess/;
 use Scalar::Util qw/blessed/;
-use Readonly;
+use Hash::Util qw/lock_hashref/;
 
 use UUID qw/unparse_upper parse uuid7/;
+
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::Conflator';
 
 use DBIx::QuickORM::Util::HashBase qw{
     +as_string
     +as_binary
 };
+
+sub qorm_immutible { 1 }
 
 sub looks_like_uuid {
     my ($in) = @_;
@@ -25,21 +30,26 @@ sub init {
     $self->{+AS_STRING} //= delete $self->{string} if $self->{string};
     $self->{+AS_BINARY} //= delete $self->{binary} if $self->{binary};
 
-    if (my $str = $self->{+AS_STRING}) {
+    my ($str, $bin);
+    if ($str = $self->{+AS_STRING}) {
         confess "String '$str' does not look like a UUID" unless looks_like_uuid($str);
-        $self->{+AS_BINARY} //= do { my $out; parse($self->{+AS_STRING}, $out); $out };
+        $bin = do { my $out; parse($self->{+AS_STRING}, $out); $out };
     }
-    elsif ($self->{+AS_BINARY}) {
-        $self->{+AS_STRING} //= do { my $out; unparse_upper($self->{+AS_BINARY}, $out); $out };
+    elsif ($bin = $self->{+AS_BINARY}) {
+        $str = do { my $out; unparse_upper($self->{+AS_BINARY}, $out); $out };
     }
     else {
         confess q{You must provide either ('as_string' => $UUID_STRING) or ('as_binary' => $UUID_BINARY)};
     }
 
-    Readonly::Hash(%$self, %$self);
+    $self->{+AS_STRING} //= $str;
+    $self->{+AS_BINARY} //= $bin;
+
+    lock_hashref($self);
 
     return $self;
 }
+
 
 sub create { $_[0]->new(AS_STRING() => uc(uuid7())) }
 

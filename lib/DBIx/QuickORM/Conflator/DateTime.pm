@@ -6,6 +6,9 @@ use DBIx::QuickORM::Util();
 use Scalar::Util();
 use Carp();
 
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::Conflator';
+
 use parent 'DBIx::QuickORM::Util::Mask';
 
 use overload '""' => \&stringify;

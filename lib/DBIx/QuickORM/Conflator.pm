@@ -5,6 +5,9 @@ use warnings;
 use Scalar::Util qw/blessed/;
 use Carp qw/confess/;
 
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::Conflator';
+
 use DBIx::QuickORM::Util::HashBase qw{
     <name
     +inflate
@@ -23,7 +26,7 @@ sub init {
     confess "The 'deflate' attribute must be a coderef, got '$deflate'" unless ref($deflate) ne 'CODE';
 }
 
-sub quickorm_inflate { shift->{+INFLATE}->(@_) }
-sub quickorm_deflate { shift->{+DEFLATE}->(@_) }
+sub qorm_inflate { shift->{+INFLATE}->(@_) }
+sub qorm_deflate { shift->{+DEFLATE}->(@_) }
 
 1;

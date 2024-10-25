@@ -7,6 +7,7 @@ use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
 use DBIx::QuickORM::Builder;
 
 use Scalar::Util qw/readonly/;
+use Hash::Util qw/hashref_locked/;
 
 use DBIx::QuickORM::Conflator::UUID;
 
@@ -14,7 +15,10 @@ my $uuid = DBIx::QuickORM::Conflator::UUID->create;
 my $str  = $uuid->as_string;
 my $bin  = $uuid->as_binary;
 
-ok(readonly(%$uuid), "Created UUID object is read-only");
+ok(hashref_locked($uuid), "Created UUID object is locked");
+ok($uuid->qorm_immutible, "tell qorm this is an immutible object");
+
+ok($uuid->does('DBIx::QuickORM::Role::Conflator'), "consumes the conflator role");
 
 dbs_do db => sub {
     my ($dbname, $dbc, $st) = @_;
@@ -89,12 +93,12 @@ dbs_do db => sub {
     $row1 = undef;
     $s->orm->cache->clear;
 
-    return;
     $row1 = $s->find(1);
     ok("$row1" ne $ref, "Got a clean row from the db, new ref");
     is($row1->column('bin_type')->as_string, $str, "Round trip bin_type");
 
-    ok(readonly(%{$row1->column('char_type')}), "Inflated form is readonly");
+    ok(hashref_locked($row1->column('char_type')), "Inflated form is locked");
+    like(dies { $row1->column('char_type')->{as_string} = "foo" }, qr/Modification of a read-only value attempted/, "Cannot mutate inflated UUID");
 };
 
 done_testing;
