@@ -2,6 +2,8 @@ package DBIx::QuickORM::Select;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak confess/;
 use Sub::Util qw/set_subname/;
 use Test2::Util qw/CAN_REALLY_FORK/;

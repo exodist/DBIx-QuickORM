@@ -2,6 +2,8 @@ package DBIx::QuickORM::Conflator::JSON::ASCII;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use parent 'DBIx::QuickORM::Conflator::JSON';
 
 use Cpanel::JSON::XS();

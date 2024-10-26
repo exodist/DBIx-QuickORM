@@ -2,6 +2,8 @@ package DBIx::QuickORM::DB::MariaDB;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use DBD::MariaDB;
 
 use parent 'DBIx::QuickORM::DB::MySQL';

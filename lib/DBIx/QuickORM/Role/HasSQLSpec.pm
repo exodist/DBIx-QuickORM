@@ -2,6 +2,8 @@ package DBIx::QuickORM::Role::HasSQLSpec;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Scalar::Util();
 use DBIx::QuickORM::SQLSpec();
 use Class::Method::Modifiers();

@@ -2,6 +2,8 @@ package DBIx::QuickORM::Table::Column;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak confess/;
 use Role::Tiny::With qw/with/;
 

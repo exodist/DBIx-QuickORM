@@ -2,6 +2,8 @@ package DBIx::QuickORM::Role::SelectLike;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Role::Tiny;
 
 with 'DBIx::QuickORM::Role::HasORM';

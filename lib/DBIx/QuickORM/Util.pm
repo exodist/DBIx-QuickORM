@@ -2,6 +2,8 @@ package DBIx::QuickORM::Util;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak cluck/;
 use Scalar::Util qw/blessed looks_like_number refaddr/;
 use Sub::Util qw/subname set_subname/;

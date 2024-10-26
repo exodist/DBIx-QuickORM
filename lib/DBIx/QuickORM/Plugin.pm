@@ -2,6 +2,8 @@ package DBIx::QuickORM::Plugin;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Scalar::Util qw/blessed/;
 use Carp qw/croak/;
 use Role::Tiny::With qw/with/;

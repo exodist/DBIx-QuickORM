@@ -2,6 +2,8 @@ package DBIx::QuickORM::BuilderState;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak confess/;
 use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/mesh_accessors update_subname mod2file/;

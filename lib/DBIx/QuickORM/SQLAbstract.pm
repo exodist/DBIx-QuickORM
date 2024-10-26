@@ -2,6 +2,8 @@ package DBIx::QuickORM::SQLAbstract;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use parent 'SQL::Abstract';
 
 sub select {

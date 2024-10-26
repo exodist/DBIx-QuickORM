@@ -2,6 +2,8 @@ package DBIx::QuickORM::Util::Mask;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Scalar::Util();
 use Sub::Util();
 use Carp();

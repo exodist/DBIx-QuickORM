@@ -2,6 +2,8 @@ package DBIx::QuickORM::Util::SchemaBuilder;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use List::Util qw/mesh/;
 
 use DBIx::QuickORM::BuilderState qw/plugin_hook/;

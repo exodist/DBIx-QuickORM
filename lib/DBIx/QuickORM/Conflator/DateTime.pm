@@ -2,6 +2,8 @@ package DBIx::QuickORM::Conflator::DateTime;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use DBIx::QuickORM::Util();
 use Scalar::Util();
 use Carp();

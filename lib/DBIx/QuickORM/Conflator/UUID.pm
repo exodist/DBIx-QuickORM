@@ -2,6 +2,8 @@ package DBIx::QuickORM::Conflator::UUID;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/confess/;
 use Scalar::Util qw/blessed/;
 use Hash::Util qw/lock_hashref/;

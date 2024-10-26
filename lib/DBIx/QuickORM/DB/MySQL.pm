@@ -2,6 +2,8 @@ package DBIx::QuickORM::DB::MySQL;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 use DateTime::Format::MySQL;

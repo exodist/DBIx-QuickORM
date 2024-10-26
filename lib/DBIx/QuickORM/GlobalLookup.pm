@@ -2,6 +2,8 @@ package DBIx::QuickORM::GlobalLookup;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Scalar::Util qw/weaken/;
 use parent 'Exporter';
 

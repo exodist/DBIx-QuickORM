@@ -2,6 +2,8 @@ package DBIx::QuickORM::DB;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/confess croak/;
 use List::Util qw/first/;
 use Scalar::Util qw/blessed/;

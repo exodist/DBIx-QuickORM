@@ -2,6 +2,8 @@ package DBIx::QuickORM::DB::SQLite;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak/;
 use DBD::SQLite;
 use DateTime::Format::SQLite;

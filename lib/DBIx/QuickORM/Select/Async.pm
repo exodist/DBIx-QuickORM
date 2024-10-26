@@ -2,6 +2,8 @@ package DBIx::QuickORM::Select::Async;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak/;
 
 use parent 'DBIx::QuickORM::Select';

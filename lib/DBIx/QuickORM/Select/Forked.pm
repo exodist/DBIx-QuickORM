@@ -2,6 +2,8 @@ package DBIx::QuickORM::Select::Forked;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak confess/;
 use POSIX();
 use IO::Select();

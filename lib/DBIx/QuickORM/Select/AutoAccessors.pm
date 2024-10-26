@@ -2,6 +2,8 @@ package DBIx::QuickORM::Select::AutoAccessors;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 use Sub::Util qw/set_subname/;

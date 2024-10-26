@@ -2,6 +2,8 @@ package DBIx::QuickORM::DB::PostgreSQL;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use DBD::Pg qw/PG_ASYNC/;
 
 use Carp qw/croak carp/;

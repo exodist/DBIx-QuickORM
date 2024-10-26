@@ -2,6 +2,8 @@ package DBIx::QuickORM::Role::HasTransactions;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use DBIx::QuickORM::Util qw/alias/;
 
 use Role::Tiny;

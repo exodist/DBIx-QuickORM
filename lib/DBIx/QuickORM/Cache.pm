@@ -2,6 +2,8 @@ package DBIx::QuickORM::Cache;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 sub new {
     my $class = shift;
     return bless({}, $class);

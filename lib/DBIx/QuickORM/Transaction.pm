@@ -2,6 +2,8 @@ package DBIx::QuickORM::Transaction;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/croak carp cluck/;
 
 use DBIx::QuickORM::Util::HashBase qw{

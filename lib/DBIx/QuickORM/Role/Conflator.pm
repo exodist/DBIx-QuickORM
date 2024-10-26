@@ -2,6 +2,8 @@ package DBIx::QuickORM::Role::Conflator;
 use strict;
 use warnings;
 
+our $VERSION = '0.000001';
+
 use Carp qw/confess/;
 
 use Role::Tiny;
