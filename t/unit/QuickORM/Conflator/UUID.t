@@ -45,11 +45,11 @@ dbs_do db => sub {
                     );
                 };
 
-                column uuid_type => sub { conflate $CLASS }
+                column uuid_type => sub { conflate 'UUID' }
                     if $db->supports_uuid;
 
-                column uuid_auto_type_bin => sub { conflate "$CLASS\::Binary" };
-                column uuid_auto_type_str => sub { conflate "$CLASS\::Stringy" };
+                column uuid_auto_type_bin => sub { conflate "UUID::Binary" };
+                column uuid_auto_type_str => sub { conflate "UUID::Stringy" };
 
                 column char_type    => sub { conflate $CLASS; sql_spec(type => 'CHAR(36)') };
                 column varchar_type => sub { conflate $CLASS; sql_spec(type => 'VARCHAR(36)') };

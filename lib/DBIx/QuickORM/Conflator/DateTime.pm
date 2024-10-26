@@ -45,7 +45,7 @@ sub qorm_inflate {
         $dt = $fmt->parse_datetime($val);
     }
 
-    return DBIx::QuickORM::Util::wrap($dt, mask_class => $class);
+    return DBIx::QuickORM::Util::mask($dt, mask_class => $class);
 }
 
 sub qorm_deflate {

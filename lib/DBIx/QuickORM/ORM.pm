@@ -328,6 +328,7 @@ sub txn_do {
     my $cb = pop;
     my $name = shift;
 
+    my $want = wantarray;
     my @caller = caller;
 
     croak "txn_do takes a coderef as its final argument" unless $cb && ref($cb) eq 'CODE';
@@ -342,7 +343,16 @@ sub txn_do {
         local $@;
         $ok &&= eval { $txn->commit; 1 };
         $err = $@;
-        return $out if $ok;
+
+        if ($ok) {
+            return (1, $out) if $want;
+
+            if (defined $want) {
+                return $out || 1;
+            }
+
+            return;
+        }
     }
 
     unless ($ok) {
@@ -351,6 +361,13 @@ sub txn_do {
     }
 
     $txn = undef;
+
+    return (0, $err) if $want;
+
+    if (defined $want) {
+        warn $err;
+        return 0;
+    }
 
     die $err;
 }

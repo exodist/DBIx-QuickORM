@@ -211,6 +211,10 @@ for my $set (map {( [$_, "${_}_auto"], [$_, "${_}_noauto"] )} qw/postgresql mari
 
         my $bob_id = $id++;
         ok(my $bob = $source->insert(name => 'bob'), "Inserted bob");
+
+        use Data::Dumper;
+        print Dumper($bob);
+
         isa_ok($bob, ['DBIx::QuickORM::Row'], "Got a row back");
         is($bob->stored->{person_id}, $bob_id, "First row inserted, got id");
         is($bob->stored->{name}, 'bob', "Name was set correctly");

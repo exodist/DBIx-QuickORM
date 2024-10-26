@@ -1180,6 +1180,8 @@ BEGIN {
                     return $conf;
                 }
 
+                $conf = "DBIx::QuickORM::Conflator::$conf" unless $conf =~ s/^\+// || $conf =~ m/^DBIx::QuickORM::Conflator::/;
+
                 eval { require(mod2file($conf)); 1 } or croak "Could not load conflator class '$conf': $@";
                 return $conf;
             },
@@ -1487,247 +1489,18 @@ An actively maintained ORM tool that is qucik and easy to start with, but
 powerful and expandable for long term and larger projects. An alternative to
 L<DBIx::Class>, but not a drop-in replacement.
 
+=head1 SCOPE
+
+The primary scope of this project is to write a good ORM for perl. It is very
+easy to add scope, and try to focus on things outside this scope. I am not
+opposed to such things being written around the ORM fucntionality, afterall the
+project has a lot of useful code, and knowledge of the database. But the
+primary focus must always be the ORM functionality, and it must not suffer in
+favor of functionality beyond that scope.
+
 =head1 SYNOPSIS
 
 FIXME!
-
-=head1 RECIPES
-
-See L<DBIx::QuickORM::Recipes> for documentation on specific scenarios that may
-fit your need.
-
-=head1 FEATURE SUMMARY
-
-=over 4
-
-=item Declarative syntax
-
-You declare databases, schemas, and orms which combine the two. You can use
-plugins to customize behavior.
-
-The bare mminimum to get going is to provide some basic information to connect
-to the database.
-
-If you want to go the opposite route you can, define your schema in code and generate the
-SQL to put the tables into the database.
-
-Almost everything is configurable in a declarative "builder" style.
-
-=item Perl schema to SQL conversion/generation
-
-    orm myorm => {
-        db { ... };
-        schema { ... };
-    };
-
-Then produce the SQL
-
-    my $sql = $orm->generate_schema_sql;
-
-Or directly load it
-
-    $orm->generate_and_load_schema();
-
-=item SQL schema to perl conversion/generation
-
-If you can provide enough to get a database connection the tools can
-autogenerate the rest from your database.
-
-    orm { db { ... }; autofill(); } # Populate from the database!
-
-Also
-
-    my $schema = $db->connect->generate_schema();
-
-Also
-
-    my $schema = DBIx::QuickORM::Util::SchemaBuilder->generate_schema($orm->connection);
-
-=item Async query support - single connection
-
-You can do async queries. Only 1 at a time with a single connection, but it is
-usable inside transactions!
-
-    my $async = $orm->select({...})->async();
-    until( $async->ready ) { ... }
-    my @rows = $async->all;
-
-=item Multiple concurrent async query support - multiple connections on 1 process
-
-You can do multiple async queries (which QuickORM called "aside"'s) where it
-will create additional connections, 1 per aside. You can use this to fire off
-several queries at once. They will all use the same cache, and you xan get
-their results in any order as they become ready.
-
-B<Note> Transactions are single connection only, so for safety this will throw
-an exception inside a transaction unless you tell it to ignore transactions. It
-will still work if you do so, but you have to be certain not to try to
-manipulate the same data both inside and outside of the transaction. If it
-breaks you get to keep all the broken bits.
-
-    my $aside1 = $orm->select({...})->aside();
-    my $aside2 = $orm->select({...})->aside();
-    my $aside3 = $orm->select({...})->aside();
-
-    until( $aside1->ready ) { ... }
-    my @rows = $aside1->all;
-    ...
-
-=item Multiple concurrent async query support - emulation via forking
-
-Same idea as aside, except instead of using multiple connections in a single
-process, you do several processes with one connection each. This is usefulf or
-databases that do not support async queries (like SQLite).
-
-    my $forked1 = $orm->select({...})->forked();
-    my $forked2 = $orm->select({...})->forked();
-    my $forked3 = $orm->select({...})->forked();
-
-    until( $forked1->ready ) { ... }
-    my @rows = $forked1->all;
-    ...
-
-B<Note> Transactions are single connection only, so for safety this will throw
-an exception inside a transaction unless you tell it to ignore transactions. It
-will still work if you do so, but you have to be certain not to try to
-manipulate the same data both inside and outside of the transaction. If it
-breaks you get to keep all the broken bits.
-
-=item Plugin system - Lots of hooks available
-
-    plugin sub { ... }; # On the fly plugin writing
-    plugin Some::Plugin; # Use a plugin class (does not have or need a new method)
-    plugin Other::Plugin->new(...); Plugin that needs to be blessed
-
-Define custom plugin hooks in your custom tools:
-
-    plugin_hook NAME => \%params; # Any/All plugins can take action here.
-
-=item Ability to customize relationship names when generating perl schema from SQL schema
-
-This is done va plugins, See L<DBIx::QuickORM::Plugin>.
-
-TODO: Provide example of doing it on the fly
-
-=item Can have multiple ORMs on any number of databases in a single app
-
-Any number of orms with any number of schemas, they can all talk to the same DB
-or to different ones. The db specifications and schema specifications are all
-reusable and composable. You can define 4 databases and 4 schemas and have 16
-total ORM instances from the combinations.
-
-=item Select object system that closely resembles ResultSets from DBIx::Class
-
-ResultSet was a good idea, regardless of your opinion on L<DBIx::Class>. The
-L<DBIx::QuickORM::Select> objects implement most of the same things.
-
-=item Uses SQL::Abstract under the hood, so query syntax should be familiar to DBIx::Class users
-
-See L<SQL::Abstract>.
-
-    my $sel = $orm->select(\%sql_abstract_where, $order_by);
-    my $sel = $orm->select(where => \%where, order_by => $order_by, ...);
-
-=item Build in support for transactions and savepoints
-
-The C<< transaction(sub { ... }) >> method can be accessed via the orm, select,
-and source objects.
-
-    $orm->txn_do(sub { ... });
-    $sel->txn_do(sub { ... });
-    $src->txn_do(sub { ... });
-
-Or if you prefer:
-
-    my $txn = $orm->start_txn;
-
-    ...
-
-    # Commit or rollback
-    if ($ok) { $txn->commit }
-    else     { $txn->rollback }
-
-    # Or automatic rollback when the $txn object falls out of scope:
-    $txn = undef;
-
-=item Per-orm caches, ability to write custom cache classes
-
-Each L<DBIx::QuickORM::ORM> instance has its own cache object. By default
-L<DBIx::QuickORM::Cache::Naive>, which is a basic caching system that insures
-you only have 1 copy of any specific row at any given time (assuming it has a
-primary key, no cahcing is attempted for rows with no primary key).
-
-You can also choose to use L<DBIx::QuickORM::Cache::None> which is basically a
-no-op for everything meaning there is no cache, every time you get an object
-from the db it is a new copy.
-
-Or even write your own based on the L<DBIx::QuickORM::Cache> base class.
-
-=item First-class Inflation/Deflation (conflation (yes, its a bad pun)) support
-
-Inflation and Deflation of columns is a first-class feature. But since saying
-'inflation and deflation' every time is a chore DBIx::QuickORM shortens the
-concept to 'conflation'. No, the word "conflation" is not actually related to
-"inflation" or "deflation", but it is an amusing pun, specially since it still
-kind of works with the actual definition of "conflation".
-
-If you specify that a column has a conflator, then using
-C<< my $val = $row->column('name') >> will give you the inflated form. You can
-also set the column by giving it either the inflated or deflated form. You also
-always have access to the raw values, and asking for either the 'stored' or
-'dirty' value will give the raw form.
-
-The rows are also smart enough to check if your inflated forms have been
-mutated and consider the row dirty (in need of saving or discarding) after the
-mutation. This is done by deflating the values to compare to the stored form
-when checking for dirtyness.
-
-If your inflated values are readonly, locked restricted hashes, or objects that
-implement the 'qorm_immutible' method (and it returns true). Then the row is
-smart enough to skip checking them for mutations as they cannot be mutated.
-
-Oh, also of note, inflated forms do not need to be blessed, nor do they even
-need to be references. You could write a conflator that inflates string to have
-"inflated: " prefixed to them, and no prefix when they are raw/deflated. A
-conflator that encrypts/decrypts passively is also possible, assuming the
-encrypted and decrypted forms are easily distinguishable.
-
-See L<DBIx::QuickORM::Conflator::UUID>, L<DBIx::QuickORM::Conflator::JSON>, and
-L<DBIx::QuickORM::Conflator::DateTime> for some included conflators.
-
-=item Multiple databases supported:
-
-See the L<DBIx::QuickORM::DB> for the database base class all drivers build
-upon. You can even add your own if yours is not on this list.
-
-=over 4
-
-=item PostgreSQL
-
-See L<DBIx::QuickORM::DB::PostgreSQL>, which uses L<DBD::Pg> under the hood.
-
-=item MySQL (Generic)
-
-See L<DBIx::QuickORM::DB::MySQL>, which supports both L<DBD::mysql> and
-L<DBD::MariaDB> for connections.
-
-=item MySQL (Percona)
-
-See L<DBIx::QuickORM::DB::Percona>, which supports both L<DBD::mysql> and
-L<DBD::MariaDB> for connections.
-
-=item MariaDB
-
-See L<DBIx::QuickORM::DB::MariaDB>, which supports both L<DBD::mysql> and
-L<DBD::MariaDB> for connections.
-
-=item SQLite
-
-See L<DBIx::QuickORM::DB::SQLite>, which uses L<DBD::SQLite> under the hood.
-
-=back
-
-=back
 
 =head1 MOTIVATION
 
@@ -1754,7 +1527,7 @@ terrible and will effectively keep L<DBIx::Class> on life support.
 
 I was initially going to take this route. But after a couple hours in the
 codebase I realized I dislike the internals of DBIx::Class almost as much as I
-dislike using it as an app developer.
+dislike using its interface.
 
 =item Write an alternative
 
@@ -1769,165 +1542,7 @@ from DBIx::Class. Only a fol would say DBIx::Class has nothing of value.
 
 =back
 
-=head1 GOALS
-
-=over 4
-
-=item Quick to start
-
-It should be very simple to start a project. The ORM should stay out of your
-way until you want to make it do something for you.
-
-=item Intuitive
-
-Names, interfaces, etc should make sense and be obvious.
-
-=item Declarative Syntax
-
-DBIx::Class had an abysmal interface calling C<< __PACKAGE__->blah >> all over
-the place. You also had to create a lot of classes to line up with your tables.
-With DBIx::QuickORM You can declare your table structure anywhere, and they do
-not need associated clases per table. That said it is also trivial to define a
-class for any given table and add your own custom methods.
-
-=item Make as few assumptions as possible
-
-DBIx::Class and other orms tend to make some assumptions such as:
-
-=over 4
-
-=item Only 1 database connection at a time
-
-=item Only 1 database server at a time
-
-=item Only 1 instance of the schema at a time
-
-=back
-
-=item Expandability
-
-Should be easy to extend and expand the functionality.
-
-=item Inflation/Deflation should be trivial, and "just work" in fetched objects, inserts, selects, etc.
-
-The way DBIx::Class handled inflation and deflation left a lot of places where
-you had to ask "Can I pass an inflated form here? or do I need to deflate it
-first?". In DBIx::QuickORM this should never be a question, there will be few
-if any places where inflation and deflation is not automatic.
-
-In this project I am calling it "conflation", yes it is a terrible pun, and thr
-word "conflate" has no real connection to "inflate" or "deflate" as far as I
-know... but I like it as a blanket term to encapsulate both "inflate" and
-"deflate". Most inflation and deflation occurs with conflator classes.
-
-=item Easy to generate the perl side orm from the database itself if the schema is already in the database
-
-If you tell the orm how to connect to the database, you can ask it to just
-generate the table based data. If it does not generate them exactly how you
-want (object or relationship names are not ideal) then you have hooks to use to
-tell it how to name them.
-
-This is a core functionality of DBIx::QuickORM, not a secondary project or
-side-thought.
-
-=item Easy to generate the sql to initialize the database if you have the perl code already defined
-
-If you write perl code that defines your database structure, table layout,
-relations, etc. Then you can ask the orm to give you an SQL dump in whatever
-supported SQL variant you want. You can then take this SQL and load it into
-your database. You can even tell the DB to load the schema into a database once
-you are connected.
-
-This is a core functionality of DBIx::QuickORM, not a secondary project or
-side-thought.
-
-=item Built-in support for PostgreSQL, MariaDB, SQLite and MySQL.
-
-These are my big 4 for initial support. Additional DB's can be supported, and
-you can write your own database-orm inferface modules if you want something
-else supported.
-
-With a properly written DB class the ORM can even handle translating concepts
-from one database to another. For example MySQL is the only one of the big 4
-that does not have a builtin UUID type. The ORM will let you use BINARY(16),
-VARCHAR(36) on MySQL, or even other types to store the UUID, and with the UUID
-conflator (inflation/deflation) you can make it completely transparent to the
-app. The same schema definition (on perls side) will work just as well on any
-of the 4 database servers.
-
-=item Async capabilities
-
-Async is supported in multiple ways:
-
-=over 4
-
-=item Using native Async functionality on the current connection
-
-Send off a query, then do somthing else until it is ready. Even works inside
-transactions! The caveat is you cannot use the db connection for anything else
-while you wait.
-
-This feature is accessed as C<< $select->async >>. See
-L<DBIx::QuickORM::Select>.
-
-=item Using native Async functionality with multiple connections
-
-You can make Async requests where each one operates on a different connection
-so they can operate concurrently. The caching is managed for you as well. The
-main caveat here is that you cannot use it with transactions and multiple
-connections cannot share a transaction.
-
-Exceptions will be thrown if you start one of these during a transaction.
-
-Exceptions will be thrown if you start a transaction while one of these is
-running.
-
-This feature is accessed as C<< $select->aside >>. See
-L<DBIx::QuickORM::Select>.
-
-=item Using fork + Different connections
-
-The queries each run on their own connection and in their own processes, then
-the data will be send to the primary process. This is useful for databases that
-do not support async queries natively, such as SQLite.
-
-Exceptions will be thrown if you start one of these during a transaction.
-
-Exceptions will be thrown if you start a transaction while one of these is
-running.
-
-This feature is accessed as C<< $select->forked >>. See
-L<DBIx::QuickORM::Select>.
-
-=back
-
-=item Transaction Management
-
-DBIx::QuickORM provides easy ways to start and mnage transactions, as well as
-using savepoints for an effective "nested transactions" functionality.
-
-Caveat: If combined with external transaction management, things can go bad, or
-be confusing.
-
-=item Cache Management
-
-DBIx::QuickORM provides a caching layer that associates cache with a specific
-connection. You can clear all the cache for the connection, or all the cache
-for a specific table in the connection. You can also disable cache or ignore
-cache at any time. There is also sane handling of caching with transactions.
-
-=back
-
-=head1 SCOPE
-
-The primary scope of this project is to write a good ORM for perl. It is very
-easy to add scope, and try to focus on things outside this scope. I am not
-opposed to such things being written around the ORM fucntionality, afterall the
-project has a lot of useful code, and knowledge of the database. But th primary
-focus must always be the ORM functionality, and it must not suffer in favor of
-functionality beyond that scope.
-
-=head1 MAINTENANCE COMMITMENT
+=head2 MAINTENANCE COMMITMENT
 
 I want to be sure that what happened to L<DBIx::Class> cannot happen to this
 project. I will maintain this as long as I am able. When I am not capable I
@@ -1941,6 +1556,593 @@ cpan and github permissions to develop and release this distribution.>
 Peferably maint will be handed off to someone who has been a contributor, or to
 a group of contributors, If none can be found, or none are willing, I trust the
 cpan toolchain group to takeover.
+
+=head1 FEATURE/GOAL OVERVIEW
+
+=head2 Quick to start
+
+It should be very simple to start a project. The ORM should stay out of your
+way until you want to make it do something for you.
+
+=head2 Intuitive
+
+Names, interfaces, etc should make sense and be obvious.
+
+=head2 Declarative syntax
+
+Look at the L</"DECLARATIVE INTERFACE"> section below, or the L</"SYNOPSIS">
+section above.
+
+=head2 SQL <-> Perl conversion
+
+It can go either way.
+
+=head3 Generate the perl schema from a populated database.
+
+    my $orm = orm 'MyOrm' => sub {
+        # First provide db credentials and connect info
+        db { ... };
+
+        # Tell DBIx::QuickORM to do the rest
+        autofill();
+    };
+
+    # Built for you by reading from the database.
+    my $schema = $orm->schema;
+
+=head3 Generate SQL to populate a database from a schema defined in perl.
+
+See L<DBIx::QuickORM::Util::SchemaBuilder> for more info.
+
+=head2 Async query support
+
+Async query support is a key and first class feature of DBIx::QuickORM.
+
+=head3 Single async query - single connection
+
+Launch an async query on the current connection, then do other stuff until it
+is ready.
+
+See L<DBIx::QuickORM::Select::Async> for full details. but here are some teasers:
+
+    # It can take more args than just \%where, this is just a simply case
+    my $async = $orm->async(\%where)->start;
+    until ($async->ready) { ... };
+    my @rows = $async->all;
+
+You can also turn any select into an async:
+
+    my $select = $orm->select(...);
+    my $async = $orm->async;
+    $async->start;
+
+=head3 Multiple concurrent async query support - multiple connections on 1 process
+
+DBIx::QuickORM calls this an 'aside'. See L<DBIx::QuickORM::Select::Aside> for
+more detail.
+
+In this case we have 2 queries executing simeltaniously.
+
+    my $aside  = $orm->aside(\%where)->start;    # Runs async query on a new connection
+    my $select = $orm->select(\%where);
+    my @rows1  = $select->all;
+    my @rows2  = $aside->all;
+
+Note that if both queries return some of the same rows there will only be 1
+copy in cache, and both @row arrays will have the same object reference.
+
+=head3 Multiple concurrent async query support - emulation via forking
+
+See L<DBIx::QuickORM::Select::Forked> for more detail.
+
+Similar to the 'aside' functionality above, but instead of running an async
+query on a new connection, a new process is forked, and that process does a
+synchronous query and returns the results. This is useful for emulating
+aside/async with databases that do not support it such as SQLite.
+
+=head2 First class inflation and deflation (Conflation)
+
+Inflation and Deflation of columns is a first-class feature. But since saying
+'inflation and deflation' every time is a chore DBIx::QuickORM shortens the
+concept to 'conflation'. No, the word "conflation" is not actually related to
+"inflation" or "deflation", but it is an amusing pun, specially since it still
+kind of works with the actual definition of "conflation".
+
+If you specify that a column has a conflator, then using
+C<< my $val = $row->column('name') >> will give you the inflated form. You can
+also set the column by giving it either the inflated or deflated form. You also
+always have access to the raw values, and asking for either the 'stored' or
+'dirty' value will give the raw form.
+
+You can also use inflated forms in the %where argument to select/find.
+
+The rows are also smart enough to check if your inflated forms have been
+mutated and consider the row dirty (in need of saving or discarding) after the
+mutation. This is done by deflating the values to compare to the stored form
+when checking for dirtyness.
+
+If your inflated values are readonly, locked restricted hashes, or objects that
+implement the 'qorm_immutible' method (and it returns true). Then the row is
+smart enough to skip checking them for mutations as they cannot be mutated.
+
+Oh, also of note, inflated forms do not need to be blessed, nor do they even
+need to be references. You could write a conflator that inflates string to have
+"inflated: " prefixed to them, and no prefix when they are raw/deflated. A
+conflator that encrypts/decrypts passively is also possible, assuming the
+encrypted and decrypted forms are easily distinguishable.
+
+=head3 UUID, UUID::Binary, UUID::Stringy
+
+Automatically inflate and deflate UUID's. Your database can store it as a
+native UUID, a BIN(16), a VARCHAR(36), or whatever. Tell the orm the row should
+be conflated as a UUID and it will just work. You can set the value by
+providing a string, binary data, or anything else the conflator recognizes. In
+the DB it will store the right type, and in perl you will get a UUID object.
+
+    schema sub {
+        table my_table => sub {
+            column thing_uuid => sub {
+                conflate 'UUID'; # OR provide '+Your::Conflator', adds 'DBIx::QuickORM::Conflator::' without the '+'
+            };
+        };
+    };
+
+=over 4
+
+=item L<DBIx::QuickORM::Conflator::UUID>
+
+Inflates to an object of this class, deflates to whatever the database column
+type is. Object stringifies as a UUID string, and you can get botht he string
+and binary value from it through accessors.
+
+If generating the SQL to populate the db this will tell it the column should be
+the 'UUID' type, and will throw an exception if that type is not supported by
+the db.
+
+=item L<DBIx::QuickORM::Conflator::UUID::Binary>
+
+This is useful only if you are generating the schema SQL to populate the db and
+the db does not support UUID types. This will create the column using a binary
+data type like BIN(16).
+
+=item L<DBIx::QuickORM::Conflator::UUID::Stringy>
+
+This is useful only if you are generating the schema SQL to populate the db and
+the db does not support UUID types. This will create the column using a stringy
+data type like VARCHAR(36).
+
+=back
+
+=head3 JSON, JSON::ASCII
+
+This conflator will inflate the JSON into a perl data structure and deflate it
+back into a JSON string.
+
+This uses L<Cpanel::JSON::XS> under the hood.
+
+=over 4
+
+=item L<DBIx::QuickORM::Conflator::JSON>
+
+Defaults to C<< $json->utf8->encode_json >>
+
+This produces a utf8 encoded json string.
+
+=item L<DBIx::QuickORM::Conflator::JSON::ASCII>
+
+Defaults to C<< $json->ascii->encode_json >>
+
+This produces an ASCII encoded json string with non-ascii characters escaped.
+
+=back
+
+=head3 DateTime - Will not leave a mess with Data::Dumper!
+
+L<DBIx::QuickORM::Conflator::DateTime>
+
+This conflator will inflate dates and times into L<DateTime> objects. However
+it also wraps them in an L<DBIx::QuickORM::Util::Mask> object. This object
+hides the DateTime object in a C<< sub { $datetime } >>. When dumped by
+Data::Dumper you get something like this:
+
+    bless( [
+             '2024-10-26T06:18:45',
+             sub { "DUMMY" }
+           ], 'DBIx::QuickORM::Conflator::DateTime' );
+
+This is much better than spewing the DateTime internals, whcih can take several
+pages of scrollback.
+
+You can still call any valid L<DateTime> method on this object and it will
+delegate it to the one that is masked beind the coderef.
+
+=head3 Custom conflator
+
+See the L<DBIx::QuickORM::Role::Conflator> role.
+
+=head3 Custom on the fly
+
+Declarative:
+
+    my $conflator = conflator NAME => sub {
+        inflate { ... };
+        deflate { ... };
+    };
+
+OOP:
+
+    my $conflator = DBIx::QuickORM::Conflator->new(
+        name => 'NAME',
+        inflate => sub { ... },
+        defalte => sub { ... }
+    );
+
+=head2 Multiple ORM instances for different databases and schemas
+
+    db develop    => sub { ... };
+    db staging    => sub { ... };
+    db production => sub { ... };
+
+    my $app1 = schema app1 => { ... };
+    my $app2 = schema app2 { ... };
+
+    orm app1_dev => sub {
+        db 'develop';
+        schema 'app1';
+    };
+
+    orm app2_prod => sub {
+        db 'production';
+        schema 'app2';
+    };
+
+    orm both_stage => sub {
+        db 'staging';
+
+        # Builds a new schema object, does not modify either original
+        schema $app1->merge($app2);
+    };
+
+=head2 "Select" object that is very similar to DBIx::Class's ResultSet
+
+ResultSet was a good idea, regardless of your opinion on L<DBIx::Class>. The
+L<DBIx::QuickORM::Select> objects implement most of the same things.
+
+    my $sel = $orm->select('TABLE/SOURCE', \%where)
+    my $sel = $orm->select('TABLE/SOURCE', \%where, $order_by)
+    my $sel = $orm->select('TABLE/SOURCE', where => $where, order_by => $order_by, ... );
+    $sel = $sel->and(\%where);
+    my @rows = $sel->all;
+    my $row = $sel->next;
+    my $total = $sel->count;
+
+=head2 Find exactly 1 row
+
+    # Throws an exception if multiple rows are found.
+    my $row = $orm->find($source, \%where);
+
+=head2 Fetch just the data, no row object (bypasses cache)
+
+    my $data_hashref = $orm->fetch($source, \%where);
+
+=head2 Uses SQL::Abstract under the hood for familiar query syntax
+
+See L<SQL::Abstract>.
+
+=head2 Built in support for transactions and nested transactions (savepoints)
+
+See L<DBIx::QuickORM::Transaction> and L<DBIx::QuickORM::ORM/"TRANSACTIONS">
+for additional details.
+
+=over 4
+
+=item $orm->txn_do(sub { ... });
+
+Void context will commit if there are no exceptions. It will rollback the
+transaction and re-throw the exception if it encounters one.
+
+=item $res = $orm->txn_do(sub { ... });
+
+Scalar context.
+
+On success it will commit and return whatever the sub returns, or the number 1 if the sub
+returns nothing, or anything falsy. If you want to return a false value you
+must send it as a ref, or use the list context form.
+
+If an exception is thrown by the block then the transaction will be rolled back
+and $res will be false.
+
+=item ($ok, $res_or_err) = $orm->txn_do(sub { ... });
+
+List context.
+
+On success it will commit and return C<< (1, $result) >>.
+
+If an exception occurs in the block then the transaction will be rolled back,
+$ok will be 0, and $ret_or_err will contain the exception.
+
+=back
+
+    $orm->txn_do(sub {
+        my $txn = shift;
+
+        # Nested!
+        my ($ok, $res_or_err) = $orm->txn_do(sub { ... });
+
+        if ($ok) { $txn->commit }
+        else     { $txn->rollback };
+
+        # Automatic rollback if an exception is thrown, or if commit is not called
+    });
+
+    # Commit if no exception is thrown, rollback on exception
+    $orm->txn_do(sub { ... });
+
+Or manually:
+
+    my $txn = $orm->start_txn;
+
+    if ($ok) { $txn->commit }
+    else     { $txn->rollback };
+
+    # Force a rollback unless commit or rollback were called:
+    $txn = undef;
+
+=head2 Caching system
+
+Each L<DBIx::QuickORM::ORM> instance has its own cache object.
+
+=head3 Default cache: Naive, only 1 copy of any row in active memory
+
+L<DBIx::QuickORM::Cache::Naive> is a basic caching system that insures you only
+have 1 copy of any specific row at any given time (assuming it has a primary
+key, no cahcing is attempted for rows with no primary key).
+
+B<Note:> If you have multiple ORMs connecting to the same db, they do not share
+a cache and you can end up with the same row in memory twice with 2 different
+references.
+
+=head3 'None' cache option to skip caching, every find/select gets a new row instance
+
+You can also choose to use L<DBIx::QuickORM::Cache::None> which is basically a
+no-op for everything meaning there is no cache, every time you get an object
+from the db it is a new copy.
+
+=head3 Write your own cache if you do not like these
+
+Write your own based on the L<DBIx::QuickORM::Cache> base class.
+
+=head2 Multiple databases supported:
+
+Database interactions are defined by L<DBIx::QuickORM::DB> subclasses. The
+parent class provides a lot of generic functionality that is fairly universal.
+But the subclasses allow you to specify if a DB does or does not support
+things, how to translate type names from other DBs, etc.
+
+=head3 PostgreSQL
+
+Tells the ORM what features are supported by PostgreSQL, and how to access
+them.
+
+See L<DBIx::QuickORM::DB::PostgreSQL>, which uses L<DBD::Pg> under the hood.
+
+=head3 MySQL (Generic)
+
+Tells the ORM what features are supported by any generic MySQL, and how to
+access them.
+
+This FULLY supports both L<DBD::mysql> and L<DBD::MariaDB> for connections,
+pick whichever you prefer, the L<DBIx::QuickORM::DB::MySQL> class is aware of
+the differences and will alter behavior accordingly.
+
+=head3 MySQL (Percona)
+
+Tells the ORM what features are supported by Percona MySQL, and how to
+access them.
+
+This FULLY supports both L<DBD::mysql> and L<DBD::MariaDB> for connections,
+pick whichever you prefer, the L<DBIx::QuickORM::DB::MySQL> and
+L<DBIx::QuickORM::DB::Percona> classes are aware of the differences and will
+alter behavior accordingly.
+
+=head3 MariaDB
+
+Tells the ORM what features are supported by MariaDB, and how to
+access them.
+
+This is essentially MySQL + the extra features MariaDB supports.
+
+This FULLY supports both L<DBD::mysql> and L<DBD::MariaDB> for connections,
+pick whichever you prefer, the L<DBIx::QuickORM::DB::MySQL> and
+L<DBIx::QuickORM::DB::MariaDB> classes are aware of the differences and will
+alter behavior accordingly.
+
+=head3 SQLite
+
+Tells the ORM what features are supported by SQLite, and how to
+access them.
+
+See L<DBIx::QuickORM::DB::SQLite>, which uses L<DBD::SQLite> under the hood.
+
+=head3 Write your own orm <-> db link class
+
+Take a look at L<DBIx::QuickORM::DB> to see what you need to implement.
+
+=head2 Temporary tables and views
+
+Each ORM object L<DBIx::QuickORM::ORM> has the static schema it is built with,
+but it also has a second 'connection' schema. Using this second schema you can
+define temporary views and tables (on supported databases).
+
+    $orm->create_temp_table(...);
+    $orm->create_temp_view(...);
+
+See the L<DBIx::QuickORM::ORM> documentation for more details.
+
+=head2 Highly functional Row class, ability to use custom ones
+
+L<DBIx::QuickORM::Row> is the base class for rows, and the default one used for
+rows that are returned. It provides several methods for getting/setting
+columns, including directly accessing stored, pending, and inflated values. It
+also has methods for finding and fetching relations.
+
+This row class does not provide any per-column accessors. For those you need one of the following:
+
+=over 4
+
+=item L<DBIx::QuickORM::Row::AutoAccessors>
+
+This row class uses AUTOLOAD to generate accessors based on column names on the
+fly. So C<< my $val = $row->foo >> is the same as C<< $row->column('foo') >>.
+
+It also generates accessors for relationships on the fly.
+
+=item Create your own row subclasses and tell the schema to use them.
+
+    table foo => sub {
+        row_class 'My::Row::Class::Foo';
+    };
+
+=item Create a class that defines the table and generates a table specific row class
+
+My::Table::Foo.pm:
+
+    package My::Table::Foo
+    use DBIx::QuickORM ':TABLE_CLASS';
+
+    use DBIx::QuickORM::MetaTable foo => sub {
+        column id => ...;
+        column foo => ...;
+
+        # Declarative keywords are removed after this scope ends.
+    };
+
+    # There are now accessors for all the columns and relationships.
+
+    sub whatever_methods_you_want {
+        my $self = shift;
+        ...
+    }
+
+Elsware...
+
+    orm MyORM => sub {
+        table My::Table::Foo;
+
+        # or to load a bunch:
+        tables 'My::Table'; # Loads all My::Table::* tables
+    };
+
+=back
+
+=head2 Relation mapping and pre-fetching
+
+TODO: Fill this in.
+
+=head2 Plugin system
+
+There are a lot of hooks, essentially a plugin is either a codered called for
+all hooks (with params telling you about the hook, or they are classes/objects
+that define the 'qorm_plugin_action()" method or that consume the
+L<DBIx::QuickORM::Role::Plugin> role.
+
+    plugin sub { ... }; # On the fly plugin writing
+    plugin Some::Plugin; # Use a plugin class (does not have or need a new method)
+    plugin Other::Plugin->new(...); Plugin that needs to be blessed
+
+Bigger example:
+
+    plugin sub {
+        my $self = shift;
+        my %params     = @_;
+        my $hook       = $params{hook};
+        my $return_ref = $params{return_ref};
+
+        ...
+
+        # if the hook expects you to return a value, instead of modifying a ref
+        # in %params, then the return_ref will have a scalar reference to set.
+        ${return_ref} = $out if defined($return_ref);
+    };
+
+Define custom plugin hooks in your custom tools:
+
+    plugin_hook NAME => \%params; # Any/All plugins can take action here.
+
+=head3 Current hooks
+
+=over 4
+
+=item auto_conflate => (data_type => $dtype, sql_type => $stype, column => $col, table => $table)
+
+Use this to automatically inject conflation when auto-generating perl-side
+schema from a populated db.
+
+=item post_build => (build_params => \%params, built => $out, built_ref => \$out)
+
+Called after building an object (ORM, Schema, DB, etc).
+
+=item pre_build => (build_params => \%params)
+
+Called before building an object (ORM, Schema, DB, etc).
+
+=item relation_name => (default_name => $alias, table => $table, table_name => $tname, fk => $fk)
+
+use to rename relations when auto-generating perl-side schema from a populated db.
+
+=item sql_spec => (column => $col, table => $table, sql_spec => $spec)
+
+Opportunity to modify the L<DBIx::QuickORM::SQLSpec> data for a row.
+
+=item sql_spec => (table => $table, sql_spec => sql_spec())
+
+Opportunity to modify the L<DBIx::QuickORM::SQLSpec> data for a table.
+
+=back
+
+=head3 Ability to customize relationship names when auto-generating perl schema from SQL schema
+
+TODO: Fill this in.
+
+=head2 Does not use Moose under the hood (light weight)
+
+Most objects in L<DBIx::QuickORM> use L<Object::HashBase> which is what
+L<Test2> uses under the hood. L<Object::HashBase> is very lightweight and
+performant.
+
+For roles DBIx::QuickORM uses L<Role::Tiny>.
+
+=head2 Using Data::Dumper on a row does not dump all the ORM internals
+
+L<DBIx::QuickORM::Row> objects need access to the source, and to the orm. If a
+reference to these was simply put into the row objects hashref then
+L<Data::Dumper> is going to work hard to absolutely fill your scrollback with
+useless info every time you dump your row. L<DBIx::Class> suffers from this
+issue.
+
+For L<DBIx::QuickORM> the source is an L<DBIx::QuickORM::Source> object. And it
+is put into the C<< $row->{source} >> hash key. But first it is masked using
+L<DBIx::QuickORM::Util::Mask> so that when dumped with L<Data::Dumper> you see
+this:
+
+    bless( {
+             'source' => bless( [
+                                  'DBIx::QuickORM::Source=HASH(0x59d72c1c33c8)',
+                                  sub { "DUMMY" }
+                                ], 'DBIx::QuickORM::Util::Mask' ),
+             ...
+                              }
+           }, 'DBIx::QuickORM::Row' );
+
+All methods that are valid on L<DBIx::QuickORM::Source> can be called on the
+masked form and they will be delegated to the masked object.
+
+This + the DateTime conflator mean that rows from DBIx::QuickORM can be dumped
+by Data::Dumper without wiping out your scrollback buffer.
+
+=head1 DECLARATIVE INTERFACE
+
+TODO - Fill this in.
 
 =head1 SOURCE
 
