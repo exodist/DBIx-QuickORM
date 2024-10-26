@@ -4,8 +4,6 @@ use DBIx::QuickORM::Tester qw/dbs_do all_dbs/;
 use DBIx::QuickORM;
 use Time::HiRes qw/sleep/;
 
-use Carp::Always;
-
 dbs_do db => sub {
     my ($dbname, $dbc, $st) = @_;
 

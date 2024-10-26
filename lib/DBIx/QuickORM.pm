@@ -1482,6 +1482,29 @@ __END__
 DBIx::QuickORM - Actively maintained Object Relational Mapping that makes
 getting started Quick and has a rich feature set.
 
+=head1 EXTREMELY EARLY VERSION WARNING!
+
+B<THIS IS A VERY EARLY VERSION!>
+
+=over 4
+
+=item About 90% of the functionality from the features section is written.
+
+=item About 80% of the featrues have been listed.
+
+=item About 40% of the written code is tested.
+
+=item About 10% of the documentation has been written.
+
+=back
+
+If you want to try it, go for it. Some of the tests give a pretty good idea of
+how to use it.
+
+B<DO NOT USE THIS FOR ANYTHING PRODUCTION> it is not ready yet.
+
+B<The API can and will change!>
+
 =head1 DESCRIPTION
 
 An actively maintained ORM tool that is qucik and easy to start with, but
