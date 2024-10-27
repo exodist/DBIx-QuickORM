@@ -1,5 +1,8 @@
 {{$NEXT}}
 
+ - Fix #3
+ - Some doc fixes
+
 0.000001  2024-10-26 00:33:57-07:00 America/Los_Angeles
 
  - Initial upload of incomplete project to cpan
