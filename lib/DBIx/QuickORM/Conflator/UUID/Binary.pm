@@ -2,7 +2,7 @@ package DBIx::QuickORM::Conflator::UUID::Binary;
 use strict;
 use warnings;
 
-our $VERSION = '0.000002';
+our $VERSION = '0.000003';
 
 use parent 'DBIx::QuickORM::Conflator::UUID';
 use DBIx::QuickORM::Util::HashBase;

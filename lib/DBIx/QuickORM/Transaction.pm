@@ -2,7 +2,7 @@ package DBIx::QuickORM::Transaction;
 use strict;
 use warnings;
 
-our $VERSION = '0.000002';
+our $VERSION = '0.000003';
 
 use Carp qw/croak carp cluck/;
 
