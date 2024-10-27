@@ -121,7 +121,7 @@ sub reconnect {
     return $self->connection;
 }
 
-sub _connection {
+sub connection {
     my $self = shift;
 
     my $con = $self->{+CONNECTION};
