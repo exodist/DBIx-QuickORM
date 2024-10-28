@@ -2,7 +2,7 @@ package DBIx::QuickORM::DB;
 use strict;
 use warnings;
 
-our $VERSION = '0.000004';
+our $VERSION = '0.000005';
 
 use Carp qw/confess croak/;
 use List::Util qw/first/;

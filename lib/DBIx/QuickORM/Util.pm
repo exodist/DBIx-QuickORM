@@ -2,7 +2,7 @@ package DBIx::QuickORM::Util;
 use strict;
 use warnings;
 
-our $VERSION = '0.000004';
+our $VERSION = '0.000005';
 
 use Carp qw/croak cluck/;
 use Scalar::Util qw/blessed looks_like_number refaddr/;

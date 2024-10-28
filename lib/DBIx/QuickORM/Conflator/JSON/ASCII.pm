@@ -2,7 +2,7 @@ package DBIx::QuickORM::Conflator::JSON::ASCII;
 use strict;
 use warnings;
 
-our $VERSION = '0.000004';
+our $VERSION = '0.000005';
 
 use parent 'DBIx::QuickORM::Conflator::JSON';
 
