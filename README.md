@@ -358,12 +358,12 @@ See [SQL::Abstract](https://metacpan.org/pod/SQL%3A%3AAbstract).
 See [DBIx::QuickORM::Transaction](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ATransaction) and ["TRANSACTIONS" in DBIx::QuickORM::ORM](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3AORM#TRANSACTIONS)
 for additional details.
 
-- $orm->txn\_do(sub { ... });
+- `$orm->txn_do(sub { ... });`
 
     Void context will commit if there are no exceptions. It will rollback the
     transaction and re-throw the exception if it encounters one.
 
-- $res = $orm->txn\_do(sub { ... });
+- `$res = $orm->txn_do(sub { ... });`
 
     Scalar context.
 
@@ -374,7 +374,7 @@ for additional details.
     If an exception is thrown by the block then the transaction will be rolled back
     and $res will be false.
 
-- ($ok, $res\_or\_err) = $orm->txn\_do(sub { ... });
+- `($ok, $res_or_err) = $orm->txn_do(sub { ... });`
 
     List context.
 
@@ -383,20 +383,25 @@ for additional details.
     If an exception occurs in the block then the transaction will be rolled back,
     $ok will be 0, and $ret\_or\_err will contain the exception.
 
-    $orm->txn_do(sub {
-        my $txn = shift;
+```
+$orm->txn_do(sub {
+    my $txn = shift;
 
-        # Nested!
-        my ($ok, $res_or_err) = $orm->txn_do(sub { ... });
+    # Nested!
+    my ($ok, $res_or_err) = $orm->txn_do(sub { ... });
 
-        if ($ok) { $txn->commit }
-        else     { $txn->rollback };
+    if ($ok) { $txn->commit }
+    else     { $txn->rollback };
 
-        # Automatic rollback if an exception is thrown, or if commit is not called
-    });
+    # Automatic rollback if an exception is thrown, or if commit is not called
+});
+```
 
     # Commit if no exception is thrown, rollback on exception
-    $orm->txn_do(sub { ... });
+
+```perl
+$orm->txn_do(sub { ... });
+```
 
 Or manually:
 
@@ -587,28 +592,28 @@ Define custom plugin hooks in your custom tools:
 
 ### Current hooks
 
-- auto\_conflate => (data\_type => $dtype, sql\_type => $stype, column => $col, table => $table)
+- `auto_conflate => (data_type => $dtype, sql_type => $stype, column => $col, table => $table)`
 
     Use this to automatically inject conflation when auto-generating perl-side
     schema from a populated db.
 
-- post\_build => (build\_params => \\%params, built => $out, built\_ref => \\$out)
+- `post_build => (build_params => \%params, built => $out, built_ref => \$out)`
 
     Called after building an object (ORM, Schema, DB, etc).
 
-- pre\_build => (build\_params => \\%params)
+- `pre_build => (build_params => \%params)`
 
     Called before building an object (ORM, Schema, DB, etc).
 
-- relation\_name => (default\_name => $alias, table => $table, table\_name => $tname, fk => $fk)
+- `relation_name => (default_name => $alias, table => $table, table_name => $tname, fk => $fk)`
 
     use to rename relations when auto-generating perl-side schema from a populated db.
 
-- sql\_spec => (column => $col, table => $table, sql\_spec => $spec)
+- `sql_spec => (column => $col, table => $table, sql_spec => $spec)`
 
     Opportunity to modify the [DBIx::QuickORM::SQLSpec](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ASQLSpec) data for a row.
 
-- sql\_spec => (table => $table, sql\_spec => sql\_spec())
+- `sql_spec => (table => $table, sql_spec => sql_spec())`
 
     Opportunity to modify the [DBIx::QuickORM::SQLSpec](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ASQLSpec) data for a table.
 
