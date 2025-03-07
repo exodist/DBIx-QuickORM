@@ -3,6 +3,7 @@ use warnings;
 
 use Test::More;
 
+
 sub warnings(&) {
     my $code = shift;
     my @warnings;
@@ -35,7 +36,6 @@ BEGIN {
     BEGIN {
         $INC{'Object/HashBase/Test/HBaseINIT.pm'} = __FILE__;
         $INC{'Object/HashBase/Test/HBaseINIT2.pm'} = __FILE__;
-        $INC{'main/HBaseINIT.pm'} = __FILE__;
     }
 
     package
@@ -57,6 +57,7 @@ BEGIN {
     add_pre_init { shift->{pre_init_3} = $main::counter++ };
     sub init { $_[0]->SUPER::init(); $_[0]->{init2} = $main::counter++ };
     add_post_init { shift->{post_init_3} = $main::counter++ };
+
 }
 
 BEGIN {
