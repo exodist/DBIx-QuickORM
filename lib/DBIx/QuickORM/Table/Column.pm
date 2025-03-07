@@ -5,29 +5,45 @@ use warnings;
 our $VERSION = '0.000005';
 
 use Carp qw/croak confess/;
-use Role::Tiny::With qw/with/;
+
+use DBIx::QuickORM::Util::Affinity qw{
+    validate_affinity
+    affinity_from_type
+};
 
 use DBIx::QuickORM::Util::HashBase qw{
     <conflate
-    <default
+    <sql_default
+    <perl_default
     <name
+    <db_name
     <omit
-    <primary_key
-    <unique
     <order
     <nullable
-    <serial
-    +sql_spec
+    <identity
+    <sql_type
+    <affinity
     <created
 };
-
-with 'DBIx::QuickORM::Role::HasSQLSpec';
 
 sub init {
     my $self = shift;
 
-    croak "The 'name' field is required"     unless $self->{+NAME};
-    croak "Column must have an order number" unless $self->{+ORDER};
+    $self->{+NAME} //= $self->{+DB_NAME};
+    $self->{+DB_NAME} //= $self->{+NAME};
+
+    croak "At least one of the 'name' or 'db_name' fields are required" unless $self->{+NAME} && $self->{+DB_NAME};
+    croak "Column must have an order number"                            unless $self->{+ORDER};
+
+    if (my $type = $self->{+SQL_TYPE}) {
+        $self->{+AFFINITY} //= affinity_from_type($type);
+    }
+
+    croak "'affinity' was not provided, and could not be derived from sql_type"
+        unless $self->{+AFFINITY};
+
+    croak "'$self->{+AFFINITY}' is not a valid affinity"
+        unless validate_affinity($self->{+AFFINITY});
 
     if (my $conflate = $self->{+CONFLATE}) {
         if (ref($conflate) eq 'HASH') { # unblessed hash
@@ -40,41 +56,9 @@ sub init {
     }
 }
 
-sub compare_type {
-    my $self = shift;
-    my ($db_type) = @_;
-
-    return 'number' if $self->{+SERIAL};
-
-    my $c = $self->{+CONFLATE};
-    $c = undef unless $c && $c->can('qorm_compare_type');
-
-    for my $type ($self->sql_type, $db_type) {
-        next unless $type;
-
-        my $out;
-        $out = $c->qorm_compare_type($type) if $c;
-        return $out if $out;
-
-        return 'number' if $type =~ m/(int|double|bit|bool|dec|float|real|serial|numeric)/i;
-    }
-
-    return 'string';
-}
-
-sub sql_type {
-    my $self = shift;
-    my (@dbs) = @_;
-
-    my $spec = $self->{+SQL_SPEC} or return;
-    return $spec->get_spec(type => @dbs);
-}
-
 sub merge {
     my $self = shift;
     my ($other, %params) = @_;
-
-    $params{+SQL_SPEC} //= $self->{+SQL_SPEC}->merge($other->{+SQL_SPEC});
 
     return ref($self)->new(%$self, %params);
 }
@@ -82,8 +66,6 @@ sub merge {
 sub clone {
     my $self   = shift;
     my %params = @_;
-
-    $params{+SQL_SPEC} //= $self->{+SQL_SPEC}->clone();
 
     return ref($self)->new(%$self, %params);
 }

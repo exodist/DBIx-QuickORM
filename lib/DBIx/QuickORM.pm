@@ -50,27 +50,32 @@ my @REL_EXPORTS = qw{
     on_delete
 };
 
-my @_TABLE_EXPORTS = qw{
+my @_COL_EXPORTS = qw{
     column
     column_class
     columns
     conflate
     inflate
     deflate
-    default
-    index
-    is_temp
-    is_view
+    perl_default
+    sql_default
     not_null
     nullable
     omit
+    references
+    referenced_by
+};
+
+my @_TABLE_EXPORTS = qw{
+    index
+    is_temp
+    is_view
     primary_key
     relation
     relations
     row_class
-    serial
+    identity
     source_class
-    sql_spec
     sql_type
     table_class
     unique
@@ -79,6 +84,7 @@ my @_TABLE_EXPORTS = qw{
 
 my @TABLE_EXPORTS = uniq (
     @_TABLE_EXPORTS,
+    @_COL_EXPORTS,
     @REL_EXPORTS,
     @PLUGIN_EXPORTS,
     qw{ table update_table },
@@ -447,108 +453,6 @@ sub _build_db {
 
     eval { require(mod2file($class)); 1 } or croak "Could not load $class: $@";
     return $class->new(%$params);
-}
-
-# sub db {
-build_top_builder db => sub {
-    my %params = @_;
-
-    my $args      = $params{args};
-    my $state     = $params{state};
-    my $caller    = $params{caller};
-    my $wantarray = $params{wantarray};
-
-    require DBIx::QuickORM::DB;
-    if (@$args == 1 && !ref($args->[0])) {
-        croak 'useless use of db($name) in void context' unless defined $wantarray;
-        return _get('db', $caller->[0], $args->[0]);
-    }
-
-    my ($name, $cb);
-    for my $arg (@$args) {
-        $name = $arg and next unless ref($arg);
-        $cb = $arg and next if ref($arg) eq 'CODE';
-        croak "Not sure what to do with argument '$arg'";
-    }
-
-    croak "A codeblock is required to build a database" unless $cb;
-
-    my $orm = $state->{+ORM_STATE};
-    if ($orm) {
-        croak "Quick ORM '$orm->{name}' already has a database" if $orm->{db};
-    }
-    elsif (!$name) {
-        croak "useless use of db(sub { ... }) in void context. Either provide a name, or assign the result";
-    }
-
-    my %db = _new_db_params($name => $caller);
-
-    $state->{+DB} = \%db;
-
-    update_subname($name ? "db builder $name" : "db builder", $cb)->(\%db) if $cb;
-
-    my $db = _build_db(\%db);
-
-    if ($orm) {
-        croak "Quick ORM instance already has a db" if $orm->{db};
-        $orm->{db} = $db;
-    }
-
-    _set('db', $caller->[0], $name, $db) if $name;
-
-    return $db;
-};
-
-sub _get_db {
-    my $state = build_state or return;
-
-    return $state->{+DB} if $state->{+DB};
-    return unless $state->{+ORM_STATE};
-
-    croak "Attempt to use db builder tools outside of a db builder in an orm that already has a db defined"
-        if $state->{+ORM_STATE}->{db};
-
-    my %params = _new_db_params(undef, [caller(1)]);
-
-    $state->{+DB} = \%params;
-}
-
-sub db_attributes {
-    my %attrs = @_ == 1 ? (%{$_[0]}) : (@_);
-
-    my $db = _get_db() or croak "attributes() must be called inside of a db or orm builer";
-    %{$db->{attributes} //= {}} = (%{$db->{attributes} // {}}, %attrs);
-
-    return $db->{attributes};
-}
-
-sub db_connect {
-    my ($in) = @_;
-
-    my $db = _get_db() or croak "connect() must be called inside of a db or ORM builer";
-
-    if (ref($in) eq 'CODE') {
-        return $db->{connect} = $in;
-    }
-
-    my $code = do { no strict 'refs'; \&{$in} };
-    croak "'$in' does not appear to be a defined subroutine" unless defined(&$code);
-    return $db->{connect} = $code;
-}
-
-BEGIN {
-    for my $db_field (qw/db_class db_name db_dsn db_host db_socket db_port db_user db_password/) {
-        my $name = $db_field;
-        my $attr = $name;
-        $attr =~ s/^db_// unless $attr eq 'db_name';
-        my $sub  = sub {
-            my $db = _get_db() or croak "$name() must be called inside of a db builer";
-            $db->{$attr} = $_[0];
-        };
-
-        no strict 'refs';
-        *{$name} = set_subname $name => $sub;
-    }
 }
 
 sub _new_schema_params {
@@ -1045,32 +949,11 @@ BEGIN {
 }
 
 sub sql_type {
-    my ($type, @dbs) = @_;
+    my ($type) = @_;
 
     my $col = build_state(COLUMN) or croak "sql_type() may only be used inside a column builder";
 
-    if (@dbs) {
-        sql_spec($_ => { type => $type }) for @dbs;
-    }
-    else {
-        sql_spec(type => $type);
-    }
-}
-
-sub sql_spec {
-    my %hash = @_ == 1 ? %{$_[0]} : (@_);
-
-    my $builder = build_meta_state('building') or croak "Must be called inside a builder";
-
-    $builder = uc($builder);
-
-    my $obj = build_state($builder) or croak "Could not find '$builder' state";
-
-    my $specs = $obj->{sql_spec} //= {};
-
-    %$specs = (%$specs, %hash);
-
-    return $specs;
+    $col->{sql_type} = $type;
 }
 
 sub is_view {
@@ -1083,56 +966,56 @@ sub is_temp {
     $table->{is_temp} = 1;
 }
 
-sub column {
-    my @specs = @_;
-
-    @specs = @{$specs[0]} if @specs == 1 && ref($specs[0]) eq 'ARRAY';
-
-    my @caller = caller;
-    my $created = "$caller[1] line $caller[2]";
-
-    my $table = build_state(TABLE) or croak "columns may only be used in a table builder";
-
-    my $sql_spec = pop(@specs) if $table && @specs && ref($specs[-1]) eq 'HASH';
-
-    while (my $name = shift @specs) {
-        my $spec = @specs && ref($specs[0]) ? shift(@specs) : undef;
-
-        if ($table) {
-            if ($spec) {
-                my $type = ref($spec);
-                if ($type eq 'HASH') {
-                    $table->{columns}->{$name}->{$_} = $spec->{$_} for keys %$spec;
-                }
-                elsif ($type eq 'CODE') {
-                    my $column = $table->{columns}->{$name} //= {created => $created, name => $name};
-
-                    $spec = update_subname 'column builder' => $spec;
-
-                    build(
-                        building => 'column',
-                        callback => $spec,
-                        args     => [],
-                        caller   => \@caller,
-                        state    => { %{build_state()}, COLUMN() => $column },
-                    );
-                }
-            }
-            else {
-                $table->{columns}->{$name} //= {created => $created, name => $name};
-            }
-
-            $table->{columns}->{$name}->{name}  //= $name;
-            $table->{columns}->{$name}->{order} //= $COL_ORDER++;
-
-            %{$table->{columns}->{$name}->{sql_spec} //= {}} = (%{$table->{columns}->{$name}->{sql_spec} //= {}}, %$sql_spec)
-                if $sql_spec;
-        }
-        elsif ($spec) {
-            croak "Cannot specify column data outside of a table builder";
-        }
-    }
-}
+#sub column {
+#    my @specs = @_;
+#
+#    @specs = @{$specs[0]} if @specs == 1 && ref($specs[0]) eq 'ARRAY';
+#
+#    my @caller = caller;
+#    my $created = "$caller[1] line $caller[2]";
+#
+#    my $table = build_state(TABLE) or croak "columns may only be used in a table builder";
+#
+#    my $sql_spec = pop(@specs) if $table && @specs && ref($specs[-1]) eq 'HASH';
+#
+#    while (my $name = shift @specs) {
+#        my $spec = @specs && ref($specs[0]) ? shift(@specs) : undef;
+#
+#        if ($table) {
+#            if ($spec) {
+#                my $type = ref($spec);
+#                if ($type eq 'HASH') {
+#                    $table->{columns}->{$name}->{$_} = $spec->{$_} for keys %$spec;
+#                }
+#                elsif ($type eq 'CODE') {
+#                    my $column = $table->{columns}->{$name} //= {created => $created, name => $name};
+#
+#                    $spec = update_subname 'column builder' => $spec;
+#
+#                    build(
+#                        building => 'column',
+#                        callback => $spec,
+#                        args     => [],
+#                        caller   => \@caller,
+#                        state    => { %{build_state()}, COLUMN() => $column },
+#                    );
+#                }
+#            }
+#            else {
+#                $table->{columns}->{$name} //= {created => $created, name => $name};
+#            }
+#
+#            $table->{columns}->{$name}->{name}  //= $name;
+#            $table->{columns}->{$name}->{order} //= $COL_ORDER++;
+#
+#            %{$table->{columns}->{$name}->{sql_spec} //= {}} = (%{$table->{columns}->{$name}->{sql_spec} //= {}}, %$sql_spec)
+#                if $sql_spec;
+#        }
+#        elsif ($spec) {
+#            croak "Cannot specify column data outside of a table builder";
+#        }
+#    }
+#}
 
 sub serial {
     my ($size, @cols) = @_;
