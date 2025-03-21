@@ -1,5 +1,4 @@
 use Test2::V0 -target => 'DBIx::QuickORM';
-#use Carp::Always;
 
 {
     package DBIx::QuickORM::ORM;
@@ -12,7 +11,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     package DBIx::QuickORM::Schema::Table;
     $INC{'DBIx/QuickORM/Schema/Table.pm'} = __FILE__;
-    use DBIx::QuickORM::Util::HashBase;
+    use DBIx::QuickORM::Util::HashBase qw/name/;
 
     package DBIx::QuickORM::Schema::Table::Column;
     $INC{'DBIx/QuickORM/Schema/Table/Column.pm'} = __FILE__;
@@ -31,6 +30,29 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     $INC{'DBIx/QuickORM/Plugin.pm'} = __FILE__;
     use DBIx::QuickORM::Util::HashBase;
 
+    package DBIx::QuickORM::Row;
+    $INC{'DBIx/QuickORM/Row.pm'} = __FILE__;
+    use DBIx::QuickORM::Util::HashBase;
+
+    package DBIx::QuickORM::Type;
+    $INC{'DBIx/QuickORM/Type.pm'} = __FILE__;
+    use DBIx::QuickORM::Util::HashBase;
+
+    package DBIx::QuickORM::Type::MyType;
+    $INC{'DBIx/QuickORM/Type/MyType.pm'} = __FILE__;
+    our @ISA = ('DBIx::QuickORM::Type');
+    use DBIx::QuickORM::Util::HashBase;
+
+    package DBIx::QuickORM::Row::ClassA;
+    $INC{'DBIx/QuickORM/Row/ClassA.pm'} = __FILE__;
+    our @ISA = ('DBIx::QuickORM::Row');
+    use DBIx::QuickORM::Util::HashBase;
+
+    package DBIx::QuickORM::Row::ClassB;
+    $INC{'DBIx/QuickORM/Row/ClassB.pm'} = __FILE__;
+    our @ISA = ('DBIx::QuickORM::Row');
+    use DBIx::QuickORM::Util::HashBase;
+
     package DBIx::QuickORM::Plugin::My::Plugin;
     $INC{'DBIx/QuickORM/Plugin/My/Plugin.pm'} = __FILE__;
     our @ISA = ('DBIx::QuickORM::Plugin');
@@ -39,11 +61,17 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
 {
     package Test::ORM;
-    use Test2::V0 qw/!meta !pass/;
+    use Test2::V0 qw/!pass !meta/, meta => { '-as' => 't2_meta' };
+    use Scalar::Util qw/blessed/;
 
     use ok 'DBIx::QuickORM';
 
     imported_ok(qw{
+        ONE_TO_ONE
+        MANY_TO_MANY
+        ONE_TO_MANY
+        MANY_TO_ONE
+
         plugin
         plugins
         meta
@@ -70,12 +98,11 @@ use Test2::V0 -target => 'DBIx::QuickORM';
           db_name
           column
            affinity
-           conflate
            omit
            nullable
+           not_null
            identity
            type
-           size
           columns
           primary_key
           unique
@@ -97,7 +124,13 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     ok(!$bld->top->{building}, "Top level is not building anything");
 
-    like(dies { alt foo => sub { 1 } }, qr/alt\(\) cannot be used outside of a builder/, "Cannot use alt outside of a builder");
+    like(
+        dies {
+            alt foo => sub { 1 }
+        },
+        qr/alt\(\) cannot be used outside of a builder/,
+        "Cannot use alt outside of a builder"
+    );
 
     like(
         dies { plugin(bless({}, 'FooBar')) },
@@ -140,7 +173,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     plugins
         '+DBIx::QuickORM::Plugin' => {foo => 1},
-        'My::Plugin' => {bar => 1},
+        'My::Plugin'              => {bar => 1},
         'My::Plugin',
         '+DBIx::QuickORM::Plugin';
 
@@ -149,8 +182,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         [
             bless({foo => 1}, 'DBIx::QuickORM::Plugin'),
             bless({bar => 1}, 'DBIx::QuickORM::Plugin::My::Plugin'),
-            bless({}, 'DBIx::QuickORM::Plugin::My::Plugin'),
-            bless({}, 'DBIx::QuickORM::Plugin'),
+            bless({},         'DBIx::QuickORM::Plugin::My::Plugin'),
+            bless({},         'DBIx::QuickORM::Plugin'),
         ],
         "Can add a bunch of plugins with optional params"
     );
@@ -233,6 +266,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     is(
         db('otherdb'),
         {
+            compiled => T(),
+            created  => T(),
+
             host => 'boo',
             name => 'otherdb',
             user => 'boouser',
@@ -266,8 +302,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         pass "hunter1";
 
         like(dies { connect 'foo' }, qr/connect must be given a coderef as its only argument, got 'foo' instead/, "Only coderef");
-        like(dies { attributes [] }, qr/attributes\(\) accepts either a hashref, or \(key => value\) pairs/, "Must be valid attributes");
-
+        like(dies { attributes [] }, qr/attributes\(\) accepts either a hashref, or \(key => value\) pairs/,      "Must be valid attributes");
     };
 
     isa_ok(db('full'), ['DBIx::QuickORM::DB::Fake'], "Got the driver class");
@@ -283,6 +318,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             socket     => 'mysocket',
             user       => 'me',
             pass       => 'hunter1',
+
+            created  => T(),
+            compiled => T(),
         },
         "All builders worked"
     );
@@ -315,21 +353,28 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         };
 
         alt alt_b => sub {
-            table a2 => sub { column a => sub { affinity 'numeric' } };
+            table a2 => sub {
+                column a => sub { affinity 'numeric' }
+            };
         };
     };
-
 
     is(
         schema('variable'),
         {
-            name => 'variable',
-            tables => {
+            name     => 'variable',
+            created  => T(),
+            compiled => T(),
+            tables   => {
                 foo => {
-                    name => 'foo',
-                    columns => {
+                    created  => T(),
+                    compiled => T(),
+                    name     => 'foo',
+                    columns  => {
                         x => {
-                            name => 'x',
+                            created  => T(),
+                            compiled => T(),
+                            name     => 'x',
                             affinity => 'boolean',
                         },
                     },
@@ -342,26 +387,38 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     is(
         schema('variable:alt_a'),
         {
-            name => 'variable',
-            tables => {
+            created  => T(),
+            compiled => T(),
+            name     => 'variable',
+            tables   => {
                 foo => {
-                    name => 'foo',
-                    columns => {
+                    created  => T(),
+                    compiled => T(),
+                    name     => 'foo',
+                    columns  => {
                         a => {
-                            name => 'a',
+                            created  => T(),
+                            compiled => T(),
+                            name     => 'a',
                             affinity => 'string',
                         },
                         x => {
-                            name => 'x',
+                            created  => T(),
+                            compiled => T(),
+                            name     => 'x',
                             affinity => 'string',
                         },
                     },
                 },
                 a1 => {
-                    name => 'a1',
-                    columns => {
+                    created  => T(),
+                    compiled => T(),
+                    name     => 'a1',
+                    columns  => {
                         a => {
-                            name => 'a',
+                            created  => T(),
+                            compiled => T(),
+                            name     => 'a',
                             affinity => 'string',
                         },
                     },
@@ -374,27 +431,40 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     is(
         schema('variable:alt_b'),
         {
-            name => 'variable',
+            created  => T(),
+            compiled => T(),
+
+            name   => 'variable',
             tables => {
                 foo => {
-                    name => 'foo',
-                    columns => {
+                    created  => T(),
+                    compiled => T(),
+                    name     => 'foo',
+                    columns  => {
                         a => {
-                            name => 'a',
+                            name     => 'a',
                             affinity => 'numeric',
+                            created  => T(),
+                            compiled => T(),
                         },
                         x => {
-                            name => 'x',
+                            name     => 'x',
                             affinity => 'numeric',
+                            created  => T(),
+                            compiled => T(),
                         },
                     },
                 },
                 a2 => {
-                    name => 'a2',
-                    columns => {
+                    created  => T(),
+                    compiled => T(),
+                    name     => 'a2',
+                    columns  => {
                         a => {
-                            name => 'a',
+                            name     => 'a',
                             affinity => 'numeric',
+                            created  => T(),
+                            compiled => T(),
                         },
                     },
                 },
@@ -413,7 +483,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         };
 
         alt postgresql => sub {
-            host 'postgresql',
+            host 'postgresql';
             port 2345;
             user 'pg_user';
         };
@@ -430,6 +500,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             pass => 'foo',
             port => 1234,
             user => 'my_user',
+
+            created  => T(),
+            compiled => T(),
         },
         "Got 'db_one' from server 'variable', 'mysql' variant",
     );
@@ -442,6 +515,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             pass => 'foo',
             port => 2345,
             user => 'pg_user',
+
+            created  => T(),
+            compiled => T(),
         },
         "Got 'db_one' from server 'variable', 'postgresql' variant",
     );
@@ -454,6 +530,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             pass => 'foo',
             port => 1234,
             user => 'my_user',
+
+            created  => T(),
+            compiled => T(),
         },
         "Got 'db_two' from server 'variable', 'mysql' variant",
     );
@@ -466,6 +545,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             pass => 'foo',
             port => 2345,
             user => 'pg_user',
+
+            created  => T(),
+            compiled => T(),
         },
         "Got 'db_two' from server 'variable', 'postgresql' variant",
     );
@@ -473,12 +555,12 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     db 'from_creds' => sub {
         creds sub {
             return {
-                host => 'hostname',
-                user => 'username',
-                pass => 'password',
-                port => 1234,
+                host   => 'hostname',
+                user   => 'username',
+                pass   => 'password',
+                port   => 1234,
                 socket => 'socketname',
-            }
+            };
         };
     };
 
@@ -491,8 +573,881 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             pass   => 'password',
             port   => 1234,
             socket => 'socketname',
+
+            created  => T(),
+            compiled => T(),
         },
         "Got credentials from subroutine",
+    );
+
+    schema deeptest => sub {
+        row_class "ClassA";
+        table foo => sub {
+            row_class "ClassB";
+            db_name 'foo1';
+            column a => 'MyType';
+            column b => \'VARCHAR(123)', 'string';
+            column c => sub {
+                db_name 'C';
+                type \'VARCHAR';
+                affinity 'string';
+                omit;
+                nullable;
+                sql prefix => 'prefix 1';
+                sql prefix => 'prefix 2';
+                sql "c varchar";
+                sql postfix => "default 'x'";
+                sql postfix => "postfix 2";
+
+                link get_bar => [bar => ['xyz']];
+            };
+            columns qw/x y z/ => {type => \'int', affinity => 'numeric'};
+
+            primary_key(qw/a b/);
+            unique(qw/x y z/);
+        };
+
+        table 'bar' => sub {
+            column xyz => 'MyType';
+        };
+
+        link(
+            {table => 'foo', columns => ['x'],   accessor => 'bar1'},
+            ONE_TO_ONE,
+            {table => 'bar', columns => ['xyz'], accessor => 'foo1'},
+        );
+
+        link(
+            [foo => ['x'], 'bar2', {extra => 1}],
+            '1:*',
+            [bar => ['x'], 'foo2', {extra => 1}],
+        );
+    };
+
+    like(
+        schema('deeptest'),
+        {
+            name      => 'deeptest',
+            row_class => 'DBIx::QuickORM::Row::ClassA',
+            links     => [
+                [
+                    {table => 'foo', accessor => 'bar1', columns => ['x']},
+                    {table => 'bar', accessor => 'foo1', columns => ['xyz']},
+                    {type  => '1:1', caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
+                ],
+                [
+                    {table => 'foo',       accessor => 'bar2', columns => ['x'], extra => 1},
+                    {table => 'bar',       accessor => 'foo2', columns => ['x'], extra => 1},
+                    {type  => ONE_TO_MANY, caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
+                ],
+            ],
+            tables => {
+                bar => {
+                    columns => {
+                        xyz => {
+                            name => 'xyz',
+                            type => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+                        },
+                    },
+                    name      => 'bar',
+                    row_class => 'DBIx::QuickORM::Row::ClassA',
+                },
+                foo => {
+                    name        => 'foo1',
+                    row_class   => 'DBIx::QuickORM::Row::ClassB',
+                    primary_key => ['a', 'b'],
+                    unique      => {'x, y, z' => ['x', 'y', 'z']},
+                    columns     => {
+                        a => {
+                            name => 'a',
+                            type => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+                        },
+                        b => {
+                            affinity => 'string',
+                            name     => 'b',
+                            type     => \'VARCHAR(123)'
+                        },
+                        c => {
+                            affinity => 'string',
+                            name     => 'C',
+                            nullable => 1,
+                            omit     => 1,
+                            sql      => {
+                                infix   => 'c varchar',
+                                postfix => ['default \'x\'', 'postfix 2'],
+                                prefix  => ['prefix 1',      'prefix 2'],
+                            },
+                            type => \'VARCHAR',
+                        },
+                        x => {
+                            affinity => 'numeric',
+                            name     => 'x',
+                            type     => \'int',
+                        },
+                        y => {
+                            affinity => 'numeric',
+                            name     => 'y',
+                            type     => \'int',
+                        },
+                        z => {
+                            affinity => 'numeric',
+                            name     => 'z',
+                            type     => \'int',
+                        },
+                    },
+                    links => {
+                        get_bar => [
+                            {accessor => 'get_bar', columns => ['C'], table => 'foo'},
+                            {columns  => ['xyz'],   table   => 'bar'},
+                            {type     => '*:*',     caller  => ['Test::ORM', T(), T(), 'Test::ORM::link']},
+                        ]
+                    },
+                },
+            }
+        },
+        "Got expected schema structure",
+    );
+
+    {
+        package Test::ORM::Table::ABC;
+        $INC{'Test/ORM/Table/ABC.pm'} = __FILE__;
+
+        use DBIx::QuickORM 'table';
+
+        table abc => sub {
+            column abc => sub {
+                affinity 'string';
+            };
+        };
+
+        package Test::ORM::Table::XYZ;
+        $INC{'Test/ORM/Table/XYZ.pm'} = __FILE__;
+
+        use DBIx::QuickORM 'table';
+        use Test2::V0 qw/is isa_ok ref_is_not like/;
+
+        table xyz => sub {
+            column xyz => sub {
+                affinity 'string';
+            };
+        };
+
+        isa_ok(__PACKAGE__, ['DBIx::QuickORM::Row'], "This package is now a row");
+
+        ref_is_not(__PACKAGE__->qorm_table, __PACKAGE__->qorm_table, "Deep clone");
+
+        like(
+            __PACKAGE__->qorm_table,
+            {
+                name      => 'xyz',
+                class     => 'DBIx::QuickORM::Schema::Table',
+                row_class => 'Test::ORM::Table::XYZ',
+
+                meta => {
+                    name    => 'xyz',
+                    columns => {
+                        xyz => {
+                            meta => {
+                                name     => 'xyz',
+                                affinity => 'string'
+                            },
+                            name  => 'xyz',
+                            class => 'DBIx::QuickORM::Schema::Table::Column'
+                        }
+                    },
+                },
+            },
+            "Got correct structure from table",
+        );
+    }
+
+    schema xyz_a => sub {
+        table 'Test::ORM::Table::XYZ';
+
+        table clone_xyz_a => 'Test::ORM::Table::XYZ';
+
+        table clone_xyz_b => 'Test::ORM::Table::XYZ', sub {
+            column zzz => sub { affinity 'string' };
+        };
+    };
+
+    is(
+        schema('xyz_a')->{tables},
+        {
+            xyz => {
+                name      => 'xyz',
+                row_class => 'Test::ORM::Table::XYZ',
+                compiled  => T(),
+                created   => T(),
+                columns   => {
+                    xyz => {
+                        name     => 'xyz',
+                        affinity => 'string',
+                        compiled => T(),
+                        created  => T(),
+                    },
+                },
+            },
+            clone_xyz_a => {
+                name      => 'xyz',
+                row_class => 'Test::ORM::Table::XYZ',
+                compiled  => T(),
+                created   => T(),
+                columns   => {
+                    xyz => {
+                        name     => 'xyz',
+                        affinity => 'string',
+                        compiled => T(),
+                        created  => T(),
+                    },
+                }
+            },
+            clone_xyz_b => {
+                name      => 'xyz',
+                row_class => 'Test::ORM::Table::XYZ',
+                compiled  => T(),
+                created   => T(),
+                columns   => {
+                    zzz => {
+                        name     => 'zzz',
+                        affinity => 'string',
+                        compiled => T(),
+                        created  => T(),
+                    },
+                    xyz => {
+                        name     => 'xyz',
+                        affinity => 'string',
+                        compiled => T(),
+                        created  => T(),
+                    },
+                },
+            },
+        },
+        "Got the table data from the table class"
+    );
+
+    schema table_mods => sub {
+        tables 'Test::ORM::Table' => sub {
+            my $table = shift;
+            return if $table->{name} eq 'abc';
+            $table->{meta}->{foo} = 'added';
+            return ($table->{name} . "2", $table);
+        };
+
+        # This comes second to make sure the change to $table above does not bleed.
+        tables 'Test::ORM::Table';
+    };
+
+    like(
+        schema('table_mods')->{tables},
+        {
+            abc => {
+                name      => 'abc',
+                row_class => 'Test::ORM::Table::ABC',
+                columns   => {
+                    abc => {
+                        name     => 'abc',
+                        affinity => 'string',
+                    },
+                },
+            },
+            xyz => {
+                foo       => DNE, # Make sure it did not bleed in
+                name      => 'xyz',
+                row_class => 'Test::ORM::Table::XYZ',
+                columns   => {
+                    xyz => {
+                        name     => 'xyz',
+                        affinity => 'string',
+                    },
+                },
+            },
+            xyz2 => {
+                foo       => 'added',
+                name      => 'xyz',
+                row_class => 'Test::ORM::Table::XYZ',
+                columns   => {
+                    xyz => {
+                        name     => 'xyz',
+                        affinity => 'string',
+                    },
+                },
+            },
+        },
+        "Found both tables under the specified parent namespace, also added just xyz as xyz2 with modification"
+    );
+
+
+    schema test_column => sub {
+        table test_column => sub {
+            column a => (qw/MyType identity nullable omit numeric/);
+            column b => (\'VARCHAR(20)', identity, nullable, omit, affinity('numeric'));
+            column c => (bless({x => 1}, 'DBIx::QuickORM::Type::MyType'), identity, nullable, omit, affinity('numeric'));
+            column d => ('DBIx::QuickORM::Type::MyType', identity(0), nullable(0), omit(0), affinity('numeric'));
+            column e => ('+DBIx::QuickORM::Type::MyType', identity, not_null, omit, affinity('numeric'));
+            column f => (type('DBIx::QuickORM::Type::MyType'), identity, nullable, omit, affinity('numeric'));
+            column g => sub {
+                db_name 'gg';
+                type 'MyType';
+                identity;
+                nullable;
+                omit;
+                affinity('numeric');
+            };
+
+            columns qw/h i j/ => {
+                type => \'VARCHAR(20)',
+                nullable => 1,
+                omit => 0,
+            };
+
+            like(
+                dies { column x => bless({}, 'Fake::Thing') },
+                qr/'Fake::Thing.*' does not subclass 'DBIx::QuickORM::Type'/,
+                "Must be a subclass of 'DBIx::QuickORM::Type'"
+            );
+
+            like(
+                dies { column x => [] },
+                qr/Not sure what to do with column argument /,
+                "Arrayref is not valid"
+            );
+
+            like(
+                dies { column x => 'invalid' },
+                qr/Column arg 'invalid' does not appear to be pure-sql \(scalar ref\), affinity, or a DBIx::QuickORM::Type subclass/,
+                "Not a valid class"
+            );
+
+            like(
+                dies { column x => '+Test2::API' },
+                qr/Class 'Test2::API' is not a subclass of DBIx::QuickORM::Type/,
+                "Not a type class"
+            );
+
+            like(
+                dies { local @INC = (sub { die "Exception!" }); column x => '+Fake::Class' },
+                qr/Error loading class for type '\+Fake::Class': Exception!/,
+                "Errors encountered when loading a class are passed on"
+            );
+
+            like(
+                dies { columns x => {}, {} },
+                qr/Cannot provide multiple hashrefs/,
+                "Cannot have multiple hashes"
+            );
+
+            like(
+                dies { columns x => sub {} },
+                qr/Not sure what to do with/,
+                "Cannot use a sub"
+            );
+        };
+    };
+
+    like(
+        schema('test_column')->{tables}->{test_column}->{columns},
+        {
+            a => {
+                name     => 'a',
+                omit     => 1,
+                nullable => 1,
+                identity => 1,
+                nullable => 1,
+                affinity => 'numeric',
+                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+            },
+            b => {
+                name     => 'b',
+                omit     => 1,
+                identity => 1,
+                nullable => 1,
+                affinity => 'numeric',
+                type     => \'VARCHAR(20)',
+            },
+            c => {
+                name     => 'c',
+                omit     => 1,
+                identity => 1,
+                nullable => 1,
+                affinity => 'numeric',
+                type     => {x => 1},
+            },
+            d => {
+                name     => 'd',
+                omit     => FDNE,
+                identity => FDNE,
+                nullable => FDNE,
+                affinity => 'numeric',
+                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+            },
+            e => {
+                name     => 'e',
+                omit     => 1,
+                identity => 1,
+                nullable => FDNE,
+                affinity => 'numeric',
+                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+            },
+            f => {
+                name     => 'f',
+                omit     => 1,
+                identity => 1,
+                nullable => 1,
+                affinity => 'numeric',
+                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+            },
+            g => {
+                name     => 'gg',
+                omit     => 1,
+                identity => 1,
+                nullable => 1,
+                affinity => 'numeric',
+                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+            },
+            h => {
+                name     => 'h',
+                omit     => 0,
+                nullable => 1,
+                type     => \'VARCHAR(20)',
+            },
+            i => {
+                name     => 'i',
+                omit     => 0,
+                nullable => 1,
+                type     => \'VARCHAR(20)',
+            },
+            j => {
+                name     => 'j',
+                omit     => 0,
+                nullable => 1,
+                type     => \'VARCHAR(20)',
+            },
+        },
+        "Got expected columns",
+    );
+
+    schema sql_test => sub {
+        sql prefix  => "schema sql prefix 1";
+        sql postfix => "schema sql postfix 1";
+        sql prefix  => "schema sql prefix 2";
+        sql postfix => "schema sql postfix 2";
+
+        like(
+            dies { sql infix => 'NO!' },
+            qr/'infix' sql is not supported in SCHEMA, use prefix or postfix/,
+            "No infix for schema"
+        );
+
+        table sql_test => sub {
+            sql prefix  => "table sql prefix 1";
+            sql postfix => "table sql postfix 1";
+            sql infix   => "table sql infix";
+            sql prefix  => "table sql prefix 2";
+            sql postfix => "table sql postfix 2";
+
+            like(
+                dies { sql infix => 'NO!' },
+                qr/'infix' sql has already been set for/,
+                "Can only have 1 infix"
+            );
+
+            column blank_infix => sub {
+                sql infix => "";
+            };
+
+            column sql_test => sub {
+                sql prefix  => "column sql prefix 1";
+                sql postfix => "column sql postfix 1";
+                sql infix   => "column sql infix";
+                sql prefix  => "column sql prefix 2";
+                sql postfix => "column sql postfix 2";
+
+                like(
+                    dies { sql infix => 'NO!' },
+                    qr/'infix' sql has already been set for/,
+                    "Can only have 1 infix"
+                );
+            };
+        };
+    };
+
+    like(
+        schema('sql_test'),
+        {
+            name => 'sql_test',
+            sql  => {
+                postfix => ['schema sql postfix 1', 'schema sql postfix 2'],
+                prefix  => ['schema sql prefix 1',  'schema sql prefix 2'],
+            },
+            tables => {
+                sql_test => {
+                    columns => {
+                        sql_test => {
+                            name => 'sql_test',
+                            sql  => {
+                                infix   => 'column sql infix',
+                                postfix => ['column sql postfix 1', 'column sql postfix 2'],
+                                prefix  => ['column sql prefix 1',  'column sql prefix 2'],
+                            }
+                        },
+                        blank_infix => {
+                            name => 'blank_infix',
+                            sql  => {
+                                infix => '', # Make sure it never gets wiped out
+                            },
+                        },
+                    },
+                    name => 'sql_test',
+                    sql  => {
+                        infix   => 'table sql infix',
+                        postfix => ['table sql postfix 1', 'table sql postfix 2'],
+                        prefix  => ['table sql prefix 1',  'table sql prefix 2'],
+                    },
+                },
+            },
+        },
+        "Can set SQL",
+    );
+
+    is(affinity('string'), 'string', "In non-void context it returns the value");
+    like(
+        dies { affinity("string"); return },
+        qr/DBIx::QuickORM::affinity\(\) can only be used inside one of the following builders: column/,
+        "Error if not in builder and in void context"
+    );
+    like(
+        dies { affinity('nope'); return },
+        qr/'nope' is not a valid affinity/,
+        "Must be a valid affinity"
+    );
+    is(affinity($_), $_, "$_ is a valid affinity") for qw/string numeric binary boolean/;
+
+    is([omit(0)],     [],           "No omit, scalar context");
+    is([omit(1)],     ['omit'],     "Omit, scalar context");
+    is([identity(0)], [],           "No identity, scalar context");
+    is([identity(1)], ['identity'], "Identity, scalar context");
+    is([nullable(0)], ['not_null'], "Not nullable, scalar context");
+    is([nullable(1)], ['nullable'], "Nullable, scalar context");
+    is([not_null(0)], ['nullable'], "No not_null, scalar context");
+    is([not_null(1)], ['not_null'], "not_null, scalar context");
+
+    like(
+        dies { $_->(); return },
+        qr/can only be used inside one of the following builders: column/,
+        "Cannot use outside of a builder in void context"
+    ) for \&omit, \&identity, \&nullable, \&not_null;
+
+    schema ctest => sub {
+        table ctest => sub {
+            column ctesta => sub {
+                omit(0);
+                identity(0);
+                nullable(0);
+            };
+            column ctestb => sub {
+                omit(1);
+                identity(1);
+                nullable(1);
+            };
+            column ctestc => sub {
+                not_null(0);
+            };
+            column ctestd => sub {
+                not_null(1);
+            };
+        };
+    };
+
+    like(
+        schema('ctest')->{tables}->{ctest}->{columns},
+        {
+            'ctesta' => {
+                'name'     => 'ctesta',
+                'identity' => 0,
+                'nullable' => 0,
+                'omit'     => 0,
+            },
+            'ctestb' => {
+                'name'     => 'ctestb',
+                'identity' => 1,
+                'nullable' => 1,
+                'omit'     => 1,
+            },
+            'ctestc' => {
+                'name'     => 'ctestc',
+                'nullable' => 1,
+            },
+            'ctestd' => {
+                'name'     => 'ctestd',
+                'nullable' => 0,
+            },
+        },
+        "Got expected settings"
+    );
+
+    like(dies { type() }, qr/Not enough arguments/, "Need args");
+    like(
+        dies { type('Fake::Thing') },
+        qr/Type must be a scalar reference, or a blessed instance of, or class that inherits from 'DBIx::QuickORM::Type', got: Fake::Thing/,
+        "Must be a valid type"
+    );
+
+    like(
+        dies { type(\'foo', 'arg') },
+        qr/Cannot provide args when using a scalar ref type/,
+        "No args for scalar ref",
+    );
+
+    like(
+        dies { type(bless({}, 'DBIx::QuickORM::Type'), 'arg') },
+        qr/Cannot provide args when using an already blessed type/,
+        "No args for scalar ref",
+    );
+
+    like(
+        dies { my $x = type('DBIx::QuickORM::Type', 'arg') },
+        qr/Cannot provide args in non-void context/,
+        "No args for non-void",
+    );
+
+    is(type('DBIx::QuickORM::Type'), t2_meta { prop blessed => 'DBIx::QuickORM::Type' }, "Returns class in scalar context");
+
+    schema typetest => sub {
+        table typetest => sub {
+            column ref => sub { type \'ref' };
+            column type => sub { type 'DBIx::QuickORM::Type' };
+            column type_arg => sub { type 'DBIx::QuickORM::Type' => 'arg1', 'arg2' };
+            column blessed => sub { type bless({}, 'DBIx::QuickORM::Type') };
+        };
+    };
+
+    like(
+        schema('typetest')->{tables}->{typetest}->{columns},
+        {
+            blessed  => {type => t2_meta { prop blessed => 'DBIx::QuickORM::Type' }},
+            ref      => {type => \'ref'},
+            type     => {type => t2_meta { prop blessed => 'DBIx::QuickORM::Type' }},
+            type_arg => {type => t2_meta { prop blessed => 'DBIx::QuickORM::Type'; prop this => {'args' => ['arg1', 'arg2']}}},
+        },
+        "Got correct types"
+    );
+
+    ok(blessed(schema('typetest')->{tables}->{typetest}->{columns}->{blessed}->{type}), "Blessed the blessed type");
+    ok(blessed(schema('typetest')->{tables}->{typetest}->{columns}->{type_arg}->{type}), "Blessed the type_arg");
+
+    db name_test => sub { db_name 'foo' };
+    is(db('name_test')->{name}, 'foo', "DB Name different from qorm name");
+
+    schema name_test => sub {
+        table lookup_name => sub {
+            db_name 'db_alt_name';
+            column lookup_name => sub {
+                db_name 'db_alt_name';
+            };
+        };
+    };
+
+    is(schema('name_test')->{tables}->{lookup_name}->{name},                           'db_alt_name', "DB Name different from qorm name");
+    is(schema('name_test')->{tables}->{lookup_name}->{columns}->{lookup_name}->{name}, 'db_alt_name', "DB Name different from qorm name");
+
+    schema test_row_class => sub {
+        row_class 'DBIx::QuickORM::Row::ClassA';
+        table test_row_class => sub {
+            row_class 'DBIx::QuickORM::Row::ClassB';
+        };
+        table test_row_class2 => sub {};
+
+        like(
+            dies { row_class 'A Fake Class' },
+            qr/Could not load class 'A Fake Class': Can't locate/,
+            "Must be a valid row class"
+        );
+    };
+
+    is(schema('test_row_class')->{row_class},                              'DBIx::QuickORM::Row::ClassA', "Set row class for schema");
+    is(schema('test_row_class')->{tables}->{test_row_class}->{row_class},  'DBIx::QuickORM::Row::ClassB', "Set row class for table");
+    is(schema('test_row_class')->{tables}->{test_row_class2}->{row_class}, 'DBIx::QuickORM::Row::ClassA', "Table inherited from schema");
+
+    orm orm_test_a => sub {
+        db orm_test_db => sub {
+        };
+        schema orm_test_schema => sub {
+        };
+    };
+
+    like(
+        orm('orm_test_a'),
+        {
+            name     => 'orm_test_a',
+            compiled => T(),
+            created  => T(),
+            db       => {
+                name     => 'orm_test_db',
+                compiled => T(),
+                created  => T(),
+            },
+            schema => {
+                name     => 'orm_test_schema',
+                compiled => T(),
+                created  => T(),
+            },
+        },
+        "Got the orm with schema and db",
+    );
+
+    orm orm_test_b => sub {
+        db 'variable.db_one';
+        schema 'xyz_a';
+
+        like(
+            $bld->{stack}->[-1],
+            {
+                name     => 'orm_test_b',
+                building => 'ORM',
+                meta     => {
+                    name => 'orm_test_b',
+                    db   => {
+                        name     => 'db_one',
+                        building => 'DB',
+                        server   => 'variable',
+                    },
+                    schema => {
+                        name     => 'xyz_a',
+                        building => 'SCHEMA',
+                    },
+                },
+            },
+            "Added db and schema to the orm, not compiled"
+        );
+    };
+
+    like(
+        orm('orm_test_b'),
+        {
+            name => 'orm_test_b',
+            db   => {
+                name => 'db_one',
+                pass => 'foo',
+            },
+            schema => {
+                name   => 'xyz_a',
+                tables => {
+                    clone_xyz_a => T(),
+                    clone_xyz_b => T(),
+                    xyz         => T(),
+                }
+            },
+        },
+        "Got vanilla db in orm"
+    );
+
+    like(
+        orm('orm_test_b:mysql'),
+        {
+            name => 'orm_test_b',
+            db   => {
+                host => 'mysql',
+                name => 'db_one',
+                pass => 'foo',
+                port => 1234,
+                user => 'my_user',
+            },
+            schema => {
+                name   => 'xyz_a',
+                tables => {
+                    clone_xyz_a => T(),
+                    clone_xyz_b => T(),
+                    xyz         => T(),
+                },
+            },
+        },
+        "Got mysql variant"
+    );
+
+    like(
+        orm('orm_test_b:postgresql'),
+        {
+            name => 'orm_test_b',
+            db   => {
+                host => 'postgresql',
+                name => 'db_one',
+                pass => 'foo',
+                port => 2345,
+                user => 'pg_user',
+            },
+            schema => {
+                name   => 'xyz_a',
+                tables => {
+                    clone_xyz_a => T(),
+                    clone_xyz_b => T(),
+                    xyz         => T(),
+                }
+            },
+        },
+        "Got postgresql variant"
+    );
+
+
+    schema test_pk_and_unique => sub {
+        table foo => sub {
+            column foo => sub {
+                primary_key;
+                unique;
+
+                like(dies { primary_key('xxx') }, qr/Too many arguments/, "No args when used in column");
+                like(dies { unique('xxx') }, qr/Too many arguments/, "No args when used in column");
+            };
+
+            like(
+                $bld->{stack}->[-1]->{meta},
+                {
+                    primary_key => ['foo'],
+                    unique => { foo => ['foo'] },
+                },
+                "Added pk and unique"
+            );
+
+            like(dies { primary_key() }, qr/Not enough arguments/, "Need to specify args");
+            like(dies { unique() },      qr/Not enough arguments/, "Need to specify args");
+        };
+    };
+
+    my $def = sub { 1 };
+    schema test_default => sub {
+        table foo => sub {
+            column x => sub {
+                default \'NOW()';
+                default $def;
+            };
+
+            column y => default(\'NOW()'), default($def);
+
+            like(
+                $bld->{stack}->[-1]->{meta}->{columns}->{x}->{meta},
+                {
+                    sql_default => 'NOW()',
+                    perl_default => $def,
+                },
+                "Set both default types"
+            );
+
+            like(
+                $bld->{stack}->[-1]->{meta}->{columns}->{y}->{meta},
+                {
+                    sql_default => 'NOW()',
+                    perl_default => $def,
+                },
+                "Set both default types"
+            );
+
+        };
+    };
+
+    like(
+        { default(\'NOW()'), default($def) },
+        { sql_default => 'NOW()', perl_default => $def },
+        "non-void context"
     );
 }
 
@@ -508,7 +1463,11 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     ref_is(qorm(), Test::ORM->builder, "shortcut to the 'DBIx::QuickORM' instance");
 
-    isa_ok(qorm(db => 'somesql.somedb'), ['DBIx::QuickORM::DB'], "Got the db by name");
+    isa_ok(qorm('orm_test_b:postgresql'), ['DBIx::QuickORM::ORM'], "Got the orm by name");
+
+    ref_is(qorm('orm_test_b:postgresql'), qorm('orm_test_b:postgresql'), "Cached the reference");
+
+    isa_ok(qorm(db => 'somesql.somedb'),             ['DBIx::QuickORM::DB'], "Got the db by name");
     isa_ok(qorm(db => 'variable.db_one:postgresql'), ['DBIx::QuickORM::DB'], "Got the db by name and variation");
 
     like(dies { qorm(1 .. 10) },         qr/Too many arguments/,                                             "Too many args");
@@ -517,7 +1476,3 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 }
 
 done_testing;
-
-
-__END__
-
