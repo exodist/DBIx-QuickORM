@@ -44,6 +44,7 @@ my @EXPORT = qw{
 
     server
      driver
+     dialect
      attributes
      host
      port
@@ -348,12 +349,20 @@ sub driver {
 
     my $top = $self->_in_builder(qw{db server});
 
-    my $class = load_class($proto, 'DBIx::QuickORM::DB') or croak "Could not load DB driver '$proto': $@";
+    my $class = load_class($proto, 'DBD') or croak "Could not load DBI driver '$proto': $@";
 
-    croak "Class '$class' is not a subclass of 'DBIx::QuickORM::DB'"
-        unless $class->isa('DBIx::QuickORM::DB');
+    $top->{meta}->{dbi_driver} = $class;
+}
 
-    $top->{class} = $class;
+sub dialect {
+    my $self = shift;
+    my ($dialect) = @_;
+
+    my $top = $self->_in_builder(qw{db server});
+
+    my $class = load_class($dialect, 'DBIx::QuickORM::Dialect') or croak "Could not load dialect '$dialect': $@";
+
+    $top->{meta}->{dialect} = $class;
 }
 
 sub connect {
@@ -1522,27 +1531,68 @@ Can also be used to tell an ORM which db to use:
         ...
     };
 
-=item driver '+My::Custom::Driver';
+=item dialect '+DBIx::QuickORM::Dialect::PostgreSQL'
 
-=item driver 'PostgreSQL';
+=item dialect 'PostgreSQL'
 
-=item driver 'MySQL';
+=item dialect 'PostgreSQL::V17'
+
+=item dialect 'MySQL'
+
+=item dialect 'MariaDB'
+
+=item dialect 'SQLite'
+
+Specify what dialect of SQL should be used. This is important for reading
+schema from an existing database, or writing new schema SQL.
+
+'DBIx::QuickORM::Dialect::' will be prefixed to the start of any string
+provided unless it starts with a '+', in whcih case the plus is removed and the
+rest of the string is left unmodified.
+
+The following are all supported by DBIx::QuickORM by default. Using them will
+always use the latest version. If you are using an older version of the
+database and want a matching dialect you can specify that with '::V#', assuming
+a module exists for the dialect version you want. If none exists you can write
+one and submit a PR.
+
+=over 4
+
+=item PostgreSQL
+
+For interacting with PostgreSQL databases.
+
+=item MySQL
+
+For interacting with MySQL databases.
+
+=item MariaDB
+
+For interacting with MariaDB databases.
+
+=item SQLite
+
+For interacting with SQLite databases.
+
+=back
+
+=item driver '+DBD::Pg'
+
+=item driver 'Pg'
+
+=item driver 'mysql';
 
 =item driver 'MariaDB';
 
 =item driver 'SQLite';
 
-Load a database driver. If a '+' prefix is present it will be stripped, but the
-driver name will not be altered any further. Without the '+' then
-'DBIx::QuickORM::DB::' will be prefixed onto the specified name.
+Usually you do not need to specify this as your dialect should specify the
+correct one to use. However in cases like MySQL and MariaDB they are more or
+less interchangable and you may want to override the default.
 
-    db my_pg_db => sub {
-        driver 'PostgreSQL'; # Use DBIx::QuickORM::DB::PostgreSQL
-    };
-
-    db my_other_db => sub {
-        driver '+My::Custom::Driver'; # Will use My::Custom::Driver
-    };
+Specify what DBI driver should be used. 'DBD::' is prefixed to any string you
+specify unless it starts with '+', in which case the plus is stripped and the
+rest of the module name is unmodified.
 
 =item attributes \%HASHREF
 
