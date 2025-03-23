@@ -57,6 +57,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
         server
          driver
+         dialect
          attributes
          host
          port
@@ -199,6 +200,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     my $db_inner;
     server somesql => sub {
         host 'foo';
+        dialect 'PostgreSQL';
 
         $db_inner = db somedb => sub {
             user 'bob';
@@ -214,6 +216,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             user => 'bob',      # From db { ... }
             host => 'foo',      # From server { ... }
             name => 'somedb',
+
+            dialect => 'DBIx::QuickORM::Dialect::PostgreSQL',
         },
         "Got expected db fields"
     );
@@ -222,6 +226,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         host 'boo';
         user 'boouser';
         pass 'boopass';
+        dialect 'PostgreSQL';
 
         meta bah => 'humbug';
         is(meta()->{bah}, 'humbug', "Set the meta data directly");
@@ -234,6 +239,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 user => 'boouser',
                 pass => 'boopass',
                 bah  => 'humbug',
+
+                dialect => 'DBIx::QuickORM::Dialect::PostgreSQL',
             },
             "The fields were set"
         );
@@ -255,13 +262,15 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     );
 
     db fake => sub {
+        dialect 'SQLite';
         build_class 'DBIx::QuickORM::DB::Fake';
     };
     isa_ok(db('fake'), ['DBIx::QuickORM::DB::Fake'], "Got the alternate build class");
 
     db full => sub {
         db_name "full_db";
-        driver 'Fake';
+        dialect 'PostgreSQL';
+        driver 'Pg';
 
         connect sub { die "oops" };
 
@@ -280,7 +289,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         like(dies { attributes [] }, qr/attributes\(\) accepts either a hashref, or \(key => value\) pairs/,      "Must be valid attributes");
     };
 
-    isa_ok(db('full'), ['DBIx::QuickORM::DB::Fake'], "Got the driver class");
+    isa_ok(db('full'), ['DBIx::QuickORM::DB'], "Got the db");
     like(
         db('full'),
         {
@@ -292,6 +301,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             port       => 1234,
             user       => 'me',
             pass       => 'hunter1',
+            dbi_driver => 'DBD::Pg',
+            dialect    => 'DBIx::QuickORM::Dialect::PostgreSQL',
 
             created  => T(),
             compiled => T(),
@@ -450,17 +461,20 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     server variable => sub {
         pass "foo";
+        dialect 'SQLite';
 
         alt mysql => sub {
             host 'mysql';
             port 1234;
             user 'my_user';
+            dialect 'MySQL';
         };
 
         alt postgresql => sub {
             host 'postgresql';
             port 2345;
             user 'pg_user';
+            dialect 'PostgreSQL';
         };
 
         db 'db_one';
@@ -475,6 +489,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             pass => 'foo',
             port => 1234,
             user => 'my_user',
+            dialect => 'DBIx::QuickORM::Dialect::MySQL',
 
             created  => T(),
             compiled => T(),
@@ -490,6 +505,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             pass => 'foo',
             port => 2345,
             user => 'pg_user',
+            dialect => 'DBIx::QuickORM::Dialect::PostgreSQL',
 
             created  => T(),
             compiled => T(),
@@ -505,6 +521,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             pass => 'foo',
             port => 1234,
             user => 'my_user',
+            dialect => 'DBIx::QuickORM::Dialect::MySQL',
 
             created  => T(),
             compiled => T(),
@@ -520,6 +537,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             pass => 'foo',
             port => 2345,
             user => 'pg_user',
+            dialect => 'DBIx::QuickORM::Dialect::PostgreSQL',
 
             created  => T(),
             compiled => T(),
@@ -528,6 +546,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     );
 
     db 'from_creds' => sub {
+        dialect 'PostgreSQL';
         creds sub {
             return {
                 user   => 'username',
@@ -544,6 +563,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             user   => 'username',
             pass   => 'password',
             socket => 'socketname',
+            dialect => 'DBIx::QuickORM::Dialect::PostgreSQL',
 
             created  => T(),
             compiled => T(),
@@ -1219,7 +1239,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     ok(blessed(schema('typetest')->{tables}->{typetest}->{columns}->{blessed}->{type}), "Blessed the blessed type");
     ok(blessed(schema('typetest')->{tables}->{typetest}->{columns}->{type_arg}->{type}), "Blessed the type_arg");
 
-    db name_test => sub { db_name 'foo' };
+    db name_test => sub { db_name 'foo'; dialect 'SQLite' };
     is(db('name_test')->{name}, 'foo', "DB Name different from qorm name");
 
     schema name_test => sub {
@@ -1254,6 +1274,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     orm orm_test_a => sub {
         db orm_test_db => sub {
+            dialect 'SQLite';
         };
         schema orm_test_schema => sub {
         };

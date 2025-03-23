@@ -20,6 +20,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <pass
     <created
     <compiled
+    <dialect
 };
 
 sub dbi_driver { confess "Not Implemented" }
@@ -28,6 +29,8 @@ sub dsn_socket_field { 'host' };
 
 sub init {
     my $self = shift;
+
+    croak "'dialect' is a required attribute" unless $self->{+DIALECT};
 
     delete $self->{+NAME} unless defined $self->{+NAME};
 
