@@ -1,11 +1,15 @@
 package DBIx::QuickORM;
 use strict;
 use warnings;
+
+our $VERSION = '0.000005';
+
 use Carp qw/croak confess/;
+$Carp::Internal{ (__PACKAGE__) }++;
 
 use Storable qw/dclone/;
-use Scalar::Util qw/blessed/;
 use Sub::Util qw/set_subname/;
+use Scalar::Util qw/blessed/;
 
 use Scope::Guard();
 
@@ -534,8 +538,11 @@ sub column {
 
     my $top = $self->_in_builder(qw{table});
 
+    $top->{column_order} //= 1;
+    my $order = $top->{column_order}++;
+
     my $into  = $top->{meta}->{columns} //= {};
-    my $frame = {building => 'COLUMN', class => 'DBIx::QuickORM::Schema::Table::Column'};
+    my $frame = {building => 'COLUMN', class => 'DBIx::QuickORM::Schema::Table::Column', meta => {order => $order}};
 
     return $self->_build(
         'Column',
@@ -859,8 +866,6 @@ sub link {
     }
 
     push @{$top->{meta}->{links}} => [$node_a, $node_b, {caller => $caller, type => $type}];
-
-    Carp::cluck("When compiling schema, links all need to be consolidated and set in the tables");
 
     return;
 }

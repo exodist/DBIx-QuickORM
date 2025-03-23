@@ -2,6 +2,8 @@ package DBIx::QuickORM::Affinity;
 use strict;
 use warnings;
 
+our $VERSION = '0.000005';
+
 use Carp qw/croak/;
 
 use base 'Exporter';
@@ -100,9 +102,10 @@ my %AFFINITY_BY_TYPE = (
 sub affinity_from_type {
     my $type = pop or return undef;
 
+    $type = lc($type);
     $type =~ s/\s*\(.*\)\s*$//;
 
-    if ($type =~ m/^(?:tiny|medium|big|long|var)(.+)/) {
+    if ($type =~ m/^(?:tiny|medium|big|long|var)(.+)/i) {
         return $AFFINITY_BY_TYPE{$1} if $AFFINITY_BY_TYPE{$1};
     }
 
