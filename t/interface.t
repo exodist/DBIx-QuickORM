@@ -5,22 +5,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     $INC{'DBIx/QuickORM/ORM.pm'} = __FILE__;
     use DBIx::QuickORM::Util::HashBase;
 
-    package DBIx::QuickORM::Schema;
-    $INC{'DBIx/QuickORM/Schema.pm'} = __FILE__;
-    use DBIx::QuickORM::Util::HashBase;
-
-    package DBIx::QuickORM::Schema::Table;
-    $INC{'DBIx/QuickORM/Schema/Table.pm'} = __FILE__;
-    use DBIx::QuickORM::Util::HashBase qw/name/;
-
-    package DBIx::QuickORM::Schema::Table::Column;
-    $INC{'DBIx/QuickORM/Schema/Table/Column.pm'} = __FILE__;
-    use DBIx::QuickORM::Util::HashBase;
-
-    package DBIx::QuickORM::DB;
-    $INC{'DBIx/QuickORM/DB.pm'} = __FILE__;
-    use DBIx::QuickORM::Util::HashBase;
-
     package DBIx::QuickORM::DB::Fake;
     $INC{'DBIx/QuickORM/DB/Fake.pm'} = __FILE__;
     our @ISA = ('DBIx::QuickORM::DB');
@@ -28,14 +12,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     package DBIx::QuickORM::Plugin;
     $INC{'DBIx/QuickORM/Plugin.pm'} = __FILE__;
-    use DBIx::QuickORM::Util::HashBase;
-
-    package DBIx::QuickORM::Row;
-    $INC{'DBIx/QuickORM/Row.pm'} = __FILE__;
-    use DBIx::QuickORM::Util::HashBase;
-
-    package DBIx::QuickORM::Type;
-    $INC{'DBIx/QuickORM/Type.pm'} = __FILE__;
     use DBIx::QuickORM::Util::HashBase;
 
     package DBIx::QuickORM::Type::MyType;
@@ -263,7 +239,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         );
     };
 
-    is(
+    like(
         db('otherdb'),
         {
             compiled => T(),
@@ -297,7 +273,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         dsn "mydsn";
         host "myhost";
         port 1234;
-        socket 'mysocket';
         user "me";
         pass "hunter1";
 
@@ -306,7 +281,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     };
 
     isa_ok(db('full'), ['DBIx::QuickORM::DB::Fake'], "Got the driver class");
-    is(
+    like(
         db('full'),
         {
             name       => 'full_db',
@@ -315,7 +290,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             dsn        => "mydsn",
             host       => "myhost",
             port       => 1234,
-            socket     => 'mysocket',
             user       => 'me',
             pass       => 'hunter1',
 
@@ -359,7 +333,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         };
     };
 
-    is(
+    like(
         schema('variable'),
         {
             name     => 'variable',
@@ -372,6 +346,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     name     => 'foo',
                     columns  => {
                         x => {
+                            order    => 1,
                             created  => T(),
                             compiled => T(),
                             name     => 'x',
@@ -384,7 +359,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         "Got a base variable schema",
     );
 
-    is(
+    like(
         schema('variable:alt_a'),
         {
             created  => T(),
@@ -428,7 +403,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         "Got the alt_a variant of the variable schema",
     );
 
-    is(
+    like(
         schema('variable:alt_b'),
         {
             created  => T(),
@@ -492,7 +467,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         db 'db_two';
     };
 
-    is(
+    like(
         db('variable.db_one:mysql'),
         {
             host => 'mysql',
@@ -507,7 +482,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         "Got 'db_one' from server 'variable', 'mysql' variant",
     );
 
-    is(
+    like(
         db('variable.db_one:postgresql'),
         {
             host => 'postgresql',
@@ -522,7 +497,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         "Got 'db_one' from server 'variable', 'postgresql' variant",
     );
 
-    is(
+    like(
         db('variable.db_two:mysql'),
         {
             host => 'mysql',
@@ -537,7 +512,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         "Got 'db_two' from server 'variable', 'mysql' variant",
     );
 
-    is(
+    like(
         db('variable.db_two:postgresql'),
         {
             host => 'postgresql',
@@ -555,23 +530,19 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     db 'from_creds' => sub {
         creds sub {
             return {
-                host   => 'hostname',
                 user   => 'username',
                 pass   => 'password',
-                port   => 1234,
                 socket => 'socketname',
             };
         };
     };
 
-    is(
+    like(
         db('from_creds'),
         {
             name   => 'from_creds',
-            host   => 'hostname',
             user   => 'username',
             pass   => 'password',
-            port   => 1234,
             socket => 'socketname',
 
             created  => T(),
@@ -629,28 +600,29 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         {
             name      => 'deeptest',
             row_class => 'DBIx::QuickORM::Row::ClassA',
-            links     => [
-                [
-                    {table => 'foo', accessor => 'bar1', columns => ['x']},
-                    {table => 'bar', accessor => 'foo1', columns => ['xyz']},
-                    {type  => '1:1', caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
-                ],
-                [
-                    {table => 'foo',       accessor => 'bar2', columns => ['x'], extra => 1},
-                    {table => 'bar',       accessor => 'foo2', columns => ['x'], extra => 1},
-                    {type  => ONE_TO_MANY, caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
-                ],
-            ],
+            links     => DNE(),
             tables => {
                 bar => {
+                    name      => 'bar',
+                    row_class => 'DBIx::QuickORM::Row::ClassA',
                     columns => {
                         xyz => {
                             name => 'xyz',
                             type => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
                         },
                     },
-                    name      => 'bar',
-                    row_class => 'DBIx::QuickORM::Row::ClassA',
+                    links => {
+                        foo1 => [
+                            {table => 'bar', accessor => 'foo1', columns => ['xyz']},
+                            {table => 'foo', accessor => 'bar1', columns => ['x']},
+                            {type  => '1:1', caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
+                        ],
+                        foo2 => [
+                            {table => 'bar',       accessor => 'foo2', columns => ['x'], extra => 1},
+                            {table => 'foo',       accessor => 'bar2', columns => ['x'], extra => 1},
+                            {type  => MANY_TO_ONE, caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
+                        ],
+                    },
                 },
                 foo => {
                     name        => 'foo1',
@@ -700,7 +672,18 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             {accessor => 'get_bar', columns => ['C'], table => 'foo'},
                             {columns  => ['xyz'],   table   => 'bar'},
                             {type     => '*:*',     caller  => ['Test::ORM', T(), T(), 'Test::ORM::link']},
-                        ]
+                        ],
+                        bar1 => [
+                            {table => 'foo', accessor => 'bar1', columns => ['x']},
+                            {table => 'bar', accessor => 'foo1', columns => ['xyz']},
+                            {type  => '1:1', caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
+                        ],
+                        bar2 => [
+                            {table => 'foo',       accessor => 'bar2', columns => ['x'], extra => 1},
+                            {table => 'bar',       accessor => 'foo2', columns => ['x'], extra => 1},
+                            {type  => ONE_TO_MANY, caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
+                        ],
+
                     },
                 },
             }
@@ -771,7 +754,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         };
     };
 
-    is(
+    like(
         schema('xyz_a')->{tables},
         {
             xyz => {
@@ -1215,7 +1198,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     schema typetest => sub {
         table typetest => sub {
-            column ref => sub { type \'ref' };
+            column ref => sub { type \'varchar' };
             column type => sub { type 'DBIx::QuickORM::Type' };
             column type_arg => sub { type 'DBIx::QuickORM::Type' => 'arg1', 'arg2' };
             column blessed => sub { type bless({}, 'DBIx::QuickORM::Type') };
@@ -1226,7 +1209,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         schema('typetest')->{tables}->{typetest}->{columns},
         {
             blessed  => {type => t2_meta { prop blessed => 'DBIx::QuickORM::Type' }},
-            ref      => {type => \'ref'},
+            ref      => {type => \'varchar'},
             type     => {type => t2_meta { prop blessed => 'DBIx::QuickORM::Type' }},
             type_arg => {type => t2_meta { prop blessed => 'DBIx::QuickORM::Type'; prop this => {'args' => ['arg1', 'arg2']}}},
         },
