@@ -615,7 +615,7 @@ sub column {
                 }
                 elsif (my $class = load_class($arg, 'DBIx::QuickORM::Type')) {
                     croak "Class '$class' is not a subclass of DBIx::QuickORM::Type" unless $class->isa('DBIx::QuickORM::Type');
-                    $meta->{type} = $class->new;
+                    $meta->{type} = $class;
                 }
                 else {
                     croak "Error loading class for type '$arg': $@" unless $@ =~ m/^Can't locate .+ in \@INC/;
@@ -687,7 +687,8 @@ sub _check_type {
     my ($type) = @_;
 
     return $type if ref($type) eq 'SCALAR';
-    return $type if blessed($type) && $type->isa('DBIx::QuickORM::Type');
+    return undef if ref($type);
+    return $type if $type->isa('DBIx::QuickORM::Type');
 
     my $class = load_class($type, 'DBIx::QuickORM::Type') or return undef;
     return $class;
@@ -698,23 +699,15 @@ sub type {
     croak "Not enough arguments" unless @_;
     my ($type, @args) = @_;
 
+    croak "Too many arguments" if @args;
+    croak "cannot use a blessed instance of the type ($type)" if blessed($type);
+
     local $@;
     my $use_type = $self->_check_type($type);
     unless ($use_type) {
-        my $err = "Type must be a scalar reference, or a blessed instance of, or class that inherits from 'DBIx::QuickORM::Type', got: $type";
+        my $err = "Type must be a scalar reference, or a class that inherits from 'DBIx::QuickORM::Type', got: $type";
         $err .= "\nGot exception: $@" if $@ =~ m/^Can't locate .+ in \@INC/;
         confess $err;
-    }
-
-    if (@args) {
-        croak "Cannot provide args when using an already blessed type" if blessed($use_type);
-        croak "Cannot provide args when using a scalar ref type" if ref($use_type);
-        croak "Cannot provide args in non-void context" if defined wantarray;
-
-        $use_type = $use_type->new(args => \@args);
-    }
-    elsif (!ref($use_type)) {
-        $use_type = $use_type->new();
     }
 
     return $use_type if defined wantarray;
