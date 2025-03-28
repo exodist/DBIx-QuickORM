@@ -44,6 +44,7 @@ sub init {
     $self->{+UNIQUE} //= {};
     $self->{+LINKS} //= {};
     $self->{+LINKS_BY_ALIAS} //= {};
+    $self->{+INDEXES} //= [];
 }
 
 sub _links { delete $_[0]->{+_LINKS} }
