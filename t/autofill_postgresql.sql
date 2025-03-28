@@ -12,7 +12,7 @@ CREATE TABLE lights(
 );
 
 CREATE TABLE aliases(
-    alias_id    SERIAL       NOT NULL PRIMARY KEY,
+    alias_id    INTEGER      NOT NULL PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     light_id    INTEGER      NOT NULL REFERENCES lights(light_id),
     name        VARCHAR(128) NOT NULL,
 

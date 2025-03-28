@@ -201,6 +201,8 @@ sub build_columns_from_db {
         $col->{type} = \"$res->{DATA_TYPE}";
         $col->{nullable} = $self->_col_field_to_bool($res->{IS_NULLABLE});
 
+        $col->{identity} = 1 if $res->{EXTRA} && $res->{EXTRA} eq 'auto_increment';
+
         $col->{affinity} //= affinity_from_type($res->{DATA_TYPE});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/CHARACTER/ } keys %$res;
         $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/NUMERIC/ } keys %$res;

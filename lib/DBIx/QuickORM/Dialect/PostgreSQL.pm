@@ -142,6 +142,7 @@ sub build_columns_from_db {
         $col->{nullable} = $self->_col_field_to_bool($res->{is_nullable});
 
         $col->{identity} //= 1 if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/identity/ } keys %$res;
+        $col->{identity} //= 1 if $res->{column_default} && $res->{column_default} =~ m/^nextval\(/;
 
         $col->{affinity} //= affinity_from_type($res->{udt_name}) // affinity_from_type($res->{data_type});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/character/ } keys %$res;

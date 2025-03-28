@@ -40,7 +40,7 @@ is(
                 links_by_alias => {},
 
                 columns => {
-                    alias_id => {affinity => 'numeric', db_name => 'alias_id', name => 'alias_id', nullable => F(), order => 1, type => \'INTEGER'},
+                    alias_id => {affinity => 'numeric', db_name => 'alias_id', name => 'alias_id', nullable => F(), order => 1, type => \'INTEGER', identity => T()},
                     light_id => {affinity => 'numeric', db_name => 'light_id', name => 'light_id', nullable => F(), order => 2, type => \'INTEGER'},
                     name     => {affinity => 'string',  db_name => 'name',     name => 'name',     nullable => F(), order => 3, type => \'VARCHAR'},
                 },
@@ -137,7 +137,7 @@ is(
                 links_by_alias => {},
 
                 columns => {
-                    light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, type => \'INTEGER'},
+                    light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, type => \'INTEGER', identity => T()},
                     light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => F(), order => 2, type => \'UUID'},
                     stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 3, type => \'TIMESTAMP'},
                     color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => F(), order => 4, type => \'TEXT'},
