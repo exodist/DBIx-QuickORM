@@ -7,12 +7,14 @@ our $VERSION = '0.000005';
 use Carp qw/confess croak/;
 use Scalar::Util qw/blessed/;
 
+use DBIx::QuickORM::Handle;
+
 use DBIx::QuickORM::Util::HashBase qw{
     <orm
     <dbh
     <dialect
     <pid
-
+    <cache
     <schema
 };
 
@@ -43,6 +45,18 @@ sub init {
     else {
         $self->{+SCHEMA} = $orm->schema->clone;
     }
+}
+
+sub pid_check {
+    my $self = shift;
+    confess "Connections cannot be used across multiple processes, you must reconnect post-fork" unless $$ == $self->{+PID};
+    return 1;
+}
+
+sub handle {
+    my $self = shift;
+    $self->pid_check;
+    return DBIx::QuickORM::Handle->new(connection => $self, @_);
 }
 
 1;
