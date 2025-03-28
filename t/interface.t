@@ -618,7 +618,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     columns   => {
                         xyz => {
                             name => 'xyz',
-                            type => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+                            type => 'DBIx::QuickORM::Type::MyType',
                         },
                     },
                     links => {
@@ -681,7 +681,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     columns     => {
                         a => {
                             name => 'a',
-                            type => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+                            type => 'DBIx::QuickORM::Type::MyType',
                         },
                         b => {
                             affinity => 'string',
@@ -1021,7 +1021,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 identity => 1,
                 nullable => 1,
                 affinity => 'numeric',
-                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+                type     => 'DBIx::QuickORM::Type::MyType',
             },
             b => {
                 name     => 'b',
@@ -1045,7 +1045,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 identity => FDNE,
                 nullable => FDNE,
                 affinity => 'numeric',
-                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+                type     => 'DBIx::QuickORM::Type::MyType',
             },
             e => {
                 name     => 'e',
@@ -1053,7 +1053,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 identity => 1,
                 nullable => FDNE,
                 affinity => 'numeric',
-                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+                type     => 'DBIx::QuickORM::Type::MyType',
             },
             f => {
                 name     => 'f',
@@ -1061,7 +1061,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 identity => 1,
                 nullable => 1,
                 affinity => 'numeric',
-                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+                type     => 'DBIx::QuickORM::Type::MyType',
             },
             g => {
                 name     => 'gg',
@@ -1069,7 +1069,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 identity => 1,
                 nullable => 1,
                 affinity => 'numeric',
-                type     => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
+                type     => 'DBIx::QuickORM::Type::MyType',
             },
             h => {
                 name     => 'h',
@@ -1255,52 +1255,33 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     like(dies { type() }, qr/Not enough arguments/, "Need args");
     like(
         dies { type('Fake::Thing') },
-        qr/Type must be a scalar reference, or a blessed instance of, or class that inherits from 'DBIx::QuickORM::Type', got: Fake::Thing/,
+        qr/Type must be a scalar reference, or a class that inherits from 'DBIx::QuickORM::Type', got: Fake::Thing/,
         "Must be a valid type"
     );
 
     like(
         dies { type(\'foo', 'arg') },
-        qr/Cannot provide args when using a scalar ref type/,
-        "No args for scalar ref",
+        qr/Too many arguments/,
+        "Too many args",
     );
 
-    like(
-        dies { type(bless({}, 'DBIx::QuickORM::Type'), 'arg') },
-        qr/Cannot provide args when using an already blessed type/,
-        "No args for scalar ref",
-    );
-
-    like(
-        dies { my $x = type('DBIx::QuickORM::Type', 'arg') },
-        qr/Cannot provide args in non-void context/,
-        "No args for non-void",
-    );
-
-    is(type('DBIx::QuickORM::Type'), t2_meta { prop blessed => 'DBIx::QuickORM::Type' }, "Returns class in scalar context");
+    is(type('DBIx::QuickORM::Type'), 'DBIx::QuickORM::Type', "Returns class in scalar context");
 
     schema typetest => sub {
         table typetest => sub {
             column ref => sub { type \'varchar' };
             column type => sub { type 'DBIx::QuickORM::Type' };
-            column type_arg => sub { type 'DBIx::QuickORM::Type' => 'arg1', 'arg2' };
-            column blessed => sub { type bless({}, 'DBIx::QuickORM::Type') };
         };
     };
 
     like(
         schema('typetest')->{tables}->{typetest}->{columns},
         {
-            blessed  => {type => t2_meta { prop blessed => 'DBIx::QuickORM::Type' }},
-            ref      => {type => \'varchar'},
-            type     => {type => t2_meta { prop blessed => 'DBIx::QuickORM::Type' }},
-            type_arg => {type => t2_meta { prop blessed => 'DBIx::QuickORM::Type'; prop this => {'args' => ['arg1', 'arg2']}}},
+            ref  => {type => \'varchar'},
+            type => {type => 'DBIx::QuickORM::Type'},
         },
         "Got correct types"
     );
-
-    ok(blessed(schema('typetest')->{tables}->{typetest}->{columns}->{blessed}->{type}), "Blessed the blessed type");
-    ok(blessed(schema('typetest')->{tables}->{typetest}->{columns}->{type_arg}->{type}), "Blessed the type_arg");
 
     db name_test => sub { db_name 'foo'; dialect 'SQLite' };
     is(db('name_test')->{name}, 'foo', "DB Name different from qorm name");
