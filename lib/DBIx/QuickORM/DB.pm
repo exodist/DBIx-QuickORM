@@ -11,7 +11,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <name
     +connect
     <attributes
-    <db_name
+    +db_name
     +dsn
     <host
     <port
@@ -21,11 +21,10 @@ use DBIx::QuickORM::Util::HashBase qw{
     <created
     <compiled
     <dialect
+    <dbi_driver
 };
 
-sub dbi_driver { confess "Not Implemented" }
-
-sub dsn_socket_field { 'host' };
+sub db_name { $_[0]->{+DB_NAME} // $_[0]->{+NAME} }
 
 sub init {
     my $self = shift;
@@ -43,41 +42,13 @@ sub init {
     croak "Cannot provide both a socket and a host" if $self->{+SOCKET} && $self->{+HOST};
 }
 
-sub driver_name {
-    my $self_or_class = shift;
-    my $class = blessed($self_or_class) || $self_or_class;
-    $class =~ s/^DBIx::QuickORM::DB:://;
-    return $class;
-}
-
 sub dsn {
     my $self = shift;
     return $self->{+DSN} if $self->{+DSN};
-
-    my $driver = $self->dbi_driver;
-    $driver =~ s/^DBD:://;
-
-    my $db_name = $self->db_name;
-
-    my $dsn = "dbi:${driver}:dbname=${db_name};";
-
-    if (my $socket = $self->socket) {
-        $dsn .= $self->dsn_socket_field . "=$socket";
-    }
-    elsif (my $host = $self->host) {
-        $dsn .= "host=$host;";
-        if (my $port = $self->port) {
-            $dsn .= "port=$port;";
-        }
-    }
-    else {
-        croak "Cannot construct dsn without a host or socket";
-    }
-
-    return $self->{+DSN} = $dsn;
+    return $self->{+DSN} = $self->{+DIALECT}->dsn($self);
 }
 
-sub connect {
+sub new_dbh {
     my $self = shift;
     my (%params) = @_;
 
@@ -98,13 +69,7 @@ sub connect {
 
     $dbh->{AutoInactiveDestroy} = 1 if $attrs->{AutoInactiveDestroy};
 
-    return $dbh if $params{dbh_only};
-
-    require DBIx::QuickORM::Connection;
-    return DBIx::QuickORM::Connection->new(
-        dbh => $dbh,
-        db  => $self,
-    );
+    return $dbh;
 }
 
 1;

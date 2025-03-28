@@ -1,17 +1,9 @@
 use Test2::V0 -target => 'DBIx::QuickORM';
 
 {
-    package DBIx::QuickORM::ORM;
-    $INC{'DBIx/QuickORM/ORM.pm'} = __FILE__;
-    use DBIx::QuickORM::Util::HashBase;
-
     package DBIx::QuickORM::DB::Fake;
     $INC{'DBIx/QuickORM/DB/Fake.pm'} = __FILE__;
     our @ISA = ('DBIx::QuickORM::DB');
-    use DBIx::QuickORM::Util::HashBase;
-
-    package DBIx::QuickORM::Plugin;
-    $INC{'DBIx/QuickORM/Plugin.pm'} = __FILE__;
     use DBIx::QuickORM::Util::HashBase;
 
     package DBIx::QuickORM::Type::MyType;
@@ -43,11 +35,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     use ok 'DBIx::QuickORM';
 
     imported_ok(qw{
-        ONE_TO_ONE
-        MANY_TO_MANY
-        ONE_TO_MANY
-        MANY_TO_ONE
-
         plugin
         plugins
         meta
@@ -603,15 +590,18 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         };
 
         link(
-            {table => 'foo', columns => ['x'],   accessor => 'bar1'},
-            ONE_TO_ONE,
-            {table => 'bar', columns => ['xyz'], accessor => 'foo1'},
+            {table => 'foo', columns => ['x'],   alias => 'bar1'},
+            {table => 'bar', columns => ['xyz'], alias => 'foo1'},
         );
 
+        link foo2 => [bar => [qw/x/]],
+             bar2 => [foo => [qw/x/]];
+
+        link foo3 => [bar => [qw/x/]], foo => [qw/x/];
+
         link(
-            [foo => ['x'], 'bar2', {extra => 1}],
-            '1:*',
-            [bar => ['x'], 'foo2', {extra => 1}],
+            foo => [qw/x/],
+            bar => [qw/x/],
         );
     };
 
@@ -621,27 +611,66 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             name      => 'deeptest',
             row_class => 'DBIx::QuickORM::Row::ClassA',
             links     => DNE(),
-            tables => {
+            tables    => {
                 bar => {
                     name      => 'bar',
                     row_class => 'DBIx::QuickORM::Row::ClassA',
-                    columns => {
+                    columns   => {
                         xyz => {
                             name => 'xyz',
                             type => t2_meta { prop blessed => 'DBIx::QuickORM::Type::MyType' },
                         },
                     },
                     links => {
-                        foo1 => [
-                            {table => 'bar', accessor => 'foo1', columns => ['xyz']},
-                            {table => 'foo', accessor => 'bar1', columns => ['x']},
-                            {type  => '1:1', caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
-                        ],
-                        foo2 => [
-                            {table => 'bar',       accessor => 'foo2', columns => ['x'], extra => 1},
-                            {table => 'foo',       accessor => 'bar2', columns => ['x'], extra => 1},
-                            {type  => MANY_TO_ONE, caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
-                        ],
+                        foo => {
+                            x => {
+                                table         => 'foo',
+                                key           => 'x',
+                                aliases       => ['foo2', 'foo3'],
+                                local_columns => ['x'],
+                                other_columns => ['x'],
+                                unique        => F(),
+                                created       => T(),
+                            },
+                            xyz => {
+                                table         => 'foo',
+                                key           => 'xyz',
+                                aliases       => ['foo1'],
+                                local_columns => ['xyz'],
+                                other_columns => ['x'],
+                                unique        => F(),
+                                created       => T(),
+                            },
+                        },
+                    },
+                    links_by_alias => {
+                        foo1 => {
+                            table         => 'foo',
+                            key           => 'xyz',
+                            aliases       => ['foo1'],
+                            local_columns => ['xyz'],
+                            other_columns => ['x'],
+                            unique        => F(),
+                            created       => T(),
+                        },
+                        foo2 => {
+                            table         => 'foo',
+                            key           => 'x',
+                            aliases       => ['foo2', 'foo3'],
+                            local_columns => ['x'],
+                            other_columns => ['x'],
+                            unique        => F(),
+                            created       => T(),
+                        },
+                        foo3 => {
+                            table         => 'foo',
+                            key           => 'x',
+                            aliases       => ['foo2', 'foo3'],
+                            local_columns => ['x'],
+                            other_columns => ['x'],
+                            unique        => F(),
+                            created       => T(),
+                        },
                     },
                 },
                 foo => {
@@ -688,21 +717,55 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                         },
                     },
                     links => {
-                        get_bar => [
-                            {accessor => 'get_bar', columns => ['C'], table => 'foo'},
-                            {columns  => ['xyz'],   table   => 'bar'},
-                            {type     => '*:*',     caller  => ['Test::ORM', T(), T(), 'Test::ORM::link']},
-                        ],
-                        bar1 => [
-                            {table => 'foo', accessor => 'bar1', columns => ['x']},
-                            {table => 'bar', accessor => 'foo1', columns => ['xyz']},
-                            {type  => '1:1', caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
-                        ],
-                        bar2 => [
-                            {table => 'foo',       accessor => 'bar2', columns => ['x'], extra => 1},
-                            {table => 'bar',       accessor => 'foo2', columns => ['x'], extra => 1},
-                            {type  => ONE_TO_MANY, caller   => ['Test::ORM', T(), T(), 'Test::ORM::link']},
-                        ],
+                        bar => {
+                            C => {
+                                table         => 'bar',
+                                key           => 'C',
+                                aliases       => ['get_bar'],
+                                local_columns => ['C'],
+                                other_columns => ['xyz'],
+                                unique        => F(),
+                                created       => T(),
+                            },
+                            x => {
+                                table         => 'bar',
+                                key           => 'x',
+                                aliases       => ['bar1', 'bar2'],
+                                local_columns => ['x'],
+                                other_columns => ['xyz'],
+                                unique        => F(),
+                                created       => T(),
+                            },
+                        },
+                    },
+                    links_by_alias => {
+                        get_bar => {
+                            table         => 'bar',
+                            key           => 'C',
+                            aliases       => ['get_bar'],
+                            local_columns => ['C'],
+                            other_columns => ['xyz'],
+                            unique        => F(),
+                            created       => T(),
+                        },
+                        bar1 => {
+                            table         => 'bar',
+                            key           => 'x',
+                            aliases       => ['bar1', 'bar2'],
+                            local_columns => ['x'],
+                            other_columns => ['xyz'],
+                            unique        => F(),
+                            created       => T(),
+                        },
+                        bar2 => {
+                            table         => 'bar',
+                            key           => 'x',
+                            aliases       => ['bar1', 'bar2'],
+                            local_columns => ['x'],
+                            other_columns => ['xyz'],
+                            unique        => F(),
+                            created       => T(),
+                        },
 
                     },
                 },
@@ -1276,6 +1339,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         db orm_test_db => sub {
             dialect 'SQLite';
         };
+
+        autofill;
+
         schema orm_test_schema => sub {
         };
     };
@@ -1286,6 +1352,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             name     => 'orm_test_a',
             compiled => T(),
             created  => T(),
+            autofill => T(),
             db       => {
                 name     => 'orm_test_db',
                 compiled => T(),
