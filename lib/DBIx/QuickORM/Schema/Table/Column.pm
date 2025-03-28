@@ -14,6 +14,7 @@ use DBIx::QuickORM::Affinity qw{
 
 use DBIx::QuickORM::Util::HashBase qw{
     <name
+    <db_name
     <sql_default
     <perl_default
     <omit

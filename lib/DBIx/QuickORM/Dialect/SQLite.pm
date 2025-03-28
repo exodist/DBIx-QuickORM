@@ -144,6 +144,20 @@ sub build_table_keys_from_db {
     return($pk, \%unique, \@links);
 }
 
+sub table_has_autoinc {
+    my $self = shift;
+    my ($table) = @_;
+
+    croak "A table name is required" unless $table;
+    my $dbh = $self->{+DBH};
+
+    my $sth = $dbh->prepare(qq{SELECT 1 FROM sqlite_master WHERE tbl_name=? AND sql LIKE "\%AUTOINCREMENT\%"});
+    $sth->execute($table);
+    my ($res) = $sth->fetchrow_array;
+
+    return $res ? 1 : 0;
+}
+
 sub build_columns_from_db {
     my $self = shift;
     my ($table) = @_;
@@ -154,12 +168,15 @@ sub build_columns_from_db {
     my $sth = $dbh->prepare("SELECT * FROM pragma_table_info(?)");
     $sth->execute($table);
 
+    my $has_autoinc = $self->table_has_autoinc($table);
+
     my (%columns, @links);
     while (my $res = $sth->fetchrow_hashref) {
         my $col = {};
         $col->{name}    = $res->{name};
         $col->{db_name} = $res->{name};
         $col->{order}   = $res->{cid} + 1;
+        $col->{identity} = 1 if $has_autoinc && $res->{pk};
 
         my $type = $res->{type};
         $type =~ s/\(.*$//;
