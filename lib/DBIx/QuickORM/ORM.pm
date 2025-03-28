@@ -6,6 +6,8 @@ our $VERSION = '0.000005';
 
 use Carp qw/croak/;
 
+use DBIx::QuickORM::Connection;
+
 use DBIx::QuickORM::Util::HashBase qw{
     <name
     <db
@@ -14,6 +16,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <row_class
     <created
     <compiled
+    cache_class
 
     +connection
 };
@@ -32,8 +35,10 @@ sub init {
 sub connect {
     my $self = shift;
 
-    require DBIx::QuickORM::Connection;
-    return DBIx::QuickORM::Connection->new(orm => $self);
+    my %params = (orm => $self);
+    $params{cache} = $self->{+CACHE_CLASS}->new() if $self->{+CACHE_CLASS};
+
+    return DBIx::QuickORM::Connection->new(%params);
 }
 
 sub disconnect {
@@ -41,9 +46,20 @@ sub disconnect {
     delete $self->{+CONNECTION};
 }
 
+sub reconnect {
+    my $self = shift;
+    $self->disconnect;
+    return $self->connection;
+}
+
 sub connection {
     my $self = shift;
     return $self->{+CONNECTION} //= $self->connect;
+}
+
+sub handle {
+    my $self = shift;
+    return $self->connection->handle(@_);
 }
 
 1;
