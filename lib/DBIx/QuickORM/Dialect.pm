@@ -88,4 +88,27 @@ sub build_indexes_from_db    { confess "Not Implemented" }
 # }}} Schema Builder Code
 ###############################################################################
 
+###############################################################################
+# {{{ SQL Builder Code
+###############################################################################
+
+sub build_sql_from_schema {
+    my $self = shift;
+    my ($schema, %params) = @_;
+
+    my @sections;
+
+    push @sections => @{$params{prefix} // []};
+    push @sections => $self->build_table_sql_from_schema(@_);
+    push @sections => @{$params{postfix} // []};
+
+    return join "\n" => @sections;
+}
+
+sub build_table_sql_from_schema { confess "Not Implemented" }
+
+###############################################################################
+# }}} SQL Builder Code
+###############################################################################
+
 1;
