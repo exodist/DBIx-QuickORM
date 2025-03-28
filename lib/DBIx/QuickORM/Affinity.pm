@@ -56,6 +56,7 @@ my %AFFINITY_BY_TYPE = (
     json   => 'string',
     string => 'string',
     text   => 'string',
+    bpchar => 'string',
 
     # Special
     enum  => 'string',

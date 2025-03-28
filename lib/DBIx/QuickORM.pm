@@ -16,28 +16,20 @@ use Scope::Guard();
 use DBIx::QuickORM::Util qw/load_class find_modules/;
 use DBIx::QuickORM::Affinity qw/validate_affinity/;
 
-use constant DBS          => 'dbs';
-use constant ORMS         => 'orms';
-use constant PACKAGE      => 'package';
-use constant SCHEMAS      => 'schemas';
-use constant SERVERS      => 'servers';
-use constant STACK        => 'stack';
-use constant TYPE         => 'type';
-use constant ONE_TO_ONE   => '1:1';
-use constant MANY_TO_MANY => '*:*';
-use constant ONE_TO_MANY  => '1:*';
-use constant MANY_TO_ONE  => '*:1';
+use constant DBS     => 'dbs';
+use constant ORMS    => 'orms';
+use constant PACKAGE => 'package';
+use constant SCHEMAS => 'schemas';
+use constant SERVERS => 'servers';
+use constant STACK   => 'stack';
+use constant TYPE    => 'type';
 
 my @EXPORT = qw{
-    ONE_TO_ONE
-    MANY_TO_MANY
-    ONE_TO_MANY
-    MANY_TO_ONE
-
     plugin
     plugins
     meta
     orm
+    autofill
     alt
 
     build_class
@@ -60,6 +52,7 @@ my @EXPORT = qw{
      row_class
      tables
      table
+     view
       db_name
       column
        omit
@@ -343,6 +336,14 @@ sub db {
     return $self->_build('DB', into => $into, frame => $frame, args => \@_, force_build => $force_build);
 }
 
+sub autofill {
+    my $self = shift;
+
+    my $top = $self->_in_builder(qw{orm});
+
+    $top->{meta}->{autofill} = 1;
+}
+
 sub driver {
     my $self = shift;
     my ($proto) = @_;
@@ -478,11 +479,22 @@ sub _load_table {
 
 sub table {
     my $self = shift;
+    $self->_table('DBIx::QuickORM::Schema::Table', @_);
+}
+
+sub view {
+    my $self = shift;
+    $self->_table('DBIx::QuickORM::Schema::View', @_);
+}
+
+sub _table {
+    my $self = shift;
+    my $make = shift;
 
     # Defining a table in a table (row) class
     if (@{$self->{+STACK}} == 1 && $self->{+TYPE} eq 'table') {
         my $into  = \($self->top->{table});
-        my $frame = {building => 'TABLE', class => 'DBIx::QuickORM::Schema::Table'};
+        my $frame = {building => 'TABLE', class => $make};
         $self->_build('Table', into => $into, frame => $frame, args => \@_);
         my $table = $$into;
 
@@ -538,7 +550,7 @@ sub table {
     }
 
     # Typical case `table NAME => sub { ... }` or `table NAME => { ... }`
-    my $frame = {building => 'TABLE', class => 'DBIx::QuickORM::Schema::Table', meta => {row_class => $top->{meta}->{row_class}}};
+    my $frame = {building => 'TABLE', class => $make, meta => {row_class => $top->{meta}->{row_class}}};
     return $self->_build('Table', into => $into, frame => $frame, args => \@_);
 }
 
@@ -826,123 +838,71 @@ sub unique {
 
 sub link {
     my $self = shift;
-    my $node_a = shift;
-    my $node_b = pop;
-    my $type = shift // '*:*';
-    my @extra = @_;
+    my @args = @_;
 
-    croak "Must specify 2 nodes"  unless $node_a && $node_b;
-    croak "Invalid ratio '$type'" unless $type =~ m/^(1|\*):(1|\*)$/;
-    croak "Too many arguments" if @extra;
+    my $top = $self->_in_builder(qw{schema column});
 
-    my $top = $self->_in_builder(qw{schema table column});
-
-    my ($table, $table_name, $cols);
+    my ($table, $local);
     if ($top->{building} eq 'COLUMN') {
-        $cols = [$top->{meta}->{name}];
-        if ($self->{+STACK}->[-2]->{building} eq 'TABLE') {
-            $table = $self->{+STACK}->[-2];
-            $table_name = $table->{name};
-        }
-    }
-    elsif($top->{building} eq 'TABLE') {
-        $table = $top;
-        $table_name = $top->{name};
-    }
+        my $alias = @args && !ref($args[0]) ? shift @args : undef;
+        croak "Expected an arrayref, got '$args[0]'" unless ref($args[0]) eq 'ARRAY';
+        @args = @{$args[0]};
 
-    $node_a = $self->_node($node_a, {table => $table_name, columns => $cols});
-    $node_b = $self->_node($node_b);
+        my $cols = [$top->{meta}->{name}];
 
-    my $caller = $self->_caller;
-    @$caller = @{$caller}[0..3];
+        croak "Could not find table?" unless $self->{+STACK}->[-2]->{building} eq 'TABLE';
 
-    croak "Both nodes in a link must have the same number of columns"
-        unless @{$node_a->{columns}} == @{$node_b->{columns}};
+        $table = $self->{+STACK}->[-2];
+        my $tname = $table->{name};
 
-    if ($table) {
-        croak "Cannot specify an accessor for foreign table when using a link under a table builder."
-            if delete $node_b->{accessor};
-
-        my $accessor = $node_a->{accessor} or croak "No accessor specified";
-
-        if (my $exist = $table->{meta}->{links}->{$accessor}) {
-            croak "Accessor '$accessor' already defined (at $exist->[2]->[1] line $exist->[2]->[2])"
-        }
-
-        $table->{meta}->{links}->{$accessor} = [$node_a, $node_b, {caller => $caller, type => $type}];
-
-        return;
+        $local = [$tname, $cols];
+        push @$local => $alias if $alias;
     }
 
-    push @{$top->{meta}->{links}} => [$node_a, $node_b, {caller => $caller, type => $type}];
+    my @nodes;
+    while (my $first = shift @args) {
+        my $fref = ref($first);
+        if (!$fref) {
+            my $second = shift(@args);
+            my $sref = ref($second);
 
-    return;
-}
-
-sub _node {
-    my $self = shift;
-    my ($in, $extra) = @_;
-
-    my $node;
-    my $ref = ref($in);
-
-    if ($extra && $extra->{table} && $extra->{columns} && !$ref) {
-        $in = {accessor => $in};
-        $ref = ref($in);
-    }
-
-    $extra //= {};
-
-    if ($ref eq 'HASH') {
-        $node = $in;
-
-        if ($extra->{table}) {
-            croak "Table mismatch '$node->{table}' vs '$extra->{table}'" if $node->{table} && $node->{table} ne $extra->{table};
-            $node->{table} = $extra->{table};
-        }
-        if ($extra->{columns}) {
-            if ($node->{columns}) {
-                my $a = join ', ' => @{$node->{columns}};
-                my $b = join ', ' => @{$extra->{columns}};
-                croak "Column list mismatch ($a) vs ($b)" unless $a eq $b;
+            croak "Expected an array, got '$second'" unless $sref && $sref eq 'ARRAY';
+            my $eref = ref($second->[1]);
+            if ($eref && $eref eq 'ARRAY') {
+                push @nodes => [$second->[0], $second->[1], $first];
             }
-            $node->{columns} = $extra->{columns};
-        }
-    }
-    elsif ($ref eq 'ARRAY') {
-        my $table = $extra->{table};
-        my $cols  = $extra->{columns};
-        my ($accessor, $params);
-
-        for my $item (@$in) {
-            my $iref = ref($item);
-            if    ($iref eq 'ARRAY') { croak "Got extra column specification" if $cols;   $cols   = $item }
-            elsif ($iref eq 'HASH')  { croak "Got extra params specification" if $params; $params = $item }
-            elsif (!$iref) {
-                if    (!$table)    { $table = $item }
-                elsif (!$accessor) { $accessor = $item }
-                else               { croak "Got an extra argument '$item' after table name and accessor name were both set" }
+            else {
+                push @nodes => [$first, $second];
             }
-            else { croak "Invalid argument: $item" }
+
+            next;
         }
 
-        $node = {%{$params // {}}, columns => $cols, accessor => $accessor, table => $table};
+        if ($fref eq 'HASH') {
+            push @nodes => [$first->{table}, $first->{columns}, $first->{alias}];
+            next;
+        }
+
+        croak "Expected a hashref, table name, or alias, got '$first'";
+    }
+
+    my $other;
+    if ($local) {
+        croak "Too many nodes" if @nodes > 1;
+        croak "Not enough nodes" unless @nodes;
+        ($other) = @nodes;
     }
     else {
-        croak "Node must be a hashref or an arrayref, got '$in'";
+        ($local, $other) = @nodes;
     }
 
-    if ($extra) {
-        $node->{table}   //= $extra->{table};
-        $node->{columns} //= $extra->{columns};
-    }
+    my $caller = $self->_caller;
+    my $created = "$caller->[3]() at $caller->[1] line $caller->[2]";
+    my $link = [$local, $other, $created];
 
-    my $cols = $node->{columns};
-    croak "No columns specified in node" unless $cols && @$cols;
+    push @{($table // $top)->{meta}->{_links}} => $link;
 
-    my $tname = $node->{table} or croak "No table specified in node";
-
-    return $node;
+    return;
 }
 
 sub orm {

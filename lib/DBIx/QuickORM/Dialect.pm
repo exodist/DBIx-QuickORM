@@ -2,8 +2,90 @@ package DBIx::QuickORM::Dialect;
 use strict;
 use warnings;
 
+use Carp qw/croak confess/;
+use Scalar::Util qw/blessed/;
+
 our $VERSION = '0.000005';
 
-use DBIx::QuickORM::Util::HashBase;
+use DBIx::QuickORM::Util qw/load_class find_modules/;
+
+use DBIx::QuickORM::Util::HashBase qw{
+    <dbh
+    <db_name
+};
+
+sub dsn_socket_field { 'host' }
+
+sub dbi_driver { confess "Not Implemented" }
+sub db_version { confess "Not Implemented" }
+
+sub dialect_name {
+    my $self_or_class = shift;
+    my $class = blessed($self_or_class) || $self_or_class;
+    $class =~ s/^DBIx::QuickORM::Dialect:://;
+    $class =~ s/::.*$//g;
+    return $class;
+}
+
+sub init {
+    my $self = shift;
+
+    croak "A 'dbh' is required"      unless $self->{+DBH};
+    croak "A 'db_name' is arequired" unless $self->{+DB_NAME};
+}
+
+sub dsn {
+    my $self_or_class = shift;
+    my ($db) = @_;
+
+    my $driver = $db->dbi_driver // $self_or_class->dbi_driver;
+    load_class($driver) or croak "Could not load '$driver': $@";
+    $driver =~ s/^DBD:://;
+
+    my $db_name = $db->db_name;
+    my $dsn = "dbi:${driver}:dbname=${db_name};";
+
+    if (my $socket = $db->socket) {
+        $dsn .= $self_or_class->dsn_socket_field . "=$socket";
+    }
+    elsif (my $host = $db->host) {
+        $dsn .= "host=$host;";
+        if (my $port = $db->port) {
+            $dsn .= "port=$port;";
+        }
+    }
+    else {
+        croak "Cannot construct dsn without a host or socket";
+    }
+
+    return $dsn;
+}
+
+###############################################################################
+# {{{ Schema Builder Code
+###############################################################################
+
+sub build_schema_from_db {
+    my $self = shift;
+    my %params = @_;
+
+    my $dbh = $self->dbh;
+
+    my $tables = $self->build_tables_from_db();
+
+    return DBIx::QuickORM::Schema->new(
+        tables    => $tables,
+        row_class => $params{row_class},
+    );
+}
+
+sub build_tables_from_db     { confess "Not Implemented" }
+sub build_table_keys_from_db { confess "Not Implemented" }
+sub build_columns_from_db    { confess "Not Implemented" }
+sub build_indexes_from_db    { confess "Not Implemented" }
+
+###############################################################################
+# }}} Schema Builder Code
+###############################################################################
 
 1;

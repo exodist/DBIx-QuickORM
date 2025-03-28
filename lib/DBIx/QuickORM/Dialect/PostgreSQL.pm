@@ -4,7 +4,201 @@ use warnings;
 
 our $VERSION = '0.000005';
 
+use Carp qw/croak/;
+use DBIx::QuickORM::Util qw/column_key/;
+use DBIx::QuickORM::Affinity qw/affinity_from_type/;
+
+use DBIx::QuickORM::Schema;
+use DBIx::QuickORM::Schema::Table;
+use DBIx::QuickORM::Schema::Table::Column;
+use DBIx::QuickORM::Schema::View;
+use DBIx::QuickORM::Schema::Link;
+
 use parent 'DBIx::QuickORM::Dialect';
 use DBIx::QuickORM::Util::HashBase;
+
+sub dbi_driver   { 'DBD::Pg' }
+sub dialect_name { 'PostgreSQL' }
+
+sub db_version {
+    my $self = shift;
+
+    my $dbh = $self->{+DBH};
+
+    my $sth = $dbh->prepare("SHOW server_version");
+    $sth->execute();
+
+    my ($ver) = $sth->fetchrow_array;
+    return $ver;
+}
+
+###############################################################################
+# {{{ Schema Builder Code
+###############################################################################
+
+my %TABLE_TYPES = (
+    'BASE TABLE'      => 'DBIx::QuickORM::Schema::Table',
+    'VIEW'            => 'DBIx::QuickORM::Schema::View',
+    'LOCAL TEMPORARY' => 'DBIx::QuickORM::Schema::Table',
+);
+
+my %TEMP_TYPES = (
+    'BASE TABLE'      => 0,
+    'VIEW'            => 0,
+    'LOCAL TEMPORARY' => 1,
+);
+
+sub build_tables_from_db {
+    my $self = shift;
+
+    my $dbh = $self->{+DBH};
+
+    my $sth = $dbh->prepare(<<"    EOT");
+        SELECT table_name, table_type
+          FROM information_schema.tables
+         WHERE table_catalog = ?
+           AND table_schema  NOT IN ('pg_catalog', 'information_schema')
+    EOT
+
+    $sth->execute($self->{+DB_NAME});
+
+    my %tables;
+
+    while (my ($tname, $type) = $sth->fetchrow_array) {
+        my $table = {name => $tname, db_name => $tname, is_temp => $TEMP_TYPES{$type} // 0};
+        my $class = $TABLE_TYPES{$type} // 'DBIx::QuickORM::Schema::Table';
+
+        $table->{columns} = $self->build_columns_from_db($tname);
+        $table->{indexes} = $self->build_indexes_from_db($tname);
+        @{$table}{qw/primary_key unique _links/} = $self->build_table_keys_from_db($tname);
+
+        $tables{$tname} = $class->new($table);
+    }
+
+    return \%tables;
+}
+
+sub build_table_keys_from_db {
+    my $self = shift;
+    my ($table) = @_;
+
+    my $dbh = $self->{+DBH};
+
+    my $sth = $dbh->prepare(<<"    EOT");
+        SELECT pg_get_constraintdef(oid)
+          FROM pg_constraint
+         WHERE connamespace = 'public'::regnamespace AND conrelid::regclass::text = ?
+    EOT
+
+    $sth->execute($table);
+
+    my ($pk, %unique, @links);
+
+    while (my ($spec) = $sth->fetchrow_array) {
+        if (my ($type, $columns) = $spec =~ m/^(UNIQUE|PRIMARY KEY) \(([^\)]+)\)$/gi) {
+            my @columns = split /,\s+/, $columns;
+
+            $pk = \@columns if $type eq 'PRIMARY KEY';
+
+            my $key = column_key(@columns);
+            $unique{$key} = \@columns;
+        }
+
+        if (my ($type, $columns, $ftable, $fcolumns) = $spec =~ m/(FOREIGN KEY) \(([^\)]+)\) REFERENCES\s+(\S+)\(([^\)]+)\)/gi) {
+            my @columns  = split /,\s+/, $columns;
+            my @fcolumns = split /,\s+/, $fcolumns;
+
+            push @links => [[$table, \@columns], [$ftable, \@fcolumns]];
+        }
+    }
+
+    return ($pk, \%unique, \@links);
+}
+
+sub build_columns_from_db {
+    my $self = shift;
+    my ($table) = @_;
+
+    croak "A table name is required" unless $table;
+    my $dbh = $self->{+DBH};
+
+    my $sth = $dbh->prepare(<<"    EOT");
+        SELECT *
+          FROM information_schema.columns
+         WHERE table_catalog = ?
+           AND table_name    = ?
+           AND table_schema  NOT IN ('pg_catalog', 'information_schema')
+    EOT
+
+    $sth->execute($self->{+DB_NAME}, $table);
+
+    my (%columns, @links);
+    while (my $res = $sth->fetchrow_hashref) {
+        my $col = {};
+        $col->{name} = $res->{column_name};
+        $col->{db_name} = $res->{column_name};
+        $col->{order} = $res->{ordinal_position};
+        $col->{type} = \"$res->{udt_name}";
+        $col->{nullable} = $self->_col_field_to_bool($res->{is_nullable});
+
+        $col->{identity} //= 1 if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/identity/ } keys %$res;
+
+        $col->{affinity} //= affinity_from_type($res->{udt_name}) // affinity_from_type($res->{data_type});
+        $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/character/ } keys %$res;
+        $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/numeric/ } keys %$res;
+        $col->{affinity} //= 'string';
+
+        $columns{$col->{name}} = DBIx::QuickORM::Schema::Table::Column->new($col);
+    }
+
+    return \%columns;
+}
+
+sub _col_field_to_bool {
+    my $self = shift;
+    my ($val) = @_;
+
+    return 0 unless defined $val;
+    return 0 unless $val;
+    $val = lc($val);
+    return 0 if $val eq 'no';
+    return 0 if $val eq 'undef';
+    return 0 if $val eq 'never';
+    return 1;
+}
+
+sub build_indexes_from_db {
+    my $self = shift;
+    my ($table) = @_;
+
+    my $dbh = $self->dbh;
+
+    my $sth = $dbh->prepare(<<"    EOT");
+        SELECT indexname AS name,
+               indexdef  AS def
+          FROM pg_indexes
+         WHERE tablename = ?
+      ORDER BY name
+    EOT
+
+    $sth->execute($table);
+
+    my @out;
+
+    while (my ($name, $def) = $sth->fetchrow_array) {
+        $def =~ m/CREATE(?: (UNIQUE))? INDEX \Q$name\E ON \S+ USING ([^\(]+) \((.+)\)$/ or warn "Could not parse index: $def" and next;
+        my ($unique, $type, $col_list) = ($1, $2, $3);
+        my @cols = split /,\s*/, $col_list;
+        push @out => {name => $name, type => $type, columns => \@cols, unique => $unique ? 1 : 0};
+    }
+
+    return \@out;
+}
+
+
+###############################################################################
+# }}} Schema Builder Code
+###############################################################################
+
 
 1;

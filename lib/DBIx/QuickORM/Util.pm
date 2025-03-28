@@ -17,7 +17,10 @@ our @EXPORT_OK = qw{
     load_class
     find_modules
     merge_hash_of_objs
+    column_key
 };
+
+sub column_key { return join ', ' => sort @_ }
 
 sub load_class {
     my ($class, $prefix) = @_;
