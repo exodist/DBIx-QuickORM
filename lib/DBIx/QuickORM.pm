@@ -66,6 +66,7 @@ my @EXPORT = qw{
       columns
       primary_key
       unique
+      index
      link
 };
 
@@ -554,6 +555,27 @@ sub _table {
     return $self->_build('Table', into => $into, frame => $frame, args => \@_);
 }
 
+sub index {
+    my $self = shift;
+    my ($name, $cols, $params);
+
+    while (my $arg = shift @_) {
+        my $ref = ref($arg);
+        if    (!$ref)           { $name = $arg }
+        elsif ($ref eq 'HASH')  { $params = {%{$params // {}}, %{$arg}} }
+        elsif ($ref eq 'ARRAY') { $cols = $arg }
+        else                    { croak "Not sure what to do with '$arg'" }
+    }
+
+    my $index = { %{$params // {}}, name => $name, columns => $cols };
+
+    return $index if defined wantarray;
+
+    my $top = $self->_in_builder(qw{table});
+
+    push @{$top->{meta}->{indexes}} => $index;
+}
+
 sub column {
     my $self = shift;
 
@@ -827,6 +849,7 @@ sub unique {
     my $key = join ', ' => sort @list;
 
     $meta->{unique}->{$key} = \@list;
+    push @{$meta->{indexes}} => {unique => 1, columns => \@list};
 }
 
 sub link {

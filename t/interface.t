@@ -70,6 +70,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
           columns
           primary_key
           unique
+          index
          link
 
         builder
@@ -583,6 +584,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
             primary_key(qw/a b/);
             unique(qw/x y z/);
+            index myidx1 => [qw/a x/];
+            index myidx2 => [qw/b y/], {type => 'foo', unique => 0};
+            index [qw/a b x y/];
         };
 
         table 'bar' => sub {
@@ -716,6 +720,12 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             type     => \'int',
                         },
                     },
+                    indexes => [
+                        {columns => ['x', 'y', 'z',], unique => 1},
+                        {columns => ['a', 'x',], name => 'myidx1'},
+                        {columns => ['b', 'y',], name => 'myidx2', type => 'foo', unique => 0},
+                        {columns => ['a', 'b', 'x', 'y',], name => undef},
+                    ],
                     links => {
                         bar => {
                             C => {
