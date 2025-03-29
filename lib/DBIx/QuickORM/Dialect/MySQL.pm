@@ -16,7 +16,9 @@ use DBIx::QuickORM::Schema::View;
 use DBIx::QuickORM::Schema::Link;
 
 use parent 'DBIx::QuickORM::Dialect';
-use DBIx::QuickORM::Util::HashBase;
+use DBIx::QuickORM::Util::HashBase qw{
+    +dbi_driver
+};
 
 BEGIN {
     my $mariadb = eval { require DBD::MariaDB; 1 };
@@ -24,7 +26,27 @@ BEGIN {
 
     croak "You must install either DBD::MariaDB or DBD::mysql" unless $mariadb || $mysql;
 
-    *dbi_driver = $mariadb ? sub { 'DBD::MariaDB' } : sub { 'DBD::mysql' };
+    *DEFAULT_DBI_DRIVER = $mariadb ? sub() { 'DBD::MariaDB' } : sub() { 'DBD::mysql' };
+}
+
+sub dbi_driver {
+    my $in = shift;
+
+    return DEFAULT_DBI_DRIVER() unless blessed($in);
+
+    return $self->{+DBI_DRIVER} if $self->{+DBI_DRIVER};
+
+    my $dbh = $self->dbh;
+
+    return $self->{+DBI_DRIVER} = "DBD::" . $dbh->{Driver}->{Name};
+}
+
+sub quote_binary_data {
+    my $self = shift;
+    my $driver = $self->dbi_driver;
+    return 0 if $driver eq 'DBD::mysql';
+    return 1 if $driver eq 'DBD::MariaDB';
+    croak "Unknown DBD::Driver '$driver'";
 }
 
 sub init {
@@ -36,11 +58,11 @@ sub init {
             bless($self, $class);
             return $self->init();
         }
-        elsif ($@ !~ m{Can't locate DBIx/QuickORM/Dialect/MySQLx/${vendor}\.pm in \@INC}) {
+        elsif ($@ !~ m{Can't locate DBIx/QuickORM/Dialect/MySQL/${vendor}\.pm in \@INC}) {
             die $@;
         }
         else {
-            warn "Could not find vendor specific dialect 'DBIx::QuickORM::Dialect::MySQL::${vendor}', using 'DBIx::QuickORM::Dialect::MySQL'.\n";
+            warn "Could not find vendor specific dialect 'DBIx::QuickORM::Dialect::MySQL::${vendor}', using 'DBIx::QuickORM::Dialect::MySQL'. This can result in degraded capabilities compared to dedicate dialect\n";
         }
     }
 

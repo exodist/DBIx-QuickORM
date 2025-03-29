@@ -57,9 +57,9 @@ sub connection {
     return $self->{+CONNECTION} //= $self->connect;
 }
 
-sub handle {
+sub select {
     my $self = shift;
-    return $self->connection->handle(@_);
+    return $self->connection->select(@_);
 }
 
 1;

@@ -6,10 +6,12 @@ our $VERSION = '0.000005';
 
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
+use Role::Tiny::With qw/with/;
 use DBIx::QuickORM::Util qw/column_key/;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <name
+    <db_name
     +columns
     <unique
     <primary_key
@@ -22,13 +24,41 @@ use DBIx::QuickORM::Util::HashBase qw{
     +links
     <links_by_alias
     <indexes
+
+    +sqla_fields
+    +sqla_rename
 };
 
-sub is_view { 0 }
+with 'DBIx::QuickORM::Role::SQLASource';
+
+sub is_view     { 0 }
+sub sqla_source { $_[0]->{+DB_NAME} }
+
+sub sqla_fields {
+    my $self = shift;
+
+    return $self->{+SQLA_FIELDS} if $self->{+SQLA_FIELDS};
+
+    my @out = map { $_->db_name } grep { !$_->omit } values %{$self->{+COLUMNS}};
+
+    return $self->{+SQLA_FIELDS} = \@out;
+}
+
+sub sqla_rename {
+    my $self = shift;
+
+    return $self->{+SQLA_RENAME} if $self->{+SQLA_RENAME};
+
+    my %out = map { ($_->db_name, $_->name) } grep { $_->db_name ne $_->name } values %{$self->{+COLUMNS}};
+
+    return $self->{+SQLA_RENAME} = \%out;
+}
 
 sub init {
     my $self = shift;
 
+    $self->{+DB_NAME} //= $self->{+NAME};
+    $self->{+NAME}    //= $self->{+DB_NAME};
     croak "The 'name' attribute is required" unless $self->{+NAME};
 
     my $debug = $self->{+CREATED} ? " (defined in $self->{+CREATED})" : "";
@@ -86,7 +116,7 @@ sub link {
 }
 
 sub columns { values %{$_[0]->{+COLUMNS}} }
-sub column_names { keys %{$_[0]->{+COLUMNS}} }
+sub column_names { sort keys %{$_[0]->{+COLUMNS}} }
 
 sub column {
     my $self = shift;

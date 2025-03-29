@@ -6,6 +6,8 @@ use Test2::V0;
 use Importer 'Test2::Tools::QuickDB' => (get_db => {-as => 'get_qdb'});
 use Importer Importer => 'import';
 
+use DBIx::QuickORM::Util qw/debug/;
+
 #BEGIN {
 #    $ENV{PATH} = "/home/exodist/percona/bin:$ENV{PATH}" if -d "/home/exodist/percona/bin";
 #}
@@ -16,6 +18,7 @@ our @EXPORT = qw{
     mariadb
     percona
     sqlite
+    debug
 };
 
 sub psql    { my @args = @_; eval { get_qdb({driver => 'PostgreSQL', @args}) } or diag(clean_err($@)) }

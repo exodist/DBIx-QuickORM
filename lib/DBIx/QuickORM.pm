@@ -602,11 +602,11 @@ sub column {
             while (my $arg = shift @$extra) {
                 local $@;
                 if (blessed($arg)) {
-                    if ($arg->isa('DBIx::QuickORM::Type')) {
+                    if ($arg->DOES('DBIx::QuickORM::Role::Type')) {
                         $meta->{type} = $arg;
                     }
                     else {
-                        croak "'$arg' does not subclass 'DBIx::QuickORM::Type'";
+                        croak "'$arg' does not implement 'DBIx::QuickORM::Role::Type'";
                     }
                 }
                 elsif (my $ref = ref($arg)) {
@@ -636,12 +636,12 @@ sub column {
                     $meta->{affinity} = $arg;
                 }
                 elsif (my $class = load_class($arg, 'DBIx::QuickORM::Type')) {
-                    croak "Class '$class' is not a subclass of DBIx::QuickORM::Type" unless $class->isa('DBIx::QuickORM::Type');
+                    croak "Class '$class' does not implement DBIx::QuickORM::Role::Type" unless $class->DOES('DBIx::QuickORM::Role::Type');
                     $meta->{type} = $class;
                 }
                 else {
                     croak "Error loading class for type '$arg': $@" unless $@ =~ m/^Can't locate .+ in \@INC/;
-                    croak "Column arg '$arg' does not appear to be pure-sql (scalar ref), affinity, or a DBIx::QuickORM::Type subclass";
+                    croak "Column arg '$arg' does not appear to be pure-sql (scalar ref), affinity, or an object implementing DBIx::QuickORM::Role::Type";
                 }
             }
         },
@@ -710,7 +710,7 @@ sub _check_type {
 
     return $type if ref($type) eq 'SCALAR';
     return undef if ref($type);
-    return $type if $type->isa('DBIx::QuickORM::Type');
+    return $type if $type->DOES('DBIx::QuickORM::Role::Type');
 
     my $class = load_class($type, 'DBIx::QuickORM::Type') or return undef;
     return $class;
@@ -727,7 +727,7 @@ sub type {
     local $@;
     my $use_type = $self->_check_type($type);
     unless ($use_type) {
-        my $err = "Type must be a scalar reference, or a class that inherits from 'DBIx::QuickORM::Type', got: $type";
+        my $err = "Type must be a scalar reference, or a class that implements 'DBIx::QuickORM::Role::Type', got: $type";
         $err .= "\nGot exception: $@" if $@ =~ m/^Can't locate .+ in \@INC/;
         confess $err;
     }
@@ -1222,9 +1222,10 @@ database.
 
 Much of the time the affinity can be derived from other data. The
 L<DBIx::QuickORM::Affinity> package has an internal map for default affinities
-for many sql types. Also if you use a L<DBIx::QuickORM::Type> subclass it will
-often provide an affinity. You can override the affinity if necessary. If the
-affinity cannot be derived you must specify it.
+for many sql types. Also if you use a class implementing
+L<DBIx::QuickORM::Role::Type> it will often provide an affinity. You can
+override the affinity if necessary. If the affinity cannot be derived you
+must specify it.
 
 =head1 RECIPES
 
