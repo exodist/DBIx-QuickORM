@@ -4,6 +4,8 @@ use warnings;
 
 our $VERSION = '0.000005';
 
-use DBIx::QuickORM::Util::HashBase;
+use DBIx::QuickORM::Util::HashBase qw{
+    from_db
+};
 
 1;

@@ -4,6 +4,8 @@ use warnings;
 
 our $VERSION = '0.000005';
 
+use Data::Dumper;
+
 use Module::Pluggable sub_name => '_find_mods';
 BEGIN {
     *_find_paths = \&search_path;
@@ -18,6 +20,7 @@ our @EXPORT_OK = qw{
     find_modules
     merge_hash_of_objs
     column_key
+    debug
 };
 
 sub column_key { return join ', ' => sort @_ }
@@ -66,7 +69,14 @@ sub merge_hash_of_objs {
     return \%out;
 }
 
-
+sub debug {
+    local $Data::Dumper::Sortkeys      = 1;
+    local $Data::Dumper::Terse         = 1;
+    local $Data::Dumper::Quotekeys     = 0;
+    local $Data::Dumper::Deepcopy      = 1;
+    local $Data::Dumper::Trailingcomma = 1;
+    print Dumper(@_);
+}
 
 1;
 
