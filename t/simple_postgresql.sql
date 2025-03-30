@@ -8,3 +8,7 @@ CREATE TABLE simple(
     UNIQUE(name),
     UNIQUE(uuid)
 );
+
+CREATE TABLE simple2(
+    simple2_id   INTEGER         NOT NULL PRIMARY KEY
+);

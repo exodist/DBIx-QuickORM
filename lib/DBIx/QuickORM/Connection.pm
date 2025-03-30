@@ -13,6 +13,7 @@ use DBIx::QuickORM::SQLAbstract;
 use DBIx::QuickORM::SQLASource;
 use DBIx::QuickORM::Source;
 use DBIx::QuickORM::Select;
+use DBIx::QuickORM::Cache;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <orm
@@ -62,6 +63,9 @@ sub init {
     else {
         $self->{+SCHEMA} = $orm->schema->clone;
     }
+
+    $self->{+CACHE} = DBIx::QuickORM::Cache->new
+        unless exists $self->{+CACHE};
 }
 
 sub pid_check {
@@ -141,23 +145,35 @@ sub build_row {
     my $sqla_source = $params{sqla_source} or croak "An sqla_source is required";
     my $row_data    = $params{row_data}    or croak "row_data is required";
 
+    my $cache = $self->cache;
+
     my $row;
     if ($row = $params{row}) {
+        $cache->update($row, $row_data) if $cache; # Move to new cache key if pk changed
         $row->update_from_db_data($row_data, no_desync => 1);
+        return $row;
     }
-    else {
-        state $LOADED = {};
-        unless ($LOADED->{$row_class}) {
-            load_class($row_class) or die $@;
-            $LOADED->{$row_class} = 1;
-        }
 
-        $row = $row_class->new(
-            stored      => $row_data,
-            sqla_source => sub { $sqla_source },
-            connection  => sub { $self }
-        );
+    if ($cache) {
+        if ($row = $cache->lookup($sqla_source, $row_data)) {
+            $row->update_from_db_data($row_data, no_desync => 0);
+            return $row;
+        }
     }
+
+    state $LOADED = {};
+    unless ($LOADED->{$row_class}) {
+        load_class($row_class) or die $@;
+        $LOADED->{$row_class} = 1;
+    }
+
+    $row = $row_class->new(
+        stored      => $row_data,
+        sqla_source => $sqla_source,
+        connection  => $self,
+    );
+
+    $cache->store($row) if $cache;
 
     return $row;
 }

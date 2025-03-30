@@ -62,4 +62,9 @@ sub select {
     return $self->connection->select(@_);
 }
 
+sub source {
+    my $self = shift;
+    return $self->connection->source(@_);
+}
+
 1;

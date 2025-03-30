@@ -22,29 +22,20 @@ orm myorm => sub {
     autofill;
 };
 
-my $con = orm('myorm')->connect;
+my $orm = orm('myorm');
+my $con = $orm->connect;
 diag "Using dialect '" . $con->dialect->dialect_name . "'";
 
 my $schema = $con->schema;
 
-my $s = $con->source('simple');
+my $s = $orm->source('simple2');
 
-$s->insert(name => 'foo');
-$s->insert(name => 'bar');
-$s->insert(name => 'baz');
-
-require DBIx::QuickORM::Type::UUID;
-my $uuid = DBIx::QuickORM::Type::UUID->new;
-my $r = DBIx::QuickORM::Row->new(
-    pending     => {name => 'bob', uuid => $uuid, uuid_b => $uuid},
-    sqla_source => $s->sqla_source,
-    connection  => $con,
-);
-
-debug([$r]);
-$r->insert;
-debug([$r]);
-debug(DBIx::QuickORM::Type::UUID->new(binary => $r->field('uuid_b'))->string);
-
+my $one = $s->insert({simple2_id => 3});
+ref_is($one, $s->one, "Same ref");
+debug($one, $con->cache);
+$one->update({simple2_id => 5});
+debug($one, $con->cache);
+$one->delete;
+debug($one, $con->cache);
 
 done_testing;

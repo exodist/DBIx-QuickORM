@@ -162,21 +162,6 @@ sub one {
     return $self->build_row($data);
 }
 
-sub delete {
-    my $self = shift;
-    my $source = $self->{+SQLA_SOURCE}->sqla_source;
-
-    my ($stmt, @bind) = $self->sqla->delete($source, $self->{+WHERE});
-    my $sth = $self->dbh->prepare($stmt);
-    $sth->execute(@bind);
-    $self->{+LAST_STH} = $sth;
-
-    state $warned = 0;
-    warn "TODO update cache" unless $warned++;
-
-    return;
-}
-
 sub update {
     my $self = shift;
     my ($changes) = @_;
@@ -229,12 +214,23 @@ sub _or {
     return $self->clone(WHERE() => {'-or' => [$self->{+WHERE}, @_]});
 }
 
+sub delete {
+    my $self = shift;
+    my $source = $self->{+SQLA_SOURCE}->sqla_source;
+
+    my ($stmt, @bind) = $self->sqla->delete($source, $self->{+WHERE});
+    my $sth = $self->dbh->prepare($stmt);
+    $sth->execute(@bind);
+    $self->{+LAST_STH} = $sth;
+
+    return;
+}
+
 # Do these last to avoid conflicts with the operators
 {
     no warnings 'once';
     *and = \&_and;
     *or  = \&_or;
 }
-
 
 1;
