@@ -8,8 +8,13 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     package DBIx::QuickORM::Type::MyType;
     $INC{'DBIx/QuickORM/Type/MyType.pm'} = __FILE__;
-    our @ISA = ('DBIx::QuickORM::Type');
     use DBIx::QuickORM::Util::HashBase;
+    use Role::Tiny::With qw/with/;
+    with 'DBIx::QuickORM::Role::Type';
+    sub qorm_inflate {}
+    sub qorm_deflate {}
+    sub qorm_compare {}
+    sub qorm_affinity {}
 
     package DBIx::QuickORM::Row::ClassA;
     $INC{'DBIx/QuickORM/Row/ClassA.pm'} = __FILE__;
@@ -979,7 +984,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
             like(
                 dies { column x => bless({}, 'Fake::Thing') },
-                qr/'Fake::Thing.*' does not subclass 'DBIx::QuickORM::Type'/,
+                qr/'Fake::Thing.*' does not implement 'DBIx::QuickORM::Role::Type'/,
                 "Must be a subclass of 'DBIx::QuickORM::Type'"
             );
 
@@ -991,13 +996,13 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
             like(
                 dies { column x => 'invalid' },
-                qr/Column arg 'invalid' does not appear to be pure-sql \(scalar ref\), affinity, or a DBIx::QuickORM::Type subclass/,
+                qr/Column arg 'invalid' does not appear to be pure-sql \(scalar ref\), affinity, or an object implementing DBIx::QuickORM::Role::Type/,
                 "Not a valid class"
             );
 
             like(
                 dies { column x => '+Test2::API' },
-                qr/Class 'Test2::API' is not a subclass of DBIx::QuickORM::Type/,
+                qr/Class 'Test2::API' does not implement DBIx::QuickORM::Role::Type/,
                 "Not a type class"
             );
 
@@ -1265,7 +1270,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     like(dies { type() }, qr/Not enough arguments/, "Need args");
     like(
         dies { type('Fake::Thing') },
-        qr/Type must be a scalar reference, or a class that inherits from 'DBIx::QuickORM::Type', got: Fake::Thing/,
+        qr/Type must be a scalar reference, or a class that implements 'DBIx::QuickORM::Role::Type', got: Fake::Thing/,
         "Must be a valid type"
     );
 
@@ -1275,12 +1280,12 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         "Too many args",
     );
 
-    is(type('DBIx::QuickORM::Type'), 'DBIx::QuickORM::Type', "Returns class in scalar context");
+    ok(type('DBIx::QuickORM::Type::MyType'), 'DBIx::QuickORM::Type::MyType', "Returns class in scalar context");
 
     schema typetest => sub {
         table typetest => sub {
             column ref => sub { type \'varchar' };
-            column type => sub { type 'DBIx::QuickORM::Type' };
+            column type => sub { type 'DBIx::QuickORM::Type::MyType' };
         };
     };
 
@@ -1288,7 +1293,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         schema('typetest')->{tables}->{typetest}->{columns},
         {
             ref  => {type => \'varchar'},
-            type => {type => 'DBIx::QuickORM::Type'},
+            type => {type => 'DBIx::QuickORM::Type::MyType'},
         },
         "Got correct types"
     );
