@@ -34,11 +34,11 @@ sub dbi_driver {
 
     return DEFAULT_DBI_DRIVER() unless blessed($in);
 
-    return $self->{+DBI_DRIVER} if $self->{+DBI_DRIVER};
+    return $in->{+DBI_DRIVER} if $in->{+DBI_DRIVER};
 
-    my $dbh = $self->dbh;
+    my $dbh = $in->dbh;
 
-    return $self->{+DBI_DRIVER} = "DBD::" . $dbh->{Driver}->{Name};
+    return $in->{+DBI_DRIVER} = "DBD::" . $dbh->{Driver}->{Name};
 }
 
 sub quote_binary_data {
