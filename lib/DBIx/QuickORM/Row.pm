@@ -189,14 +189,6 @@ sub update {
     $self->save(%params);
 }
 
-sub delete {
-    my $self = shift;
-    $self->source->search($self->primary_key_where)->delete;
-    $self->{+PENDING} = { %{ $self->{+PENDING} // {} }, %{ delete $self->{+STORED} // {} } };
-    delete $self->{+DESYNC};
-    return $self;
-}
-
 sub field {
     my $self = shift;
     my $field = shift or croak "Must specify a field name";
@@ -317,6 +309,17 @@ sub _compare_field {
         if $can_conflate;
 
     return DBIx::QuickORM::Affinity::compare_affinity_values($affinity, $a, $b);
+}
+
+sub delete {
+    my $self = shift;
+    $self->source->search($self->primary_key_where)->delete;
+    if (my $cache = $self->connection->cache) {
+        $cache->remove($self);
+    }
+    $self->{+PENDING} = { %{ $self->{+PENDING} // {} }, %{ delete $self->{+STORED} // {} } };
+    delete $self->{+DESYNC};
+    return $self;
 }
 
 1;
