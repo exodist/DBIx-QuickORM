@@ -33,10 +33,18 @@ $s->insert(name => 'foo');
 $s->insert(name => 'bar');
 $s->insert(name => 'baz');
 
-debug($s->all);
+require DBIx::QuickORM::Type::UUID;
+my $uuid = DBIx::QuickORM::Type::UUID->new;
+my $r = DBIx::QuickORM::Row->new(
+    pending     => {name => 'bob', uuid => $uuid, uuid_b => $uuid},
+    sqla_source => $s->sqla_source,
+    connection  => $con,
+);
 
-my $s2 = $con->select(simple => { name => 'bar' });
-debug($s2->all);
+debug([$r]);
+$r->insert;
+debug([$r]);
+debug(DBIx::QuickORM::Type::UUID->new(binary => $r->field('uuid_b'))->string);
 
 
 done_testing;

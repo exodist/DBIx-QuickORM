@@ -4,6 +4,7 @@ use warnings;
 use feature qw/state/;
 
 use Carp qw/croak/;
+use Scalar::Util qw/blessed/;
 
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Handle';
@@ -48,17 +49,116 @@ sub insert {
     else           { croak "Not enough arguments" }
 
     croak "Refusing to insert an empty row" unless keys %$data;
+    if (blessed($data)) {
+        croak "Refusing to insert a blessed row, use insert_row() instead" if $data->isa('DBIx::QuickORM::Row');
+        croak "Refusing to insert a blessed reference ($data)";
+    }
 
-    my $source = $self->sqla_source->sqla_source;
+    return $self->_insert($data);
+}
 
-    my ($stmt, @bind) = $self->sqla->insert($source, $data);
+sub _deflate {
+    my $self = shift;
+    my ($data) = @_;
 
-    my $sth = $self->dbh->prepare($stmt);
+    my $sqla_source = $self->sqla_source;
+    my $dialect     = $self->dialect;
+    my $quote_bin   = $dialect->quote_binary_data;
+    my $dbh         = $dialect->dbh;
+
+    my $out = {};
+
+    for my $field (keys %$data) {
+        my $val = $data->{$field};
+
+        my $affinity = $sqla_source->column_affinity($field);
+
+        if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type'))  {
+            $val = $val->qorm_deflate($affinity);
+        }
+
+        if ($quote_bin && $affinity eq 'binary') {
+            $val = \($dbh->quote($val, DBI::SQL_BINARY()))
+        }
+
+        $out->{$field} = $val;
+    }
+
+    return $out;
+}
+
+sub _insert {
+    my $self = shift;
+    my ($data, $row) = @_;
+
+    my $ret = $self->dialect->supports_returning_insert;
+
+    my $sqla_source = $self->sqla_source;
+    my $source = $sqla_source->sqla_source;
+
+    $data = $self->_deflate($data);
+
+    my ($stmt, @bind) = $self->sqla->insert($source, $data, $ret ? {returning => [$sqla_source->column_names]} : ());
+
+    my $dbh = $self->dbh;
+    my $sth = $dbh->prepare($stmt);
     $sth->execute(@bind);
+
+    if ($ret) {
+        $data = $sth->fetchrow_hashref;
+    }
+    else {
+        my $pk_fields = $sqla_source->primary_key;
+
+        if ($pk_fields && @$pk_fields) {
+            my $where;
+            if (@$pk_fields > 1) {
+                $where = {map { my $v = $data->{$_} or croak "Auto-generated compound primary keys are not supported for databses that do not support 'returning' functionality"; ($_ => $v) } @$pk_fields};
+            }
+            else {
+                my $kv = $dbh->last_insert_id(undef, undef, $source);
+                $where = {$pk_fields->[0] => $kv};
+            }
+
+            $data = $self->search($where)->one(data_only => 1);
+        }
+    }
 
     state $warned = 0;
     warn "TODO fetch stored data, use returning when applicable" unless $warned++;
-    return $self->build_row($data);
+    return $self->build_row($data, $row);
+}
+
+sub insert_row {
+    my $self = shift;
+    my ($row) = @_;
+
+    my $data = $row->fields();
+    $self->_insert($data, $row);
+}
+
+sub update_row {
+    my $self = shift;
+    my ($row) = @_;
+
+    my $data = $row->pending_fields;
+
+    my $ret = $self->dialect->supports_returning_update;
+
+    my $sqla_source = $self->sqla_source;
+    my $source = $sqla_source->sqla_source;
+
+    my $where = $row->primary_key_where;
+
+    my ($stmt, @bind) = $self->sqla->update($source, $data, $where, $ret ? {returning => [keys %$data]} : ());
+
+    my $dbh = $self->dbh;
+    my $sth = $dbh->prepare($stmt);
+    $sth->execute(@bind);
+
+    $data = $sth->fetchrow_hashref if $ret;
+
+    return $self->build_row($data, $row);
 }
 
 # TODO These should enforce a transaction

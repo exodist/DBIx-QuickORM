@@ -18,5 +18,7 @@ sub sqla_fields { '*' }
 
 sub sqla_rename { undef }
 sub row_class   { undef }
+sub primary_key { undef }
+sub column      { undef }
 
 1;

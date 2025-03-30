@@ -20,6 +20,9 @@ use DBIx::QuickORM::Util::HashBase;
 sub dbi_driver   { 'DBD::Pg' }
 sub dialect_name { 'PostgreSQL' }
 
+sub supports_returning_update { 1 }
+sub supports_returning_insert { 1 }
+
 sub db_version {
     my $self = shift;
 

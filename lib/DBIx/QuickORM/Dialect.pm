@@ -19,6 +19,10 @@ sub dsn_socket_field { 'host' }
 sub dbi_driver { confess "Not Implemented" }
 sub db_version { confess "Not Implemented" }
 
+sub quote_binary_data         { 1 }
+sub supports_returning_update { 0 }
+sub supports_returning_insert { 0 }
+
 sub dialect_name {
     my $self_or_class = shift;
     my $class = blessed($self_or_class) || $self_or_class;

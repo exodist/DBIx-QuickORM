@@ -24,7 +24,16 @@ use DBIx::QuickORM::Util::HashBase qw{
     +sqla
 };
 
-sub sqla { $_[0]->{+SQLA} //= DBIx::QuickORM::SQLAbstract->new }
+sub sqla {
+    my $self = shift;
+    return $self->{+SQLA}->() if $self->{+SQLA};
+
+    my $sqla = DBIx::QuickORM::SQLAbstract->new;
+
+    $self->{+SQLA} = sub { $sqla };
+
+    return $sqla;
+}
 
 sub db { $_[0]->{+ORM}->db }
 
@@ -126,16 +135,31 @@ sub select {
 
 sub build_row {
     my $self = shift;
-    my ($row_class, $data) = @_;
+    my %params = @_;
 
-    state $LOADED = {};
-    unless ($LOADED->{$row_class}) {
-        load_class($row_class) or die $@;
-        $LOADED->{$row_class} = 1;
+    my $row_class   = $params{row_class}   or croak "A row_class is required";
+    my $sqla_source = $params{sqla_source} or croak "An sqla_source is required";
+    my $row_data    = $params{row_data}    or croak "row_data is required";
+
+    my $row;
+    if ($row = $params{row}) {
+        $row->update_from_db_data($row_data, no_desync => 1);
+    }
+    else {
+        state $LOADED = {};
+        unless ($LOADED->{$row_class}) {
+            load_class($row_class) or die $@;
+            $LOADED->{$row_class} = 1;
+        }
+
+        $row = $row_class->new(
+            stored      => $row_data,
+            sqla_source => sub { $sqla_source },
+            connection  => sub { $self }
+        );
     }
 
-    return $row_class->new(from_db => $data);
+    return $row;
 }
-
 
 1;

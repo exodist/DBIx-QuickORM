@@ -15,9 +15,9 @@ use DBIx::QuickORM::Util::HashBase qw{
     <connection
     <sqla_source
 
-    <where
-    <order_by
-    <limit
+    +where
+    +order_by
+    +limit
     <fields
     <field_renames
 
@@ -35,6 +35,24 @@ sub init {
 
     $self->{+WHERE} //= {};
     delete $self->{+LAST_STH};
+}
+
+sub limit {
+    my $self = shift;
+    return $self->{+LIMIT} unless @_;
+    return $self->clone(LIMIT() => $_[0]);
+}
+
+sub where {
+    my $self = shift;
+    return $self->{+WHERE} unless @_;
+    return $self->clone(WHERE() => $_[0]);
+}
+
+sub order_by {
+    my $self = shift;
+    return $self->{+ORDER_BY} unless @_;
+    return $self->clone(ORDER_BY() => $_[0]);
 }
 
 sub clone {
@@ -56,36 +74,44 @@ sub source {
     );
 }
 
-sub and {
-
-}
-
-sub or {
-
-}
-
-sub all { shift->iterator->list }
+sub all { shift->iterator(@_)->list }
 
 sub iterator {
     my $self = shift;
+    my %params = @_;
 
     my $sth = $self->_execute_select();
 
     return DBIx::QuickORM::Iterator->new(sub {
         my $data = $sth->fetchrow_hashref or return;
+        return $data if $params{data_only};
         return $self->build_row($data);
     });
 }
 
 sub iterate {
     my $self = shift;
-    my ($cb) = @_;
+    my ($cb, %params);
+    if (@_ == 1) {
+        ($cb) = @_;
+    }
+    else {
+        %params = @_;
+        $cb = delete $params{cb};
+    }
+
+    croak "No callback provided" unless $cb;
 
     my $sth = $self->_execute_select();
 
     while (my $data = $sth->fetchrow_hashref) {
-        my $row = $self->build_row($data);
-        $cb->($row);
+        if ($params{data_only}) {
+            $cb->($data);
+        }
+        else {
+            my $row = $self->build_row($data);
+            $cb->($row);
+        }
     }
 
     return;
@@ -93,9 +119,13 @@ sub iterate {
 
 sub any {
     my $self = shift;
+    my %params = @_;
+
     my $s    = $self->clone(order_by => undef, limit => 1);
     my $sth  = $s->_execute_select();
     my $data = $sth->fetchrow_hashref or return;
+
+    return $data if $params{data_only};
     return $self->build_row($data);
 }
 
@@ -109,24 +139,63 @@ sub count {
 
 sub first {
     my $self = shift;
+    my %params = @_;
+
     my $s    = $self->clone(limit => 1);
     my $sth  = $s->_execute_select();
     my $data = $sth->fetchrow_hashref or return;
+
+    return $data if $params{data_only};
     return $self->build_row($data);
 }
 
 sub one {
     my $self = shift;
+    my %params = @_;
+
     my $s    = $self->clone(limit => 2);
     my $sth  = $s->_execute_select();
     my $data = $sth->fetchrow_hashref or return;
     croak "More than one matching row was found in the database" if $sth->fetchrow_hashref;
+
+    return $data if $params{data_only};
     return $self->build_row($data);
 }
 
-sub delete { }
+sub delete {
+    my $self = shift;
+    my $source = $self->{+SQLA_SOURCE}->sqla_source;
 
-sub update { }
+    my ($stmt, @bind) = $self->sqla->delete($source, $self->{+WHERE});
+    my $sth = $self->dbh->prepare($stmt);
+    $sth->execute(@bind);
+    $self->{+LAST_STH} = $sth;
+
+    state $warned = 0;
+    warn "TODO update cache" unless $warned++;
+
+    return;
+}
+
+sub update {
+    my $self = shift;
+    my ($changes) = @_;
+
+    croak "No changes for update" unless $changes;
+    croak "Changes must be a hashref" unless ref($changes) eq 'HASH';
+
+    my $source = $self->{+SQLA_SOURCE}->sqla_source;
+
+    my ($stmt, @bind) = $self->sqla->update($source, $changes, $self->{+WHERE});
+    my $sth = $self->dbh->prepare($stmt);
+    $sth->execute(@bind);
+    $self->{+LAST_STH} = $sth;
+
+    state $warned = 0;
+    warn "TODO update cache" unless $warned++;
+
+    return;
+}
 
 sub _execute_select {
     my $self = shift;
@@ -150,8 +219,22 @@ sub _execute_select {
     return $self->{+LAST_STH} = $sth;
 }
 
-1;
+sub _and {
+    my $self = shift;
+    return $self->clone(WHERE() => {'-and' => [$self->{+WHERE}, @_]});
+}
 
-__END__
+sub _or {
+    my $self = shift;
+    return $self->clone(WHERE() => {'-or' => [$self->{+WHERE}, @_]});
+}
+
+# Do these last to avoid conflicts with the operators
+{
+    no warnings 'once';
+    *and = \&_and;
+    *or  = \&_or;
+}
+
 
 1;

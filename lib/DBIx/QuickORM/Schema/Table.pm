@@ -116,7 +116,7 @@ sub link {
 }
 
 sub columns { values %{$_[0]->{+COLUMNS}} }
-sub column_names { keys %{$_[0]->{+COLUMNS}} }
+sub column_names { sort keys %{$_[0]->{+COLUMNS}} }
 
 sub column {
     my $self = shift;
