@@ -50,8 +50,8 @@ sub init {
 
     $self->{+DIALECT} = $db->dialect->new(dbh => $self->{+DBH}, db_name => $db->db_name);
 
-    if ($orm->autofill) {
-        my $schema = $self->{+DIALECT}->build_schema_from_db;
+    if (my $autofill = $orm->autofill) {
+        my $schema = $self->{+DIALECT}->build_schema_from_db(autofill => $autofill);
 
         if (my $schema2 = $orm->schema) {
             $self->{+SCHEMA} = $schema->merge($schema2);

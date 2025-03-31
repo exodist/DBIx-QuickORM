@@ -20,13 +20,19 @@ db sqlite => sub {
 
 orm myorm => sub {
     db 'sqlite';
-    autofill;
+    autofill sub {
+        autotype 'UUID';
+    };
 };
 
 my $con = orm('myorm')->connect;
 diag "Using dialect '" . $con->dialect->dialect_name . "'";
 
+
+use DBIx::QuickORM::Util qw/debug/;
+debug(orm('myorm'));
 my $schema = $con->schema;
+
 is(
     $schema,
     {
@@ -124,7 +130,7 @@ is(
                     name       => {affinity => 'string',  db_name => 'name',       name => 'name',       nullable => T(), order => 1, type => \'VARCHAR'},
                     alias_id   => {affinity => 'numeric', db_name => 'alias_id',   name => 'alias_id',   nullable => T(), order => 2, type => \'INTEGER'},
                     light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => T(), order => 3, type => \'INTEGER'},
-                    light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => T(), order => 4, type => \'UUID'},
+                    light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => T(), order => 4, type => 'DBIx::QuickORM::Type::UUID'},
                     stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 5, type => \'TIMESTAMP'},
                     color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => T(), order => 6, type => \'TEXT'},
                 },
@@ -138,7 +144,7 @@ is(
 
                 columns => {
                     light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, type => \'INTEGER', identity => T()},
-                    light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => F(), order => 2, type => \'UUID'},
+                    light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => F(), order => 2, type => 'DBIx::QuickORM::Type::UUID'},
                     stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 3, type => \'TIMESTAMP'},
                     color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => F(), order => 4, type => \'TEXT'},
                 },

@@ -15,6 +15,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     sub qorm_deflate {}
     sub qorm_compare {}
     sub qorm_affinity {}
+    sub qorm_sql_type {}
 
     package DBIx::QuickORM::Row::ClassA;
     $INC{'DBIx/QuickORM/Row/ClassA.pm'} = __FILE__;

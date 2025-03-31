@@ -74,15 +74,58 @@ sub qorm_affinity {
     my $class = shift;
     my %params = @_;
 
-    my $dialect = $params{dialect};
+    if (my $sql_type = $params{sql_type}) {
+        return 'string' if lc($sql_type) eq 'uuid';
+        return 'binary' if $sql_type =~ m/(bin(ary)?|bytea?|blob)/i;
+    }
 
-    return 'string' if $dialect->supports_type('uuid');
+    if (my $dialect = $params{dialect}) {
+        return 'string' if $dialect->supports_type('uuid');
+    }
+
+    return 'string';
+}
+
+sub qorm_sql_type {
+    my $self = shift;
+    my ($dialect) = @_;
+
+    if (my $stype = $dialect->supports_type('uuid')) {
+        return $stype;
+    }
+
+    # FIXME: We need a binary subclass
+    # We also need to go thorugh the supprots-type system
+    return 'VARCHAR(36)';
 }
 
 sub looks_like_uuid {
     my $in = pop;
     return $in if $in && $in =~ m/^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i;
     return undef;
+}
+
+sub qorm_register_type {
+    my $self = shift;
+    my ($types, $affinities) = @_;
+
+    my $class = ref($self) || $self;
+
+    $types->{uuid} //= $class;
+
+    push @{$affinities->{binary}} => sub {
+        my %params = @_;
+        return $class if $params{name}    =~ m/uuid/i;
+        return $class if $params{db_name} =~ m/uuid/i;
+        return;
+    };
+
+    push @{$affinities->{string}} => sub {
+        my %params = @_;
+        return $class if $params{name}    =~ m/uuid/i;
+        return $class if $params{db_name} =~ m/uuid/i;
+        return;
+    };
 }
 
 1;
