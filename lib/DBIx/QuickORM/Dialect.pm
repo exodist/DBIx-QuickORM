@@ -22,6 +22,7 @@ sub db_version { confess "Not Implemented" }
 sub quote_binary_data         { 1 }
 sub supports_returning_update { 0 }
 sub supports_returning_insert { 0 }
+sub supports_type { }
 
 sub dialect_name {
     my $self_or_class = shift;
@@ -73,9 +74,13 @@ sub build_schema_from_db {
     my $self = shift;
     my %params = @_;
 
+    croak "No autofill object provided" unless $params{autofill};
+
     my $dbh = $self->dbh;
 
-    my $tables = $self->build_tables_from_db();
+    my $tables = $self->build_tables_from_db(%params);
+
+    $params{autofill}->hook(tables => $tables);
 
     return DBIx::QuickORM::Schema->new(
         tables    => $tables,

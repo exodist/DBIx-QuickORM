@@ -12,6 +12,7 @@ use Sub::Util qw/set_subname/;
 use Scalar::Util qw/blessed/;
 
 use Scope::Guard();
+use DBIx::QuickORM::Schema::Autofill();
 
 use DBIx::QuickORM::Util qw/load_class find_modules/;
 use DBIx::QuickORM::Affinity qw/validate_affinity/;
@@ -30,6 +31,9 @@ my @EXPORT = qw{
     meta
     orm
     autofill
+     autotype
+     autoclass
+     autohook
     alt
 
     build_class
@@ -342,7 +346,57 @@ sub autofill {
 
     my $top = $self->_in_builder(qw{orm});
 
-    $top->{meta}->{autofill} = 1;
+    my $frame = {building => 'AUTOFILL', class => 'DBIx::QuickORM::Schema::Autofill', meta => {}};
+
+    if (!@_) {
+        $top->{meta}->{autofill} = $frame;
+        return;
+    }
+
+    $top->{meta}->{autofill} = $self->_build('AUTOFILL', frame => $frame, args => \@_, no_compile => 1);
+}
+
+sub autotype {
+    my $self = shift;
+    my ($type) = @_;
+
+    my $top = $self->_in_builder(qw{autofill});
+
+    my $class = load_class($type, 'DBIx::QuickORM::Type') or croak "Could not load type '$type': $@";
+
+    $class->qorm_register_type($top->{meta}->{types} //= {}, $top->{meta}->{affinities} //= {});
+
+    return;
+}
+
+sub autoclass {
+    my $self = shift;
+    my ($proto) = @_;
+
+    my $top = $self->_in_builder(qw{autofill});
+
+    my $class = load_class($proto, 'DBIx::QuickORM::Schema::Autofill') or croak "Could not load autoclass '$proto': $@";
+
+    $top->{class} = $class;
+
+    return;
+}
+
+sub autohook {
+    my $self = shift;
+    my ($hook, $cb) = @_;
+
+    my $top = $self->_in_builder(qw{autofill});
+
+    croak "'$hook' is not a valid hook for $top->{class}"
+        unless $top->{class}->is_valid_hook($hook);
+
+    croak "Second argument must be a coderef"
+        unless $cb && ref($cb) eq 'CODE';
+
+    push @{$top->{meta}->{hooks}->{$hook} //= []} => $cb;
+
+    return;
 }
 
 sub driver {
@@ -931,12 +985,13 @@ sub orm {
 }
 
 my %RECURSE = (
-    DB     => {},
-    LINK   => {},
-    COLUMN => {},
-    ORM    => {schema  => 1, db => 1},
-    SCHEMA => {tables  => 2},
-    TABLE  => {columns => 2},
+    DB       => {},
+    LINK     => {},
+    COLUMN   => {},
+    AUTOFILL => {},
+    ORM      => {schema  => 1, db => 1, autofill => 1},
+    SCHEMA   => {tables  => 2},
+    TABLE    => {columns => 2},
 );
 
 sub compile {

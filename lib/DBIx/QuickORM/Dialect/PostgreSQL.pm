@@ -23,6 +23,15 @@ sub dialect_name { 'PostgreSQL' }
 sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }
 
+my %TYPES = (
+    uuid => 'UUID',
+);
+sub supports_type {
+    my $self = shift;
+    my ($type) = @_;
+    return $TYPES{lc($type)};
+}
+
 sub db_version {
     my $self = shift;
 
@@ -53,6 +62,7 @@ my %TEMP_TYPES = (
 
 sub build_tables_from_db {
     my $self = shift;
+    my %params = @_;
 
     my $dbh = $self->{+DBH};
 
@@ -71,11 +81,20 @@ sub build_tables_from_db {
         my $table = {name => $tname, db_name => $tname, is_temp => $TEMP_TYPES{$type} // 0};
         my $class = $TABLE_TYPES{$type} // 'DBIx::QuickORM::Schema::Table';
 
-        $table->{columns} = $self->build_columns_from_db($tname);
-        $table->{indexes} = $self->build_indexes_from_db($tname);
-        @{$table}{qw/primary_key unique _links/} = $self->build_table_keys_from_db($tname);
+        $params{autofill}->hook(pre_table => {table => $table, class => \$class});
+
+        $table->{columns} = $self->build_columns_from_db($tname, %params);
+        $params{autofill}->hook(columns => {columns => $table->{columns}, table => $table});
+
+        $table->{indexes} = $self->build_indexes_from_db($tname, %params);
+        $params{autofill}->hook(indexes => {indexes => $table->{indexes}, table => $table});
+
+        @{$table}{qw/primary_key unique _links/} = $self->build_table_keys_from_db($tname, %params);
+
+        $params{autofill}->hook(post_table => {table => $table, class => \$class});
 
         $tables{$tname} = $class->new($table);
+        $params{autofill}->hook(table => {table => $tables{$tname}});
     }
 
     return \%tables;
@@ -83,7 +102,7 @@ sub build_tables_from_db {
 
 sub build_table_keys_from_db {
     my $self = shift;
-    my ($table) = @_;
+    my ($table, %params) = @_;
 
     my $dbh = $self->{+DBH};
 
@@ -115,12 +134,16 @@ sub build_table_keys_from_db {
         }
     }
 
+    $params{autofill}->hook(links       => {links       => \@links, table_name => $table});
+    $params{autofill}->hook(primary_key => {primary_key => $pk, table_name => $table});
+    $params{autofill}->hook(unique_keys => {unique_keys => \%unique, table_name => $table});
+
     return ($pk, \%unique, \@links);
 }
 
 sub build_columns_from_db {
     my $self = shift;
-    my ($table) = @_;
+    my ($table, %params) = @_;
 
     croak "A table name is required" unless $table;
     my $dbh = $self->{+DBH};
@@ -138,6 +161,9 @@ sub build_columns_from_db {
     my (%columns, @links);
     while (my $res = $sth->fetchrow_hashref) {
         my $col = {};
+
+        $params{autofill}->hook(pre_column => {column => $col, table_name => $table, column_info => $res});
+
         $col->{name} = $res->{column_name};
         $col->{db_name} = $res->{column_name};
         $col->{order} = $res->{ordinal_position};
@@ -152,7 +178,12 @@ sub build_columns_from_db {
         $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/numeric/ } keys %$res;
         $col->{affinity} //= 'string';
 
+        $params{autofill}->process_column($col);
+
+        $params{autofill}->hook(post_column => {column => $col, table_name => $table, column_info => $res});
+
         $columns{$col->{name}} = DBIx::QuickORM::Schema::Table::Column->new($col);
+        $params{autofill}->hook(column => {column => $columns{$col->{name}}, table_name => $table, column_info => $res});
     }
 
     return \%columns;
@@ -173,7 +204,7 @@ sub _col_field_to_bool {
 
 sub build_indexes_from_db {
     my $self = shift;
-    my ($table) = @_;
+    my ($table, %params) = @_;
 
     my $dbh = $self->dbh;
 
@@ -194,11 +225,11 @@ sub build_indexes_from_db {
         my ($unique, $type, $col_list) = ($1, $2, $3);
         my @cols = split /,\s*/, $col_list;
         push @out => {name => $name, type => $type, columns => \@cols, unique => $unique ? 1 : 0};
+        $params{autofill}->hook(index => {index => $out[-1], table_name => $table, definition => $def});
     }
 
     return \@out;
 }
-
 
 ###############################################################################
 # }}} Schema Builder Code

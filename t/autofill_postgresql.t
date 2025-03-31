@@ -19,10 +19,14 @@ db postgresql => sub {
 
 orm myorm => sub {
     db 'postgresql';
-    autofill;
+    autofill sub {
+        autotype 'UUID';
+    };
 };
 
 my $con = orm('myorm')->connect;
+use DBIx::QuickORM::Util qw/debug/;
+debug(orm('myorm'));
 diag "Using dialect '" . $con->dialect->dialect_name . "'";
 
 my $schema = $con->schema;
@@ -121,7 +125,7 @@ is(
                     name       => {affinity => 'string',  db_name => 'name',       name => 'name',       nullable => T(), order => 1, type => \'varchar'},
                     alias_id   => {affinity => 'numeric', db_name => 'alias_id',   name => 'alias_id',   nullable => T(), order => 2, type => \'int4'},
                     light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => T(), order => 3, type => \'int4'},
-                    light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => T(), order => 4, type => \'uuid'},
+                    light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => T(), order => 4, type => 'DBIx::QuickORM::Type::UUID'},
                     stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 5, type => \'timestamptz'},
                     color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => T(), order => 6, type => \'color'},
                 },
@@ -135,7 +139,7 @@ is(
 
                 columns => {
                     light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, type => \'int4', identity => T()},
-                    light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => F(), order => 2, type => \'uuid'},
+                    light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => F(), order => 2, type => 'DBIx::QuickORM::Type::UUID'},
                     stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 3, type => \'timestamptz'},
                     color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => F(), order => 4, type => \'color'},
                 },
