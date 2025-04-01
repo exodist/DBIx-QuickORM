@@ -8,12 +8,23 @@ use DBIx::QuickORM::Util::HashBase qw{
     <types
     <affinities
     <hooks
+    +skip
 };
 
 sub hook {
     my $self = shift;
     my ($hook) = @_;
 
+}
+
+sub skip {
+    my $self = shift;
+
+    my $from = $self->{+SKIP};
+    while(my $arg = shift @_) {
+        $from = $from->{$arg} or return 0;
+    }
+    return $from;
 }
 
 sub process_column {
@@ -44,18 +55,3 @@ sub process_column {
 }
 
 1;
-
-__END__
-
-        $params{autofill}->hook(pre_table => {table => $table, class => \$class});
-        $params{autofill}->hook(columns => {columns => $table->{columns}, table => $table});
-        $params{autofill}->hook(indexes => {indexes => $table->{indexes}, table => $table});
-        $params{autofill}->hook(post_table => {table => $table, class => \$class});
-        $params{autofill}->hook(table => {table => $tables{$tname}});
-    $params{autofill}->hook(links       => {links       => \@links, table_name => $table});
-    $params{autofill}->hook(primary_key => {primary_key => $pk, table_name => $table});
-    $params{autofill}->hook(unique_keys => {unique_keys => \%unique, table_name => $table});
-        $params{autofill}->hook(pre_column => {column => $col, table_name => $table, column_info => $res});
-        $params{autofill}->hook(post_column => {column => $col, table_name => $table, column_info => $res});
-        $params{autofill}->hook(column => {column => $columns{$col->{name}}, table_name => $table, column_info => $res});
-        $params{autofill}->hook(index => {index => $out[-1], table_name => $table, definition => $def});

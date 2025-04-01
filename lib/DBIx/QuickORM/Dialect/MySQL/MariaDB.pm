@@ -21,7 +21,7 @@ sub init {
     $self->SUPER::init();
 
     my $vendor = $self->db_vendor;
-    croak "The mysql vendor is '$vendor' not MariaDB" unless $vendor =~ m/MariaDB/i;
+    die "The mysql vendor is '$vendor' not MariaDB" if $vendor && $vendor !~ m/MariaDB/i;
 }
 
 1;

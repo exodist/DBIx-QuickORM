@@ -17,7 +17,7 @@ sub init {
     $self->SUPER::init();
 
     my $vendor = $self->db_vendor;
-    croak "The mysql vendor is '$vendor' not Percona" unless $vendor =~ m/Percona/i;
+    die "The mysql vendor is '$vendor' not Percona" if $vendor && $vendor !~ m/Percona/i;
 }
 
 1;

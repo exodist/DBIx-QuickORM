@@ -2,21 +2,26 @@ use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 
 BEGIN {
-    $ENV{PATH}="$ENV{HOME}/dbs/percona8/bin:$ENV{PATH}" if -d "$ENV{HOME}/dbs/percona8/bin";
+    # Add these paths to find a DB (Author puts them here) if none is installed to the system.
+    # On most machines for most users it will just use the system mysql
+    # MariaDB is lst so that it is the one that gets used if it is present.
+    $ENV{PATH} = "$ENV{HOME}/dbs/mysql8/bin:$ENV{PATH}"    if -d "$ENV{HOME}/dbs/mysql8/bin";
+    $ENV{PATH} = "$ENV{HOME}/dbs/percona8/bin:$ENV{PATH}"  if -d "$ENV{HOME}/dbs/percona8/bin";
+    $ENV{PATH} = "$ENV{HOME}/dbs/mariadb11/bin:$ENV{PATH}" if -d "$ENV{HOME}/dbs/mariadb11/bin";
 }
 
 use Test2::Tools::QuickDB;
-skipall_unless_can_db(driver => 'Percona');
+skipall_unless_can_db(driver => 'MySQL');
 
 use lib 't/lib';
 use DBIx::QuickORM::Test;
 
-my $percona_file = __FILE__;
-$percona_file =~ s/\.t/.sql/;
-my $mysql = mysql(load_sql => [quickdb => $percona_file]);
+my $mysql_file = __FILE__;
+$mysql_file =~ s/\.t/.sql/;
+my $mysql = mysql(load_sql => [quickdb => $mysql_file]);
 
 db mysql => sub {
-    dialect 'MySQL::Percona';
+    dialect 'MySQL';
     db_name 'quickdb';
     connect sub { $mysql->connect };
 };
@@ -29,6 +34,7 @@ orm myorm => sub {
 };
 
 my $con = orm('myorm')->connect;
+
 diag "Using dialect '" . $con->dialect->dialect_name . "'";
 
 my $schema = $con->schema;
@@ -45,6 +51,7 @@ is(
                 is_temp        => F(),
                 links_by_alias => {},
 
+                db_columns => T(),
                 columns => {
                     alias_id => {affinity => 'numeric', db_name => 'alias_id', name => 'alias_id', nullable => F(), order => 1, type => \'int', identity => T()},
                     light_id => {affinity => 'numeric', db_name => 'light_id', name => 'light_id', nullable => F(), order => 2, type => \'int'},
@@ -72,6 +79,7 @@ is(
                 is_temp        => F(),
                 links_by_alias => {},
 
+                db_columns => T(),
                 columns => {
                     name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1, type => \'char'},
                     name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2, type => \'char'},
@@ -98,6 +106,7 @@ is(
                 is_temp        => F(),
                 links_by_alias => {},
 
+                db_columns => T(),
                 columns => {
                     name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1, type => \'char'},
                     name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2, type => \'char'},
@@ -125,6 +134,7 @@ is(
                 unique         => {},
                 indexes        => [],
 
+                db_columns => T(),
                 columns => {
                     name       => {affinity => 'string',  db_name => 'name',       name => 'name',       nullable => F(), order => 1, type => \'varchar'},
                     alias_id   => {affinity => 'numeric', db_name => 'alias_id',   name => 'alias_id',   nullable => F(), order => 2, type => \'int'},
@@ -141,6 +151,7 @@ is(
                 is_temp        => F(),
                 links_by_alias => {},
 
+                db_columns => T(),
                 columns => {
                     light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, type => \'int', identity => T()},
                     light_uuid => {affinity => 'binary',  db_name => 'light_uuid', name => 'light_uuid', nullable => F(), order => 2, type => 'DBIx::QuickORM::Type::UUID'},

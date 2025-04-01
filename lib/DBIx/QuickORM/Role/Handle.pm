@@ -31,9 +31,10 @@ sub init {
 
 sub build_row {
     my $self = shift;
-    my ($data, $row) = @_;
+    my ($data, $row, %params) = @_;
 
     $self->connection->build_row(
+        %params,
         row_class   => $self->row_class,
         sqla_source => $self->sqla_source,
         row_data    => $data,

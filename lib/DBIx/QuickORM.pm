@@ -34,6 +34,7 @@ my @EXPORT = qw{
      autotype
      autoclass
      autohook
+     autoskip
     alt
 
     build_class
@@ -88,11 +89,6 @@ sub import {
         builder => set_subname("${caller}::builder" => sub { $builder }),
         import  => set_subname("${caller}::import" => sub { shift; $builder->import_into(scalar(caller), @_) }),
     );
-
-    $export{ONE_TO_ONE}   = \&ONE_TO_ONE;
-    $export{MANY_TO_MANY} = \&MANY_TO_MANY;
-    $export{ONE_TO_MANY}  = \&ONE_TO_MANY;
-    $export{MANY_TO_ONE}  = \&MANY_TO_ONE;
 
     for my $name (@EXPORT) {
         my $meth = $name;
@@ -179,7 +175,7 @@ sub import_into {
     no strict 'refs';
     *{"${caller}\::${name}"} = sub {
         return $self unless @_;
-        return $self->orm(@_) if @_ == 1;
+        return $self->orm(@_)->connection if @_ == 1;
         my ($type, $name, @extra) = @_;
         croak "Too many arguments" if @extra;
         croak "'$type' is not a valid item type to fetch from '$caller'" unless $type =~ m/^(orm|db|schema)$/;
@@ -397,6 +393,28 @@ sub autohook {
     push @{$top->{meta}->{hooks}->{$hook} //= []} => $cb;
 
     return;
+}
+
+my %SKIP_TYPES = (
+    table  => 1,
+    column => 2,
+);
+
+sub autoskip {
+    my $self = shift;
+    my ($type, @args) = @_;
+
+    my $cnt = $SKIP_TYPES{$type} or croak "'$type' is not a valid type to skip";
+    croak "Incorrect number of arguments" unless @args == $cnt;
+
+    my $top = $self->_in_builder(qw{autofill});
+
+    my $last = pop @args;
+    my $into = $top->{meta}->{skip}->{$type} //= {};
+    while (my $level = shift @args) {
+        $into = $into->{$level} //= {};
+    }
+    $into->{$last} = 1;
 }
 
 sub driver {
@@ -837,7 +855,7 @@ sub db_name {
 
     my $top = $self->_in_builder(qw{table column db});
 
-    $top->{meta}->{name} = $db_name;
+    $top->{meta}->{db_name} = $db_name;
 }
 
 sub row_class {
@@ -1189,12 +1207,13 @@ The ORM class
 
 =head2 YOUR ORM PACKAGE
 
+=head3 MANUAL SCHEMA
+
     package My::ORM;
     use DBIx::QuickORM;
 
     # Define your ORM
     orm my_orm => sub {
-
         # Define your object
         db my_db => sub {
             host 'mydb.mydomain.com';
@@ -1235,16 +1254,48 @@ The ORM class
         };
     };
 
+=head3 AUTOMAGIC SCHEMA
+
+    package My::ORM;
+    use DBIx::QuickORM;
+
+    # Define your ORM
+    orm my_orm => sub {
+        # Define your object
+        db my_db => sub {
+            host 'mydb.mydomain.com';
+            port 1234;
+
+            # Best not to hardcode these, read them from a secure place and pass them in here.
+            user $USER;
+            pass $PASS;
+        };
+
+        # Define your schema
+        schema myschema => sub {
+            autofill => sub {
+                autotype 'UUID'; # Automatically handle UUID fields
+                autotype 'JSON'; # Automatically handle JSON fields
+            };
+        };
+    };
+
 =head2 YOUR APP CODE
 
     package My::App;
     use My::Orm qw/orm/;
 
+    # Get a connection to the orm
     my $orm = orm('my_orm');
+
     my $db = $orm->db;
     my $schema = $orm->schema;
 
-    FIXME: Now use the ORM
+    my $source = $orm->source('people');
+    my $select = $orm->select('people', {surname => 'smith'});
+    for my $person ($select->all) {
+        print $person->field('first_name') . "\n"
+    }
 
 =head1 A NOTE ON AFFINITY
 

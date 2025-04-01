@@ -5,6 +5,8 @@ use warnings;
 our $VERSION = '0.000005';
 
 use Data::Dumper;
+use Scalar::Util qw/blessed/;
+use Carp qw/croak/;
 
 use Module::Pluggable sub_name => '_find_mods';
 BEGIN {
@@ -19,6 +21,7 @@ our @EXPORT_OK = qw{
     load_class
     find_modules
     merge_hash_of_objs
+    clone_hash_of_objs
     column_key
     debug
 };
@@ -61,13 +64,57 @@ sub merge_hash_of_objs {
         my $a = $hash_a->{$name};
         my $b = $hash_b->{$name};
 
-        if    ($a && $b) { $out{$name} = $a->merge($b, %$merge_params) }
-        elsif ($a)       { $out{$name} = $a->clone }
-        elsif ($b)       { $out{$name} = $b->clone }
+        if ($a && $b) {
+            my $r = ref($a);
+            my $bl = blessed($a);
+
+            if    ($bl)           { $out{$name} = $a->merge($b, %$merge_params) }
+            elsif ($r eq 'HASH')  { $out{$name} = {%$a, %$b} }
+            elsif ($r eq 'ARRAY') { $out{$name} = [@$b] }                           # Second array wins
+            else                  { $out{$name} = $b }                              # Second value wins
+
+            next;
+        }
+
+        my $v  = $a // $b;
+        my $r  = ref($v);
+        my $bl = blessed($v);
+        if    ($bl)           { $out{$name} = $v->clone(%$merge_params) }
+        elsif ($r eq 'ARRAY') { $out{$name} = [@$a] }
+        elsif ($r eq 'HASH')  { $out{$name} = clone_hash_of_objs($v, %$merge_params) }
+        else                  { $out{$name} = $v }
     }
 
     return \%out;
 }
+
+sub clone_hash_of_objs {
+    my ($hash, $clone_params) = @_;
+
+    croak "Need a hashref, got '$hash'" unless ref($hash) eq 'HASH';
+
+    my %out;
+    my %seen;
+
+    for my $name (keys %$hash) {
+        my $val = $hash->{$name} or next;
+        if (blessed($val)) {
+            $out{$name} = $hash->{$name}->clone(%$clone_params);
+            next;
+        }
+
+        my $r = ref($val);
+        if ($r eq 'ARRAY') {
+            $out{$name} = [@$val];
+        }
+        elsif ($r eq 'HASH') {
+            $out{$name} = clone_hash_of_objs($val, $clone_params);
+        }
+    }
+
+    return \%out;
+}
+
 
 sub debug {
     local $Data::Dumper::Sortkeys      = 1;

@@ -1,5 +1,6 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
+use Carp::Always;
 
 use Test2::Tools::QuickDB;
 skipall_unless_can_db(driver => 'PostgreSQL');
@@ -19,23 +20,37 @@ db mydb => sub {
 
 orm myorm => sub {
     db 'mydb';
-    autofill;
+
+    autofill sub {
+        autotype 'UUID';
+        autotype 'JSON';
+        autoskip column => qw/simple skip/;
+        autoskip table => 'simple2';
+    };
 };
 
 my $orm = orm('myorm');
-my $con = $orm->connect;
+debug($orm->connection);
+
+
+__END__
+my $con = $orm->connection;
 diag "Using dialect '" . $con->dialect->dialect_name . "'";
 
 my $schema = $con->schema;
 
-my $s = $orm->source('simple2');
+my $s = $orm->source('simple');
 
-my $one = $s->insert({simple2_id => 3});
-ref_is($one, $s->one, "Same ref");
-debug($one, $con->cache);
-$one->update({simple2_id => 5});
-debug($one, $con->cache);
-$one->delete;
-debug($one, $con->cache);
+my $uuid = DBIx::QuickORM::Type::UUID->new;
+my $uuid2 = DBIx::QuickORM::Type::UUID->new;
+my $one = $s->insert({name => 'x', uuid => $uuid});
+
+#debug([$one]);
+$one->field(uuid => $uuid2);
+$one->save;
+#debug([$one, $one->field('my_uuid')]);
+
+my $x = $s->search({uuid => $uuid2})->one;
+#debug([$x]);
 
 done_testing;

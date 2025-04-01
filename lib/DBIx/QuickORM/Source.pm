@@ -26,6 +26,7 @@ sub one      { shift->search->one(@_) }
 sub delete   { shift->search->delete(@_) }
 sub update   { shift->search->update(@_) }
 
+*select = \&search;
 sub search {
     my $self = shift;
     my ($where, $order_by, $limit) = @_;
@@ -71,10 +72,13 @@ sub _deflate {
     for my $field (keys %$data) {
         my $val = $data->{$field};
 
-        my $affinity = $sqla_source->column_affinity($field);
+        my $affinity = $sqla_source->column_affinity($field, $dialect);
 
         if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type'))  {
             $val = $val->qorm_deflate($affinity);
+        }
+        elsif(my $type = $sqla_source->column_type($field)) {
+            $val = $type->qorm_deflate($val, $affinity);
         }
 
         if ($quote_bin && $affinity eq 'binary') {
@@ -94,11 +98,10 @@ sub _insert {
     my $ret = $self->dialect->supports_returning_insert;
 
     my $sqla_source = $self->sqla_source;
-    my $source = $sqla_source->sqla_source;
 
     $data = $self->_deflate($data);
 
-    my ($stmt, @bind) = $self->sqla->insert($source, $data, $ret ? {returning => [$sqla_source->column_names]} : ());
+    my ($stmt, @bind) = $self->sqla->insert($sqla_source, $data, $ret ? {returning => [$sqla_source->column_db_names]} : ());
 
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare($stmt);
@@ -116,16 +119,14 @@ sub _insert {
                 $where = {map { my $v = $data->{$_} or croak "Auto-generated compound primary keys are not supported for databses that do not support 'returning' functionality"; ($_ => $v) } @$pk_fields};
             }
             else {
-                my $kv = $dbh->last_insert_id(undef, undef, $source);
+                my $kv = $dbh->last_insert_id(undef, undef, $sqla_source->sqla_source);
                 $where = {$pk_fields->[0] => $kv};
             }
 
-            $data = $self->search($where)->one(data_only => 1);
+            $data = $self->search($where)->one(data_only => 1, no_remap => 1);
         }
     }
 
-    state $warned = 0;
-    warn "TODO fetch stored data, use returning when applicable" unless $warned++;
     return $self->build_row($data, $row);
 }
 
@@ -142,15 +143,15 @@ sub update_row {
     my ($row) = @_;
 
     my $data = $row->pending_fields;
+    $data = $self->_deflate($data);
 
     my $ret = $self->dialect->supports_returning_update;
 
     my $sqla_source = $self->sqla_source;
-    my $source = $sqla_source->sqla_source;
 
     my $where = $row->primary_key_where;
 
-    my ($stmt, @bind) = $self->sqla->update($source, $data, $where, $ret ? {returning => [keys %$data]} : ());
+    my ($stmt, @bind) = $self->sqla->update($sqla_source, $data, $where, $ret ? {returning => [keys %$data]} : ());
 
     my $dbh = $self->dbh;
     my $sth = $dbh->prepare($stmt);
@@ -159,6 +160,15 @@ sub update_row {
     $data = $sth->fetchrow_hashref if $ret;
 
     return $self->build_row($data, $row);
+}
+
+sub refresh_row {
+    my $self = shift;
+    my ($row) = @_;
+
+    my $data = $self->select($row->primary_key_where)->one(data_only => 1, no_remap => 1);
+
+    return $self->build_row($data, $row, no_desync => 0);
 }
 
 # TODO These should enforce a transaction

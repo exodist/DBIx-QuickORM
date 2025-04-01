@@ -98,6 +98,10 @@ sub update_from_db_data {
     return;
 }
 
+sub stored_data   { $_[0]->{+STORED} }
+sub pending_data  { $_[0]->{+PENDING} }
+sub desynced_data { $_[0]->{+DESYNC} }
+
 sub stored   { $_[0]->{+STORED}  ? wantarray ? (sort keys %{$_[0]->{+STORED}})  : 1 : () }
 sub pending  { $_[0]->{+PENDING} ? wantarray ? (sort keys %{$_[0]->{+PENDING}}) : 1 : () }
 sub desynced { $_[0]->{+DESYNC}  ? wantarray ? (sort keys %{$_[0]->{+DESYNC}})  : 1 : () }
@@ -148,10 +152,7 @@ sub save {
 # Fetch new data from the db
 sub refresh {
     my $self = shift;
-
-    my $data = $self->source->search($self->primary_key_where)->one(data_only => 1);
-    $self->update_from_db_data($data);
-    return;
+    $self->source->refresh_row($self);
 }
 
 sub primary_key_where {
@@ -189,9 +190,18 @@ sub update {
     $self->save(%params);
 }
 
+sub has_field {
+    my $self = shift;
+    my $field = shift or croak "Must specify a field name";
+
+    return $self->sqla_source->column($field) ? 1 : 0;
+}
+
 sub field {
     my $self = shift;
     my $field = shift or croak "Must specify a field name";
+
+    croak "This row does not have a '$field' field" unless $self->has_field($field);
 
     $self->{+PENDING}->{$field} = shift if @_;
 
@@ -204,6 +214,8 @@ sub field {
 sub raw_field {
     my $self = shift;
     my ($field) = @_;
+
+    croak "This row does not have a '$field' field" unless $self->has_field($field);
 
     return $self->_raw_field($self->{+PENDING}, $field) if $self->{+PENDING} && exists $self->{+PENDING}->{$field};
     return $self->_raw_field($self->{+STORED},  $field) if $self->{+STORED}  && exists $self->{+STORED}->{$field};
@@ -255,11 +267,14 @@ sub _inflated_field {
     my $self = shift;
     my ($from, $field) = @_;
 
+    croak "This row does not have a '$field' field" unless $self->has_field($field);
+
     return undef unless $from;
     return undef unless exists $from->{$field};
+
     my $val = $from->{$field};
 
-    return $val if blessed($val);    # Inflated already
+    return $val if ref($val);    # Inflated already
 
     if (my $type = $self->sqla_source->column_can_conflate($field)) {
         return $from->{$field} = $type->qorm_inflate($val);
@@ -271,6 +286,8 @@ sub _inflated_field {
 sub _raw_field {
     my $self = shift;
     my ($from, $field) = @_;
+
+    croak "This row does not have a '$field' field" unless $self->has_field($field);
 
     return undef unless $from;
     return undef unless exists $from->{$field};
@@ -305,9 +322,11 @@ sub _compare_field {
     return 0 if ($ad xor $bd);       # One is defined, one is not
     return 1 if (!$ad) && (!$bd);    # Neither is defined
 
-    return $can_conflate->compare($a, $b)
+    # true if different, false if same
+    return !$can_conflate->qorm_compare($a, $b)
         if $can_conflate;
 
+    # true if same, false if different
     return DBIx::QuickORM::Affinity::compare_affinity_values($affinity, $a, $b);
 }
 

@@ -7,67 +7,46 @@ with 'DBIx::QuickORM::Role::Type';
 
 use Scalar::Util qw/blessed/;
 use UUID qw/uuid7 parse unparse/;
+use Carp qw/croak/;
 
-use DBIx::QuickORM::Util::HashBase qw{
-    +string
-    +binary
-};
-
-sub init {
-    my $self = shift;
-
-    unless ($self->{+STRING} || $self->{+BINARY}) {
-        $self->{+STRING} = uuid7();
-    }
-}
-
-sub string {
-    my $self = shift;
-    my $s;
-    unparse($self->{+BINARY}, $s) unless $self->{+STRING};
-    return $self->{+STRING} //= $s;
-}
-
-sub binary {
-    my $self = shift;
-    my $b;
-    parse($self->{+STRING}, $b) unless $self->{+BINARY};
-    return $self->{+BINARY} //= $b;
-}
+sub new { uuid7() }
 
 sub qorm_inflate {
     my $in = pop;
-
-    return $in if blessed($in) && $in->isa(__PACKAGE__);
-
     my $class = shift // __PACKAGE__;
 
-    my %params;
-
-    if ($class->looks_like_uuid($in)) {
-        $params{+STRING} = $in;
-    }
-    else {
-        $params{+BINARY} = $in;
-    }
-
-    return $class->new(%params);
+    return $class->looks_like_uuid($in) // $class->looks_like_bin($in) // croak "'$in' does not look like a UUID";
 }
 
 sub qorm_deflate {
     my $affinity = pop;
     my $in = pop;
+    my $class = shift // __PACKAGE__;
 
-    unless (blessed($in) && $in->isa(__PACKAGE__)) {
-        my $class = shift // __PACKAGE__;
-        $in = $class->qorm_inflate($in);
+    if (my $uuid = $class->looks_like_uuid($in)) {
+        return $uuid if $affinity eq 'string';
+
+        my $b;
+        parse($in, $b);
+        return $b;
     }
 
-    return $in->$affinity;
+    if (my $uuid = $class->looks_like_bin($in)) {
+        return $in if $affinity eq 'binary';
+        return $uuid;
+    }
+
+    croak "'$in' does not look like a uuid";
 }
 
 sub qorm_compare {
-    return 0;
+    my $class = shift;
+    my ($a, $b) = @_;
+
+    $a = $class->qorm_inflate($a);
+    $b = $class->qorm_inflate($b);
+
+    return $a cmp $b;
 }
 
 sub qorm_affinity {
@@ -94,9 +73,18 @@ sub qorm_sql_type {
         return $stype;
     }
 
-    # FIXME: We need a binary subclass
-    # We also need to go thorugh the supprots-type system
+    # Document how to set up binary(16)
+    # Basically use the post_column hook in Autofill
     return 'VARCHAR(36)';
+}
+
+sub looks_like_bin {
+    my $in = pop;
+    use bytes;
+    return undef unless length($in) == 16;
+    my $s;
+    unparse($in, $s);
+    return $s;
 }
 
 sub looks_like_uuid {

@@ -7,16 +7,16 @@ our $VERSION = '0.000005';
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 use Role::Tiny::With qw/with/;
-use DBIx::QuickORM::Util qw/column_key/;
+use DBIx::QuickORM::Util qw/column_key merge_hash_of_objs clone_hash_of_objs/;
 
 use DBIx::QuickORM::Util::HashBase qw{
-    <name
-    <db_name
+    +name
+    +db_name
     +columns
+    +db_columns
     <unique
     <primary_key
     <row_class
-    <accessors
     <created
     <compiled
     <is_temp
@@ -33,6 +33,37 @@ with 'DBIx::QuickORM::Role::SQLASource';
 
 sub is_view     { 0 }
 sub sqla_source { $_[0]->{+DB_NAME} }
+
+sub name    { $_[0]->{+NAME}    //= $_[0]->{+DB_NAME} }
+sub db_name { $_[0]->{+DB_NAME} //= $_[0]->{+NAME} }
+
+sub merge {
+    my $self = shift;
+    my ($other, %params) = @_;
+
+    $params{+COLUMNS}        //= merge_hash_of_objs($self->{+COLUMNS}, $other->{+COLUMNS}, \%params)               if $params{+COLUMNS};
+    $params{+UNIQUE}         //= merge_hash_of_objs($self->{+UNIQUE}, $other->{+UNIQUE}, \%params)                 if $params{+UNIQUE};
+    $params{+LINKS}          //= merge_hash_of_objs($self->{+LINKS}, $other->{+LINKS}, \%params)                   if $params{+LINKS};
+    $params{+LINKS_BY_ALIAS} //= merge_hash_of_objs($self->{+LINKS_BY_ALIAS}, $other->{+LINKS_BY_ALIAS}, \%params) if $params{+LINKS_BY_ALIAS};
+    $params{+INDEXES}        //= [@{$self->{+INDEXES}}, @{$other->{+INDEXES}}]                                     if $params{+INDEXES};
+    $params{+PRIMARY_KEY}    //= [@{$self->{+PRIMARY_KEY}}]                                                        if $self->{+PRIMARY_KEY};
+
+    return blessed($self)->new(%$self, %params);
+}
+
+sub clone {
+    my $self = shift;
+    my (%params) = @_;
+
+    $params{+COLUMNS}        //= clone_hash_of_objs($self->{+COLUMNS}, \%params)        if $params{+COLUMNS};
+    $params{+UNIQUE}         //= clone_hash_of_objs($self->{+UNIQUE}, \%params)         if $params{+UNIQUE};
+    $params{+LINKS}          //= clone_hash_of_objs($self->{+LINKS}, \%params)          if $params{+LINKS};
+    $params{+LINKS_BY_ALIAS} //= clone_hash_of_objs($self->{+LINKS_BY_ALIAS}, \%params) if $params{+LINKS_BY_ALIAS};
+    $params{+INDEXES}        //= [@{$self->{+INDEXES}}]                                 if $params{+INDEXES};
+    $params{+PRIMARY_KEY}    //= [@{$self->{+PRIMARY_KEY}}]                             if $self->{+PRIMARY_KEY};
+
+    return blessed($self)->new(%$self, %params);
+}
 
 sub sqla_fields {
     my $self = shift;
@@ -65,6 +96,8 @@ sub init {
 
     my $cols = $self->{+COLUMNS} //= {};
     croak "The 'columns' attribute must be a hashref${debug}" unless ref($cols) eq 'HASH';
+
+    $self->{+DB_COLUMNS} = { map {$_->db_name => $_} values %$cols };
 
     for my $cname (sort keys %$cols) {
         my $cval = $cols->{$cname} or croak "Column '$cname' is empty${debug}";
@@ -115,14 +148,23 @@ sub link {
     croak "Need a link name or table";
 }
 
-sub columns { values %{$_[0]->{+COLUMNS}} }
-sub column_names { sort keys %{$_[0]->{+COLUMNS}} }
+sub columns          { values %{$_[0]->{+COLUMNS}} }
+sub column_names     { sort keys %{$_[0]->{+COLUMNS}} }
+sub column_orm_names { sort keys %{$_[0]->{+COLUMNS}} }
+sub column_db_names  { sort keys %{$_[0]->{+DB_COLUMNS}} }
 
 sub column {
     my $self = shift;
-    my ($cname, $row) = @_;
+    my ($cname) = @_;
 
     return $self->{+COLUMNS}->{$cname} // undef;
+}
+
+sub db_column {
+    my $self = shift;
+    my ($cname) = @_;
+
+    return $self->{+DB_COLUMNS}->{$cname} // undef;
 }
 
 1;
