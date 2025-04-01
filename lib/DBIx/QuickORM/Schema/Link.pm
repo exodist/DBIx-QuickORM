@@ -16,6 +16,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <key
     <aliases
     <created
+    <compiled
 };
 
 sub init {
@@ -62,6 +63,23 @@ sub merge {
     push @{$new->{+ALIASES}} => @{$other->{+ALIASES}};
 
     return bless($new, blessed($self));
+}
+
+sub clone {
+    my $self   = shift;
+    my %params = @_;
+
+    $params{+LOCAL_COLUMNS} //= [@{$self->{+LOCAL_COLUMNS}}];
+    $params{+OTHER_COLUMNS} //= [@{$self->{+OTHER_COLUMNS}}];
+    $params{+UNIQUE}        //= [@{$self->{+UNIQUE}}];
+    $params{+ALIASES}       //= [@{$self->{+ALIASES}}];
+    $params{+KEY}           //= column_key(@{$params{+LOCAL_COLUMNS}});
+
+    my $out = blessed($self)->new(%$self, %params);
+    delete $out->{+COMPILED};
+    delete $out->{+CREATED};
+
+    return $out;
 }
 
 1;

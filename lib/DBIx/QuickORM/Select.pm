@@ -84,7 +84,7 @@ sub iterator {
 
     return DBIx::QuickORM::Iterator->new(sub {
         my $data = $sth->fetchrow_hashref or return;
-        return $data if $params{data_only};
+        return $self->sqla_source->remap_columns($data) if $params{data_only};
         return $self->build_row($data);
     });
 }
@@ -106,6 +106,7 @@ sub iterate {
 
     while (my $data = $sth->fetchrow_hashref) {
         if ($params{data_only}) {
+            $self->sqla_source->remap_columns($data);
             $cb->($data);
         }
         else {
@@ -125,7 +126,7 @@ sub any {
     my $sth  = $s->_execute_select();
     my $data = $sth->fetchrow_hashref or return;
 
-    return $data if $params{data_only};
+    return $self->sqla_source->remap_columns($data) if $params{data_only};
     return $self->build_row($data);
 }
 
@@ -145,7 +146,7 @@ sub first {
     my $sth  = $s->_execute_select();
     my $data = $sth->fetchrow_hashref or return;
 
-    return $data if $params{data_only};
+    return $self->sqla_source->remap_columns($data) if $params{data_only};
     return $self->build_row($data);
 }
 
@@ -158,7 +159,8 @@ sub one {
     my $data = $sth->fetchrow_hashref or return;
     croak "More than one matching row was found in the database" if $sth->fetchrow_hashref;
 
-    return $data if $params{data_only};
+    return $data if $params{no_remap} && $params{data_only};
+    return $self->sqla_source->remap_columns($data) if $params{data_only};
     return $self->build_row($data);
 }
 
@@ -185,21 +187,26 @@ sub update {
 sub _execute_select {
     my $self = shift;
 
-    my $source = $self->{+SQLA_SOURCE}->sqla_source;
-    my $fields = $self->{+FIELDS};
-    my $rename = $self->{+FIELD_RENAMES};
+    my $sqla_source = $self->{+SQLA_SOURCE};
+    my $fields      = $self->{+FIELDS};
+    my $rename      = $self->{+FIELD_RENAMES};
+    my $dialect     = $self->dialect;
 
-    my ($stmt, $bind, $bind_names) = $self->sqla->select($source, @{$self}{FIELDS(), WHERE(), ORDER_BY()});
+    my ($stmt, $bind, $bind_names) = $self->sqla->select($sqla_source, @{$self}{FIELDS(), WHERE(), ORDER_BY()});
     if (my $limit = $self->limit) {
         $stmt .= " LIMIT ?";
         push @$bind => $limit;
     }
 
+    for (my $i = 0; $i < @$bind_names; $i++) {
+        my $item = $bind->[$i] // next;
+        my $field = $bind_names->[$i] // next;
+        my $type = $sqla_source->column_type($field) or next;
+        $bind->[$i] = $type->qorm_deflate($item, $sqla_source->column_affinity($field, $dialect));
+    }
+
     my $sth = $self->dbh->prepare($stmt);
     $sth->execute(@$bind);
-
-    state $warned = 0;
-    warn "TODO rename fields" unless $warned++;
 
     return $self->{+LAST_STH} = $sth;
 }

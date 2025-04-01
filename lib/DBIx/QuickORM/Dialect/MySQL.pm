@@ -53,16 +53,19 @@ sub init {
     my $self = shift;
 
     if (blessed($self) eq __PACKAGE__) {
-        my $vendor = $self->db_vendor;
-        if (my $class = load_class("DBIx::QuickORM::Dialect::MySQL::${vendor}")) {
-            bless($self, $class);
-            return $self->init();
-        }
-        elsif ($@ !~ m{Can't locate DBIx/QuickORM/Dialect/MySQL/${vendor}\.pm in \@INC}) {
-            die $@;
+        if (my $vendor = $self->db_vendor) {
+            if (my $class = load_class("DBIx::QuickORM::Dialect::MySQL::${vendor}")) {
+                bless($self, $class);
+                return $self->init();
+            }
+            elsif ($@ !~ m{Can't locate DBIx/QuickORM/Dialect/MySQL/${vendor}\.pm in \@INC}) {
+                die $@;
+            }
+
+            warn "Could not find vendor specific dialect 'DBIx::QuickORM::Dialect::MySQL::${vendor}', using 'DBIx::QuickORM::Dialect::MySQL'. This can result in degraded capabilities compared to a dedicate dialect\n";
         }
         else {
-            warn "Could not find vendor specific dialect 'DBIx::QuickORM::Dialect::MySQL::${vendor}', using 'DBIx::QuickORM::Dialect::MySQL'. This can result in degraded capabilities compared to dedicate dialect\n";
+            warn "Could not find vendor specific dialect 'DBIx::QuickORM::Dialect::MySQL::YOUR_VENDOR', using 'DBIx::QuickORM::Dialect::MySQL'. This can result in degraded capabilities compared to a dedicate dialect\n";
         }
     }
 
@@ -89,15 +92,28 @@ sub db_vendor {
 
     my $dbh = $self->{+DBH};
 
-    my $sth = $dbh->prepare('SELECT @@version_comment');
+    for my $cmd ('SELECT @@version_comment', "SELECT version()") {
+        my $sth = $dbh->prepare($cmd);
+        $sth->execute();
+        my ($val) = $sth->fetchrow_array;
+
+        return 'MariaDB'   if $val =~ m/MariaDB/i;
+        return 'Percona'   if $val =~ m/Percona/i;
+        return 'Community' if $val =~ m/Community/i;
+    }
+
+    my $sth = $dbh->prepare('SHOW VARIABLES LIKE "%version%"');
     $sth->execute();
 
-    my ($val) = $sth->fetchrow_array;
+    while (my @vals = $sth->fetchrow_array) {
+        for my $val (@vals) {
+            return 'MariaDB'   if $val =~ m/MariaDB/i;
+            return 'Percona'   if $val =~ m/Percona/i;
+            return 'Community' if $val =~ m/Community/i;
+        }
+    }
 
-    return 'MariaDB' if $val =~ m/MariaDB/i;
-    return 'Percona' if $val =~ m/Percona/i;
-    return 'Community' if $val =~ m/Community/;
-    return $val;
+    return undef;
 }
 
 ###############################################################################

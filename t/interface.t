@@ -1,4 +1,5 @@
 use Test2::V0 -target => 'DBIx::QuickORM';
+use Carp::Always;
 
 {
     package DBIx::QuickORM::DB::Fake;
@@ -287,7 +288,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     like(
         db('full'),
         {
-            name       => 'full_db',
+            name       => 'full',
+            db_name    => 'full_db',
             connect    => T(),
             attributes => {foo => 2},
             dsn        => "mydsn",
@@ -684,7 +686,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     },
                 },
                 foo => {
-                    name        => 'foo1',
+                    name        => 'foo',
+                    db_name     => 'foo1',
                     row_class   => 'DBIx::QuickORM::Row::ClassB',
                     primary_key => ['a', 'b'],
                     unique      => {'x, y, z' => ['x', 'y', 'z']},
@@ -700,7 +703,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                         },
                         c => {
                             affinity => 'string',
-                            name     => 'C',
+                            name     => 'c',
+                            db_name  => 'C',
                             nullable => 1,
                             omit     => 1,
                             sql      => {
@@ -734,11 +738,11 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     ],
                     links => {
                         bar => {
-                            C => {
+                            c => {
                                 table         => 'bar',
-                                key           => 'C',
+                                key           => 'c',
                                 aliases       => ['get_bar'],
-                                local_columns => ['C'],
+                                local_columns => ['c'],
                                 other_columns => ['xyz'],
                                 unique        => F(),
                                 created       => T(),
@@ -757,9 +761,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     links_by_alias => {
                         get_bar => {
                             table         => 'bar',
-                            key           => 'C',
+                            key           => 'c',
                             aliases       => ['get_bar'],
-                            local_columns => ['C'],
+                            local_columns => ['c'],
                             other_columns => ['xyz'],
                             unique        => F(),
                             created       => T(),
@@ -1080,7 +1084,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 type     => 'DBIx::QuickORM::Type::MyType',
             },
             g => {
-                name     => 'gg',
+                name     => 'g',
+                db_name  => 'gg',
                 omit     => 1,
                 identity => 1,
                 nullable => 1,
@@ -1300,7 +1305,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     );
 
     db name_test => sub { db_name 'foo'; dialect 'SQLite' };
-    is(db('name_test')->{name}, 'foo', "DB Name different from qorm name");
+    is(db('name_test')->{db_name}, 'foo', "DB Name different from qorm name");
 
     schema name_test => sub {
         table lookup_name => sub {
@@ -1311,8 +1316,10 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         };
     };
 
-    is(schema('name_test')->{tables}->{lookup_name}->{name},                           'db_alt_name', "DB Name different from qorm name");
-    is(schema('name_test')->{tables}->{lookup_name}->{columns}->{lookup_name}->{name}, 'db_alt_name', "DB Name different from qorm name");
+    is(schema('name_test')->{tables}->{lookup_name}->{name},                              'lookup_name', "Name correct");
+    is(schema('name_test')->{tables}->{lookup_name}->{db_name},                           'db_alt_name', "DB Name different from qorm name");
+    is(schema('name_test')->{tables}->{lookup_name}->{columns}->{lookup_name}->{name},    'lookup_name', "Name correct");
+    is(schema('name_test')->{tables}->{lookup_name}->{columns}->{lookup_name}->{db_name}, 'db_alt_name', "DB Name different from qorm name");
 
     schema test_row_class => sub {
         row_class 'DBIx::QuickORM::Row::ClassA';
@@ -1531,9 +1538,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     ref_is(qorm(), Test::ORM->builder, "shortcut to the 'DBIx::QuickORM' instance");
 
-    isa_ok(qorm('orm_test_b:postgresql'), ['DBIx::QuickORM::ORM'], "Got the orm by name");
+    isa_ok(qorm(orm => 'orm_test_b:postgresql'), ['DBIx::QuickORM::ORM'], "Got the orm by name");
 
-    ref_is(qorm('orm_test_b:postgresql'), qorm('orm_test_b:postgresql'), "Cached the reference");
+    ref_is(qorm(orm => 'orm_test_b:postgresql'), qorm(orm => 'orm_test_b:postgresql'), "Cached the reference");
 
     isa_ok(qorm(db => 'somesql.somedb'),             ['DBIx::QuickORM::DB'], "Got the db by name");
     isa_ok(qorm(db => 'variable.db_one:postgresql'), ['DBIx::QuickORM::DB'], "Got the db by name and variation");
@@ -1541,6 +1548,10 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     like(dies { qorm(1 .. 10) },         qr/Too many arguments/,                                             "Too many args");
     like(dies { qorm('fake') },          qr/'fake' is not a defined ORM/,                                    "Need to provide a valid orm name");
     like(dies { qorm('fake' => 'foo') }, qr/'fake' is not a valid item type to fetch from 'Test::Consumer'/, "We do not define any 'fake's here");
+
+    no warnings 'once';
+    local *DBIx::QuickORM::ORM::connection = sub { 'connected!' };
+    is(qorm('orm_test_b:postgresql'), 'connected!', "qorm(name) gets the connection");
 }
 
 done_testing;

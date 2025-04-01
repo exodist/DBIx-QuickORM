@@ -2,34 +2,36 @@ use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 
 use Test2::Tools::QuickDB;
-skipall_unless_can_db(driver => 'PostgreSQL');
+skipall_unless_can_db(driver => 'SQLite');
 
 use lib 't/lib';
 use DBIx::QuickORM::Test;
 
-my $psql_file = __FILE__;
-$psql_file =~ s/\.t/.sql/;
-my $psql = psql(load_sql => [quickdb => $psql_file]);
 
-db postgresql => sub {
-    dialect 'PostgreSQL';
+my $sqlite_file = __FILE__;
+$sqlite_file =~ s/\.t/.sql/;
+my $sqlite = sqlite(load_sql => [quickdb => $sqlite_file]);
+
+db sqlite => sub {
+    dialect 'SQLite';
     db_name 'quickdb';
-    connect sub { $psql->connect };
+    connect sub { $sqlite->connect };
 };
 
 orm myorm => sub {
-    db 'postgresql';
+    db 'sqlite';
     autofill sub {
         autotype 'UUID';
     };
 };
 
-my $con = orm('myorm')->connect;
-use DBIx::QuickORM::Util qw/debug/;
-debug(orm('myorm'));
+my $con = orm('myorm')->connection;
 diag "Using dialect '" . $con->dialect->dialect_name . "'";
 
+
+use DBIx::QuickORM::Util qw/debug/;
 my $schema = $con->schema;
+
 is(
     $schema,
     {
@@ -42,10 +44,11 @@ is(
                 is_temp        => F(),
                 links_by_alias => {},
 
+                db_columns => T(),
                 columns => {
-                    alias_id => {affinity => 'numeric', db_name => 'alias_id', name => 'alias_id', nullable => F(), order => 1, type => \'int4', identity => T()},
-                    light_id => {affinity => 'numeric', db_name => 'light_id', name => 'light_id', nullable => F(), order => 2, type => \'int4'},
-                    name     => {affinity => 'string',  db_name => 'name',     name => 'name',     nullable => F(), order => 3, type => \'varchar'},
+                    alias_id => {affinity => 'numeric', db_name => 'alias_id', name => 'alias_id', nullable => F(), order => 1, type => \'INTEGER', identity => T()},
+                    light_id => {affinity => 'numeric', db_name => 'light_id', name => 'light_id', nullable => F(), order => 2, type => \'INTEGER'},
+                    name     => {affinity => 'string',  db_name => 'name',     name => 'name',     nullable => F(), order => 3, type => \'VARCHAR'},
                 },
                 links => {
                     lights => {
@@ -53,8 +56,8 @@ is(
                     },
                 },
                 indexes => [
-                    {columns => ['name'],     name => 'aliases_name_key', type => 'btree', unique => 1},
-                    {columns => ['alias_id'], name => 'aliases_pkey',     type => 'btree', unique => 1},
+                    {columns => ['alias_id'], name => 'aliases:pk',     unique => 1},
+                    {columns => ['name'],     name => 'sqlite_autoindex_aliases_1', unique => 1},
                 ],
                 unique => {
                     alias_id => ['alias_id'],
@@ -68,10 +71,11 @@ is(
                 is_temp        => F(),
                 links_by_alias => {},
 
+                db_columns => T(),
                 columns => {
-                    name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1, type => \'bpchar'},
-                    name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2, type => \'bpchar'},
-                    name_c => {affinity => 'string', db_name => 'name_c', name => 'name_c', nullable => T(), order => 3, type => \'bpchar'},
+                    name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1, type => \'CHAR'},
+                    name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2, type => \'CHAR'},
+                    name_c => {affinity => 'string', db_name => 'name_c', name => 'name_c', nullable => T(), order => 3, type => \'CHAR'},
                 },
                 links => {
                     complex_ref => {
@@ -83,8 +87,9 @@ is(
                     'name_a, name_b, name_c' => ['name_a', 'name_b', 'name_c'],
                 },
                 indexes => [
-                    {columns => ['name_a', 'name_b', 'name_c'], name => 'complex_keys_name_a_name_b_name_c_key', type => 'btree', unique => 1},
-                    {columns => ['name_a', 'name_b'], name => 'complex_keys_pkey', type => 'btree', unique => 1},
+                    {columns => ['name_a', 'name_b'], name => 'complex_keys:pk', unique => 1},
+                    {columns => ['name_a', 'name_b', 'name_c'], name => 'sqlite_autoindex_complex_keys_1', unique => 1},
+                    {columns => ['name_a', 'name_b'], name => 'sqlite_autoindex_complex_keys_2', unique => 1},
                 ],
             },
             complex_ref => {
@@ -94,10 +99,11 @@ is(
                 is_temp        => F(),
                 links_by_alias => {},
 
+                db_columns => T(),
                 columns => {
-                    name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1, type => \'bpchar'},
-                    name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2, type => \'bpchar'},
-                    extras => {affinity => 'string', db_name => 'extras', name => 'extras', nullable => T(), order => 3, type => \'bpchar'},
+                    name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1, type => \'CHAR'},
+                    name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2, type => \'CHAR'},
+                    extras => {affinity => 'string', db_name => 'extras', name => 'extras', nullable => T(), order => 3, type => \'CHAR'},
                 },
                 links => {
                     complex_keys => {
@@ -108,7 +114,8 @@ is(
                     'name_a, name_b' => ['name_a', 'name_b',],
                 },
                 indexes => [
-                    {columns => ['name_a', 'name_b'], name => 'complex_ref_pkey', type => 'btree', unique => 1},
+                    {columns => ['name_a', 'name_b'], name => 'complex_ref:pk', unique => 1},
+                    {columns => ['name_a', 'name_b'], name => 'sqlite_autoindex_complex_ref_1', unique => 1},
                 ],
             },
             light_by_name => {
@@ -121,13 +128,14 @@ is(
                 unique         => {},
                 indexes        => [],
 
+                db_columns => T(),
                 columns => {
-                    name       => {affinity => 'string',  db_name => 'name',       name => 'name',       nullable => T(), order => 1, type => \'varchar'},
-                    alias_id   => {affinity => 'numeric', db_name => 'alias_id',   name => 'alias_id',   nullable => T(), order => 2, type => \'int4'},
-                    light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => T(), order => 3, type => \'int4'},
+                    name       => {affinity => 'string',  db_name => 'name',       name => 'name',       nullable => T(), order => 1, type => \'VARCHAR'},
+                    alias_id   => {affinity => 'numeric', db_name => 'alias_id',   name => 'alias_id',   nullable => T(), order => 2, type => \'INTEGER'},
+                    light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => T(), order => 3, type => \'INTEGER'},
                     light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => T(), order => 4, type => 'DBIx::QuickORM::Type::UUID'},
-                    stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 5, type => \'timestamptz'},
-                    color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => T(), order => 6, type => \'color'},
+                    stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 5, type => \'TIMESTAMP'},
+                    color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => T(), order => 6, type => \'TEXT'},
                 },
             },
             lights => {
@@ -137,11 +145,12 @@ is(
                 is_temp        => F(),
                 links_by_alias => {},
 
+                db_columns => T(),
                 columns => {
-                    light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, type => \'int4', identity => T()},
+                    light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, type => \'INTEGER', identity => T()},
                     light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => F(), order => 2, type => 'DBIx::QuickORM::Type::UUID'},
-                    stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 3, type => \'timestamptz'},
-                    color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => F(), order => 4, type => \'color'},
+                    stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 3, type => \'TIMESTAMP'},
+                    color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => F(), order => 4, type => \'TEXT'},
                 },
                 links => {
                     aliases => {
@@ -152,7 +161,7 @@ is(
                     light_id => ['light_id',],
                 },
                 indexes => [
-                    {columns => ['light_id'], name => 'lights_pkey', type => 'btree', unique => 1},
+                    {columns => ['light_id'], name => 'lights:pk', unique => 1},
                 ],
             },
         },
@@ -180,3 +189,4 @@ isa_ok($schema->maybe_table('aliases')->link(table => 'lights'), ['DBIx::QuickOR
 isa_ok($schema->maybe_table('aliases')->link(table => 'lights', cols => ['light_id']), ['DBIx::QuickORM::Schema::Link'], "Can get link by table + cols");
 
 done_testing;
+

@@ -78,6 +78,8 @@ sub build_tables_from_db {
     my %tables;
 
     while (my ($tname, $type) = $sth->fetchrow_array) {
+        next if $params{autofill}->skip(table => $tname);
+
         my $table = {name => $tname, db_name => $tname, is_temp => $TEMP_TYPES{$type} // 0};
         my $class = $TABLE_TYPES{$type} // 'DBIx::QuickORM::Schema::Table';
 
@@ -160,6 +162,8 @@ sub build_columns_from_db {
 
     my (%columns, @links);
     while (my $res = $sth->fetchrow_hashref) {
+        next if $params{autofill}->skip(column => ($table, $res->{column_name}));
+
         my $col = {};
 
         $params{autofill}->hook(pre_column => {column => $col, table_name => $table, column_info => $res});

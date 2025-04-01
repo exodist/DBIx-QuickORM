@@ -49,10 +49,12 @@ sub merge {
     my $self = shift;
     my ($other, %params) = @_;
 
-    $params{+TABLES}  //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES}, \%params);
-    $params{+NAME}    //= $self->{+NAME} if $self->{+NAME};
+    $params{+TABLES}    //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES}, \%params);
+    $params{+NAME}      //= $self->{+NAME} if $self->{+NAME};
+    $params{+ROW_CLASS} //= $other->{+ROW_CLASS};
+    $params{+SQL}       //= $other->{+SQL};
 
-    return ref($self)->new(%$self, %params, __MERGE__ => 1);
+    return ref($self)->new(%$self, %params);
 }
 
 sub clone {
@@ -62,7 +64,7 @@ sub clone {
     $params{+TABLES}  //= {map { $_ => $self->{+TABLES}->{$_}->clone } keys %{$self->{+TABLES}}};
     $params{+NAME}    //= $self->{+NAME} if $self->{+NAME};
 
-    return blessed($self)->new(%$self, %params, __CLONE__ => 1);
+    return blessed($self)->new(%$self, %params);
 }
 
 sub resolve_links {

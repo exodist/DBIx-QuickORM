@@ -57,7 +57,7 @@ sub init {
             $self->{+SCHEMA} = $schema->merge($schema2);
         }
         else {
-            $self->{+SCHEMA} = $schema;
+            $self->{+SCHEMA} = $schema->clone;
         }
     }
     else {
@@ -145,12 +145,14 @@ sub build_row {
     my $sqla_source = $params{sqla_source} or croak "An sqla_source is required";
     my $row_data    = $params{row_data}    or croak "row_data is required";
 
+    $sqla_source->remap_columns($row_data);
+
     my $cache = $self->cache;
 
     my $row;
     if ($row = $params{row}) {
         $cache->update($row, $row_data) if $cache; # Move to new cache key if pk changed
-        $row->update_from_db_data($row_data, no_desync => 1);
+        $row->update_from_db_data($row_data, no_desync => $params{no_desync} // 1);
         return $row;
     }
 

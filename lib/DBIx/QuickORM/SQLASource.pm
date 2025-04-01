@@ -20,5 +20,7 @@ sub sqla_rename { undef }
 sub row_class   { undef }
 sub primary_key { undef }
 sub column      { undef }
+sub column_db_names { }
+sub column_orm_names { }
 
 1;
