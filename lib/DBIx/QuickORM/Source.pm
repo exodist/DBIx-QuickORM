@@ -82,7 +82,7 @@ sub _deflate {
         }
 
         if ($quote_bin && $affinity eq 'binary') {
-            $val = \($dbh->quote($val, DBI::SQL_BINARY()))
+            $val = \($dbh->quote($val, $quote_bin));
         }
 
         $out->{$field} = $val;

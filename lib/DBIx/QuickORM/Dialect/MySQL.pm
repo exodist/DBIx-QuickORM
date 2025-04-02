@@ -9,6 +9,8 @@ use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/column_key load_class/;
 use DBIx::QuickORM::Affinity qw/affinity_from_type/;
 
+use DBI();
+
 use DBIx::QuickORM::Schema;
 use DBIx::QuickORM::Schema::Table;
 use DBIx::QuickORM::Schema::Table::Column;
@@ -44,8 +46,8 @@ sub dbi_driver {
 sub quote_binary_data {
     my $self = shift;
     my $driver = $self->dbi_driver;
-    return 0 if $driver eq 'DBD::mysql';
-    return 1 if $driver eq 'DBD::MariaDB';
+    return undef if $driver eq 'DBD::mysql';
+    return DBI::SQL_BINARY if $driver eq 'DBD::MariaDB';
     croak "Unknown DBD::Driver '$driver'";
 }
 
@@ -73,7 +75,16 @@ sub init {
 }
 
 sub dialect_name { 'MySQL' }
-sub dsn_socket_field { 'mysql_socket' };
+
+sub dsn_socket_field {
+    my $this = shift;
+    my ($driver) = @_;
+
+    return 'mariadb_socket' if $driver eq 'DBD::MariaDB';
+    return 'mysql_socket' if $driver eq 'DBD::mysql';
+
+    $this->SUPER::dsn_socket_field($driver);
+};
 
 sub db_version {
     my $self = shift;

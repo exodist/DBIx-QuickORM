@@ -10,7 +10,6 @@ use parent 'DBIx::QuickORM::Dialect::MySQL';
 use DBIx::QuickORM::Util::HashBase;
 
 sub dialect_name { 'MySQL::MariaDB' }
-sub dsn_socket_field { 'mariadb_socket' };
 
 sub supports_returning_update { 0 }
 sub supports_returning_insert { 1 }

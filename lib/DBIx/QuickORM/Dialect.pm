@@ -4,6 +4,7 @@ use warnings;
 
 use Carp qw/croak confess/;
 use Scalar::Util qw/blessed/;
+use DBI();
 
 our $VERSION = '0.000005';
 
@@ -19,7 +20,7 @@ sub dsn_socket_field { 'host' }
 sub dbi_driver { confess "Not Implemented" }
 sub db_version { confess "Not Implemented" }
 
-sub quote_binary_data         { 1 }
+sub quote_binary_data         { DBI::SQL_BINARY() }
 sub supports_returning_update { 0 }
 sub supports_returning_insert { 0 }
 sub supports_type { }
@@ -45,13 +46,14 @@ sub dsn {
 
     my $driver = $db->dbi_driver // $self_or_class->dbi_driver;
     load_class($driver) or croak "Could not load '$driver': $@";
-    $driver =~ s/^DBD:://;
+    my $dsn_driver = $driver;
+    $dsn_driver =~ s/^DBD:://;
 
     my $db_name = $db->db_name;
-    my $dsn = "dbi:${driver}:dbname=${db_name};";
+    my $dsn = "dbi:${dsn_driver}:dbname=${db_name};";
 
     if (my $socket = $db->socket) {
-        $dsn .= $self_or_class->dsn_socket_field . "=$socket";
+        $dsn .= $self_or_class->dsn_socket_field($driver) . "=$socket";
     }
     elsif (my $host = $db->host) {
         $dsn .= "host=$host;";

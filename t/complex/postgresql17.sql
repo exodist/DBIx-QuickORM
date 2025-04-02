@@ -1,5 +1,5 @@
 CREATE TABLE example(
-    id      SERIAL          NOT NULL PRIMARY KEY,
+    id      INTEGER         NOT NULL PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     name    VARCHAR(128)    NOT NULL,
     uuid    UUID            DEFAULT NULL,
     data    JSONB           DEFAULT NULL,

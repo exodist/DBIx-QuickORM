@@ -1,5 +1,4 @@
 use Test2::V0 -target => 'DBIx::QuickORM';
-use Carp::Always;
 
 {
     package DBIx::QuickORM::DB::Fake;
