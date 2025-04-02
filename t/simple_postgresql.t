@@ -1,6 +1,5 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
-use Carp::Always;
 
 use Test2::Tools::QuickDB;
 skipall_unless_can_db(driver => 'PostgreSQL');

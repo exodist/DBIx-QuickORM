@@ -39,7 +39,7 @@ sub dsn {
     my $driver = $db->dbi_driver // $self_or_class->dbi_driver;
     $driver =~ s/^DBD:://;
 
-    my $db_name = $self_or_class->db_name;
+    my $db_name = $db->db_name;
 
     return "dbi:${driver}:dbname=${db_name}";
 }

@@ -43,11 +43,11 @@ my @EXPORT = qw{
      driver
      dialect
      attributes
-     host
+     host hostname
      port
      socket
-     user
-     pass
+     user username
+     pass password
      creds
      db
       connect
@@ -495,6 +495,10 @@ sub port   { $_[0]->_in_builder(qw{db server})->{meta}->{port}   = $_[1] }
 sub socket { $_[0]->_in_builder(qw{db server})->{meta}->{socket} = $_[1] }
 sub user   { $_[0]->_in_builder(qw{db server})->{meta}->{user}   = $_[1] }
 sub pass   { $_[0]->_in_builder(qw{db server})->{meta}->{pass}   = $_[1] }
+
+*hostname = \&host;
+*username = \&user;
+*password = \&pass;
 
 sub schema {
     my $self = shift;
@@ -1618,11 +1622,13 @@ Can also be used to tell an ORM which db to use:
 
 =item dialect 'PostgreSQL'
 
-=item dialect 'PostgreSQL::V17'
-
 =item dialect 'MySQL'
 
-=item dialect 'MariaDB'
+=item dialect 'MySQL::MariaDB'
+
+=item dialect 'MySQL::Percona'
+
+=item dialect 'MySQL::Community'
 
 =item dialect 'SQLite'
 
@@ -1633,12 +1639,7 @@ schema from an existing database, or writing new schema SQL.
 provided unless it starts with a '+', in whcih case the plus is removed and the
 rest of the string is left unmodified.
 
-The following are all supported by DBIx::QuickORM by default. Using them will
-always use the latest version. If you are using an older version of the
-database and want a matching dialect you can specify that with '::V#', assuming
-a module exists for the dialect version you want. If none exists you can write
-one and submit a PR.
-
+The following are all supported by DBIx::QuickORM by default
 =over 4
 
 =item PostgreSQL
@@ -1647,11 +1648,27 @@ For interacting with PostgreSQL databases.
 
 =item MySQL
 
-For interacting with MySQL databases.
+For interacting with generic MySQL databases. Selecting this will auto-upgrade
+to MariaDB, Percona, or Community variants if it can detect the variant. If it
+cannot detect the variant then the generic will be used.
 
-=item MariaDB
+B<NOTE:> using the correct variant can produce better results. For example
+MariaDB supports 'returning' on inserts, Percona and Community variants do not,
+and thus need a second query to fetch the data post-insert, and using
+C<last_insert_id> to get auto-generated primary keys. DBIx::QuickORM is aware
+of this and will use returning when possible.
+
+=item MySQL::MariaDB
 
 For interacting with MariaDB databases.
+
+=item MySQL::Percona
+
+For interacting with MySQL as distributed by Percona.
+
+=item MySQL::Community
+
+For interacting with the community variant of MySQL.
 
 =item SQLite
 
@@ -1677,6 +1694,10 @@ Specify what DBI driver should be used. 'DBD::' is prefixed to any string you
 specify unless it starts with '+', in which case the plus is stripped and the
 rest of the module name is unmodified.
 
+B<NOTE:> DBIx::QuickORM can use either L<DBD::mysql> or L<DBD::MariaDB> to
+connect to any of the mysql variants. It will default to L<DBD::MariaDB> if it
+is installed and you have not requested L<DBD::mysql> directly.
+
 =item attributes \%HASHREF
 
 =item attributes(attr => val, ...)
@@ -1697,7 +1718,9 @@ Or:
         attributes foo => 1;
     };
 
-=item host $HOTNAME
+=item host $HOSTNAME
+
+=item hostname $HOSTNAME
 
 Provide a hostname or IP address for db connections
 
@@ -1723,6 +1746,8 @@ Provide a socket instead of a host+port
 
 =item user $USERNAME
 
+=item username $USERNAME
+
 provide a database username
 
     db mydb => sub {
@@ -1730,6 +1755,8 @@ provide a database username
     };
 
 =item pass $PASSWORD
+
+=item password $PASSWORD
 
 provide a database password
 
@@ -2196,72 +2223,6 @@ Or to make a single column unique:
             unique();
         };
     };
-
-=item link($node_a, $ratio, $node_b)
-
-Used to create a link between a set of columns in one table to a set of columns
-in another table. An example would be foreign keys.
-
-Examples:
-
-    schema myschema => sub {
-        table a => {column 'id' => sub { ... }};
-        table b => {column 'id' => sub { ... }};
-
-        link(
-            {table => 'a', columns => ['id'], accessor => 'get_b'},
-            '1:1',    # Or you can use the ONE_TO_ONE constant.
-            {table => 'b', columns => ['id'], accessor => 'get_a'},
-        );
-    };
-
-Or define when defining columns:
-
-    schema myschema => sub {
-        table a => {
-            column 'id' => sub {
-                link 'get_b', ONE_TO_ONE, {table => 'b', columns => ['id']};
-            };
-        };
-
-        table b => {
-            column 'id' => sub {
-                link 'get_a', ONE_TO_ONE, {table => 'a', columns => ['id']};
-            };
-        };
-    };
-
-=item $ratio = ONE_TO_ONE
-
-Constant that returns the string C<'1:1'>.
-
-This is used in conjunction with the C<link()> function.
-
-    link {...}, ONE_TO_ONE, {...};
-
-=item $ratio = MANY_TO_MANY
-
-Constant that returns the string C<'*:*'>.
-
-This is used in conjunction with the C<link()> function.
-
-    link {...}, MANY_TO_MANY, {...};
-
-=item $ratio = ONE_TO_MANY
-
-Constant that returns the string C<'1:*'>.
-
-This is used in conjunction with the C<link()> function.
-
-    link {...}, ONE_TO_MANY, {...};
-
-=item $ratio = MANY_TO_ONE
-
-Constant that returns the string C<'*:1'>.
-
-This is used in conjunction with the C<link()> function.
-
-    link {...}, MANY_TO_ONE, {...};
 
 =item build_class $CLASS
 

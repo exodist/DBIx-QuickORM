@@ -20,6 +20,8 @@ use DBIx::QuickORM::Util::HashBase;
 sub dbi_driver   { 'DBD::Pg' }
 sub dialect_name { 'PostgreSQL' }
 
+sub quote_binary_data { { pg_type => DBD::Pg::PG_BYTEA() } }
+
 sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }
 
