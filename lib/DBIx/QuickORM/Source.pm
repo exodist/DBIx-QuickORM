@@ -90,15 +90,13 @@ sub _make_sth {
     for (my $i = 0; $i < @$bind; $i++) {
         my ($field, $val) = @{$bind->[$i]};
 
-        my $col = $sqla_source->column($field) // $sqla_source->db_column($field);
-        $field = $col->name;
-
-        my $affinity = $sqla_source->column_affinity($field, $dialect);
+        my $orm_name = $sqla_source->field_orm_name($field) // $field;
+        my $affinity = $sqla_source->field_affinity($orm_name, $dialect);
 
         if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type')) {
             $val = $val->qorm_deflate($affinity);
         }
-        elsif (my $type = $sqla_source->column_type($field)) {
+        elsif (my $type = $sqla_source->field_type($orm_name)) {
             $val = $type->qorm_deflate($val, $affinity);
         }
 
@@ -130,7 +128,7 @@ sub _insert {
         $data->{$name} = $def->() unless exists $data->{$name};
     }
 
-    my ($stmt, $bind) = $self->sqla->qorm_insert($sqla_source, $data, $ret ? {returning => $sqla_source->sqla_fields} : ());
+    my ($stmt, $bind) = $self->sqla->qorm_insert($sqla_source, $data, $ret ? {returning => $sqla_source->db_fields_to_fetch} : ());
 
     my $sth = $self->_make_sth($stmt, $bind);
 
@@ -146,7 +144,7 @@ sub _insert {
                 $where = {map { my $v = $data->{$_} or croak "Auto-generated compound primary keys are not supported for databses that do not support 'returning' functionality"; ($_ => $v) } @$pk_fields};
             }
             else {
-                my $kv = $self->dbh->last_insert_id(undef, undef, $sqla_source->sqla_source);
+                my $kv = $self->dbh->last_insert_id(undef, undef, $sqla_source->sqla_db_name);
                 $where = {$pk_fields->[0] => $kv};
             }
 
@@ -178,12 +176,12 @@ sub _deflate {
     for my $field (keys %$data) {
         my $val = $data->{$field};
 
-        my $affinity = $sqla_source->column_affinity($field, $dialect);
+        my $affinity = $sqla_source->field_affinity($field, $dialect);
 
         if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type'))  {
             $val = $val->qorm_deflate($affinity);
         }
-        elsif(my $type = $sqla_source->column_type($field)) {
+        elsif(my $type = $sqla_source->field_type($field)) {
             $val = $type->qorm_deflate($val, $affinity);
         }
 
@@ -209,9 +207,15 @@ sub update_row {
 
     my $sth = $self->_make_sth($stmt, $bind);
 
-    $data = $sth->fetchrow_hashref if $ret;
+    my $new_data;
+    if ($ret) {
+        $new_data = $sth->fetchrow_hashref;
+    }
+    else {
+        $new_data = $self->select($row->primary_key_where)->one(data_only => 1);
+    }
 
-    return $self->build_row($data, $row);
+    return $self->build_row($new_data, $row, no_desync => 1, updated => 1);
 }
 
 sub refresh_row {

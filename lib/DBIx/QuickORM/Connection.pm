@@ -10,7 +10,6 @@ use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/load_class/;
 
 use DBIx::QuickORM::SQLAbstract;
-use DBIx::QuickORM::SQLASource;
 use DBIx::QuickORM::Source;
 use DBIx::QuickORM::Select;
 use DBIx::QuickORM::Cache;
@@ -123,7 +122,7 @@ sub select {
     my %params;
 
     if (ref($source) eq 'SCALAR') {
-        $params{sqla_source} = DBIx::QuickORM::SQLASource->new($source);
+        croak "Using a string reference as a source is not yet supported"; # FIXME
     }
     else {
         $params{sqla_source} = $self->schema->table($source);
@@ -144,15 +143,18 @@ sub build_row {
     my $row_class   = $params{row_class}   or croak "A row_class is required";
     my $sqla_source = $params{sqla_source} or croak "An sqla_source is required";
     my $row_data    = $params{row_data}    or croak "row_data is required";
+    my $updated     = $params{updated};
+    my $no_desync   = $params{no_desync} // $updated;
 
-    $row_data = $sqla_source->remap_db_to_orm($row_data);
+    $row_data = $sqla_source->fields_remap_db_to_orm($row_data);
+    delete $row_data->{__REMAPPED_DB_TO_ORM};
 
     my $cache = $self->cache;
 
     my $row;
     if ($row = $params{row}) {
         $cache->update($row, $row_data) if $cache; # Move to new cache key if pk changed
-        $row->update_from_db_data($row_data, no_desync => $params{no_desync} // 1);
+        $row->update_from_db_data($row_data, no_desync => $no_desync // 1, updated => $updated);
         return $row;
     }
 
