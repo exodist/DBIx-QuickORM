@@ -18,8 +18,8 @@ use DBIx::QuickORM::Util::HashBase qw{
     +where
     +order_by
     +limit
-    <fields
-    <field_renames
+    +fields
+    +omit
 
     +last_sth
 };
@@ -27,11 +27,6 @@ use DBIx::QuickORM::Util::HashBase qw{
 sub init {
     my $self = shift;
     $self->DBIx::QuickORM::Role::Handle::init();
-
-    unless ($self->{+FIELDS}) {
-        $self->{+FIELDS}        = $self->{+SQLA_SOURCE}->sqla_fields;
-        $self->{+FIELD_RENAMES} = $self->{+SQLA_SOURCE}->sqla_rename;
-    }
 
     $self->{+WHERE} //= {};
     delete $self->{+LAST_STH};
@@ -53,6 +48,34 @@ sub order_by {
     my $self = shift;
     return $self->{+ORDER_BY} unless @_;
     return $self->clone(ORDER_BY() => $_[0]);
+}
+
+sub all_fields {
+    my $self = shift;
+    return $self->clone(FIELDS() => $self->{+SQLA_SOURCE}->sqla_all_fields);
+}
+
+sub fields {
+    my $self = shift;
+    return $self->{+FIELDS} unless @_;
+
+    return $self->clone(FIELDS() => $_[0]) if @_ == 1 && ref($_[0]) eq 'ARRAY';
+
+    my @fields = @{$self->{+FIELDS} // $self->{+SQLA_SOURCE}->sqla_fields};
+    push @fields => @_;
+
+    return $self->clone(FIELDS() => \@fields);
+}
+
+sub omit {
+    my $self = shift;
+    return $self->{+OMIT} unless @_;
+
+    return $self->clone(OMIT() => $_[0]) if @_ == 1 && ref($_[0]) eq 'ARRAY';
+
+    my @omit = @{$self->{+OMIT} // []};
+    push @omit => @_;
+    return $self->clone(OMIT() => \@omit)
 }
 
 sub clone {
@@ -160,7 +183,7 @@ sub one {
     croak "More than one matching row was found in the database" if $sth->fetchrow_hashref;
 
     return $data if $params{no_remap} && $params{data_only};
-    return $self->sqla_source->remap_columns($data) if $params{data_only};
+    return $self->sqla_source->remap_db_to_orm($data) if $params{data_only};
     return $self->build_row($data);
 }
 
@@ -184,29 +207,71 @@ sub update {
     return;
 }
 
+sub _make_sth {
+    my $self = shift;
+    my ($stmt, $bind) = @_;
+
+    my $sqla_source = $self->{+SQLA_SOURCE};
+    my $dialect     = $self->dialect;
+    my $quote_bin   = $dialect->quote_binary_data;
+    my $dbh         = $dialect->dbh;
+
+    my $sth = $dbh->prepare($stmt);
+
+    for (my $i = 0; $i < @$bind; $i++) {
+        my ($field, $val) = @{$bind->[$i]};
+
+        my @args;
+        if ($field) {
+            my $affinity = $sqla_source->column_affinity($field, $dialect);
+
+            if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type')) {
+                $val = $val->qorm_deflate($affinity);
+            }
+            elsif (my $type = $sqla_source->column_type($field)) {
+                $val = $type->qorm_deflate($val, $affinity);
+            }
+
+            if ($quote_bin && $affinity eq 'binary') {
+                @args = ($quote_bin);
+            }
+        }
+
+        $sth->bind_param(1 + $i, $val, @args);
+    }
+
+    $sth->execute();
+
+    return $sth;
+}
+
 sub _execute_select {
     my $self = shift;
 
     my $sqla_source = $self->{+SQLA_SOURCE};
-    my $fields      = $self->{+FIELDS};
-    my $rename      = $self->{+FIELD_RENAMES};
+    my $fields      = $self->{+FIELDS} //= $self->{+SQLA_SOURCE}->sqla_fields;
+    my $omit        = $self->{+OMIT};
     my $dialect     = $self->dialect;
+    my $quote_bin   = $dialect->quote_binary_data;
+    my $dbh         = $dialect->dbh;
 
-    my ($stmt, $bind, $bind_names) = $self->sqla->select($sqla_source, @{$self}{FIELDS(), WHERE(), ORDER_BY()});
+    if ($omit) {
+        my $r = ref($omit);
+        if    ($r eq 'HASH')  { }
+        elsif ($r eq 'ARRAY') { $omit = map { $_ => 1 } @$omit }
+        elsif (!$r)           { $omit = {$omit => 1} }
+        else                  { croak "$omit is not a valid 'omit' value" }
+
+        $fields = grep { !$omit->{$_} } @$fields;
+    }
+
+    my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $fields, $self->{+WHERE}, $self->{+ORDER_BY});
     if (my $limit = $self->limit) {
         $stmt .= " LIMIT ?";
-        push @$bind => $limit;
+        push @$bind => [undef, $limit];
     }
 
-    for (my $i = 0; $i < @$bind_names; $i++) {
-        my $item = $bind->[$i] // next;
-        my $field = $bind_names->[$i] // next;
-        my $type = $sqla_source->column_type($field) or next;
-        $bind->[$i] = $type->qorm_deflate($item, $sqla_source->column_affinity($field, $dialect));
-    }
-
-    my $sth = $self->dbh->prepare($stmt);
-    $sth->execute(@$bind);
+    my $sth = $self->_make_sth($stmt, $bind);
 
     return $self->{+LAST_STH} = $sth;
 }

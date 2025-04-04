@@ -1,10 +1,9 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
+use Carp::Always;
 
 use lib 't/lib';
 use DBIx::QuickORM::Test;
-use Hash::Merge qw/merge/;
-Hash::Merge::set_behavior('RIGHT_PRECEDENT');
 
 do_for_all_dbs {
     my $db = shift;
@@ -54,11 +53,13 @@ do_for_all_dbs {
     my $a_uuid = DBIx::QuickORM::Type::UUID->new;
     my $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($a_uuid, 'binary');
 
+    my $x_row  = $s->insert({name => 'x', my_uuid => DBIx::QuickORM::Type::UUID->new, my_data => {name => 'x'}});
+
     my $a_row  = $s->insert({name => 'a', my_uuid => $a_uuid, my_data => {name => 'a'}});
     is(
         $a_row->stored_data,
         {
-            id      => 1,
+            id      => 2,
             name    => 'a',
             my_uuid => $is_bin ? $uuid_bin : $a_uuid,
             my_data => match qr/{"name":\s*"a"}/,
@@ -84,13 +85,13 @@ do_for_all_dbs {
     $a_row->save;
     is($a_row->stored_data->{my_data}, match qr/{"name":\s*"a3"}/, "Updated in storage");
 
-    ref_is($s->one(my_uuid => $a_uuid),                                                     $a_row, "Found a by UUID string");
-    ref_is($s->one(my_uuid => $uuid_bin), $a_row, "Found a by UUID binary");
+    ref_is($s->one({my_uuid => $a_uuid}),   $a_row, "Found a by UUID string");
+    ref_is($s->one({my_uuid => $uuid_bin}), $a_row, "Found a by UUID binary");
 
     isnt($a_uuid, $uuid_bin, "Binary and string forms are not the same");
 
     $a_row->field(name => 'aa');
-    $con->dbh->do("UPDATE example SET name = 'ax' WHERE id = 1");
+    $con->dbh->do("UPDATE example SET name = 'ax' WHERE id = 2");
     $a_row->refresh;
     like(
         $a_row,
@@ -108,7 +109,7 @@ do_for_all_dbs {
     is(
         $b_row->stored_data,
         {
-            id      => 2,
+            id      => 3,
             name    => 'b',
             my_uuid => $is_bin ? $uuid_bin : $b_uuid,
             my_data => match qr/{"name":\s*"b"}/,

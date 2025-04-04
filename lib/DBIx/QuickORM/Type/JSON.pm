@@ -2,6 +2,8 @@ package DBIx::QuickORM::Type::JSON;
 use strict;
 use warnings;
 
+use Carp qw/croak/;
+use Scalar::Util qw/reftype blessed/;
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Type';
 
@@ -23,9 +25,17 @@ sub qorm_inflate {
 sub qorm_deflate {
     my $affinity = pop;
     my $in       = pop;
-    my $class    = shift;
+    my $class    = shift || __PACKAGE__;
 
     return $in unless ref($in);
+
+    if (blessed($in)) {
+        my $r = reftype($in) // '';
+        if    ($r eq 'HASH')  { $in = {%$in} }
+        elsif ($r eq 'ARRAY') { $in = [@$in] }
+        else                  { die "Not sure what to do with $in" }
+    }
+
     return $class->JSON->encode($in);
 }
 

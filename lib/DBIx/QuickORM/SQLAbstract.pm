@@ -7,85 +7,71 @@ our $VERSION = '0.000005';
 use Scalar::Util qw/blessed/;
 use parent 'SQL::Abstract';
 
-sub insert {
-    my $self = shift;
-    my ($source, @args) = @_;
+sub sqla_source { $_[0]->{sqla_source} }
 
-    my $source_name = $source;
+for my $meth (qw/insert update select delete/) {
+    my $code = sub {
+        my $self = shift;
+        my ($source, @args) = @_;
 
-    if (blessed($source)) {
-        $source_name = $source->sqla_source;
-        local $self->{sqla_source} = $source;
-        return $self->SUPER::insert($source_name, @args);
-    }
+        my $source_name = $source;
 
-    return $self->SUPER::insert($source_name, @args);
+        my ($stmt, @bind);
+        if (blessed($source)) {
+            $source_name = $source->sqla_source;
+            local $self->{sqla_source} = $source;
+            ($stmt, @bind) = $self->$meth($source_name, @args);
+        }
+        else {
+            ($stmt, @bind) = $self->$meth($source_name, @args);
+        }
+
+        return ($stmt, \@bind);
+    };
+
+    no strict 'refs';
+    *{"qorm_$meth"} = $code;
 }
 
-sub update {
-    my $self = shift;
-    my ($source, @args) = @_;
-
-    my $source_name = $source;
-
-    if (blessed($source)) {
-        $source_name = $source->sqla_source;
-        local $self->{sqla_source} = $source;
-        return $self->SUPER::update($source_name, @args);
-    }
-
-    return $self->SUPER::update($source_name, @args);
-}
-
-sub select {
-    my $self = shift;
-    my ($source, @args) = @_;
-
-    my $source_name = $source;
-
-    my @bind_names;
-    local $self->{bind_names} = \@bind_names;
-
-    my ($stmt, @bind);
-    if (blessed($source)) {
-        $source_name = $source->sqla_source;
-        local $self->{sqla_source} = $source;
-        ($stmt, @bind) = $self->SUPER::select($source_name, @args);
-    }
-    else {
-        ($stmt, @bind) = $self->SUPER::select($source_name, @args);
-    }
-
-    return ($stmt, \@bind, \@bind_names);
-}
-
-sub where {
+our $IN_TARGET = 0;
+sub _render_insert_clause_target {
     my $self = shift;
 
-    my @bind_names;
-    local $self->{bind_names} = \@bind_names;
+    local $IN_TARGET = 1;
 
-    my ($stmt, @bind) = $self->SUPER::where(@_);
-
-    return ($stmt, \@bind, \@bind_names);
-}
-
-sub _render_bind {
-    my $self = shift;
-    my (undef, $bind) = @_;
-    if (my $bn = $self->{bind_names}) {
-        my $fn = $bind->[0];
-        $fn = $self->{sqla_source}->column_orm_name($fn) if $self->{sqla_source};
-        push @$bn => $fn;
-    }
-    return $self->SUPER::_render_bind(@_);
+    $self->SUPER::_render_insert_clause_target(@_);
 }
 
 sub _render_ident {
-    my ($self, undef, $ident) = @_;
-    $ident->[0] = $self->{sqla_source}->column_db_name($ident->[0]) if $self->{sqla_source};
-    return [$self->_quote($ident)];
+    my $self = shift;
+    my (undef, $ident) = @_;
+
+    unless ($IN_TARGET) {
+        if (my $s = $self->{sqla_source}) {
+            if (my $c = $s->column($ident->[0])) {
+                $ident->[0] = $c->db_name;
+            }
+        }
+    }
+
+    $self->SUPER::_render_ident(@_);
 }
 
+sub _expand_insert_value {
+    my ($self, $v) = @_;
+
+    my $k = $SQL::Abstract::Cur_Col_Meta;
+
+    if (my $s = $self->{sqla_source}) {
+        if (my $c = $s->column($k)) {
+            my $r = ref($v);
+            if (!ref($c->type) && $r eq 'HASH' || $r eq 'ARRAY') {
+                return +{-bind => [$k, $v]};
+            }
+        }
+    }
+
+    return $self->SUPER::_expand_insert_value($v);
+}
 
 1;

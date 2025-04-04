@@ -29,7 +29,7 @@ sub sqla {
     my $self = shift;
     return $self->{+SQLA}->() if $self->{+SQLA};
 
-    my $sqla = DBIx::QuickORM::SQLAbstract->new;
+    my $sqla = DBIx::QuickORM::SQLAbstract->new(bindtype => 'columns');
 
     $self->{+SQLA} = sub { $sqla };
 
@@ -145,7 +145,7 @@ sub build_row {
     my $sqla_source = $params{sqla_source} or croak "An sqla_source is required";
     my $row_data    = $params{row_data}    or croak "row_data is required";
 
-    $sqla_source->remap_columns($row_data);
+    $row_data = $sqla_source->remap_db_to_orm($row_data);
 
     my $cache = $self->cache;
 

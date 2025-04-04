@@ -24,7 +24,7 @@ my %BASE_SCHEMA = (
             },
             links => {
                 lights => {
-                    light_id => {aliases => [], created => 'unknown', key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], table => 'lights', unique => T()},
+                    light_id => {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], table => 'lights', unique => T()},
                 },
             },
             unique => {
@@ -47,7 +47,7 @@ my %BASE_SCHEMA = (
             },
             links => {
                 complex_ref => {
-                    'name_a, name_b' => {aliases => [], created => 'unknown', key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], table => 'complex_ref', unique => T()},
+                    'name_a, name_b' => {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], table => 'complex_ref', unique => T()},
                 },
             },
             unique => {
@@ -70,7 +70,7 @@ my %BASE_SCHEMA = (
             },
             links => {
                 complex_keys => {
-                    'name_a, name_b' => {aliases => [], created => 'unknown', key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], table => 'complex_keys', unique => T()},
+                    'name_a, name_b' => {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], table => 'complex_keys', unique => T()},
                 },
             },
             unique => {
@@ -113,7 +113,7 @@ my %BASE_SCHEMA = (
             },
             links => {
                 aliases => {
-                    light_id => {aliases => [], created => 'unknown', key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], table => 'aliases', unique => F()},
+                    light_id => {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], table => 'aliases', unique => F()},
                 },
             },
             unique => {

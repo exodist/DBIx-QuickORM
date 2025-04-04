@@ -23,11 +23,24 @@ do_for_all_dbs {
     };
 
     my $uuid = DBIx::QuickORM::Type::UUID->new;
+    my $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($uuid, 'binary');
+
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
-    ok(my $row = $orm->source('example')->insert({name => 'a', uuid => $uuid}), "Inserted a row");
-    is($row->{stored}->{uuid}, DBIx::QuickORM::Type::UUID::qorm_deflate($uuid, 'binary'), "Stored as binary");
+    my $s = $orm->source('example');
+    ok(my $row = $s->insert({name => 'a', uuid => $uuid}), "Inserted a row");
+    is($row->{stored}->{uuid}, $uuid_bin, "Stored as binary");
     isnt($row->{stored}->{uuid}, $uuid, "Sanity check that original uuid and binary do not match");
     is($row->field('uuid'), $uuid, "Round trip returned the original UUID, no loss");
+
+    ref_is($s->one({uuid => $uuid}),   $row, "Found a by UUID string");
+    ref_is($s->one({uuid => $uuid_bin}), $row, "Found a by UUID binary");
+
+    my $uuid2 = DBIx::QuickORM::Type::UUID->new;
+    my $uuid2_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($uuid, 'binary');
+
+    $row->update({uuid => $uuid2});
+    $row->refresh;
+    is($row->field('uuid'), $uuid2, "updated uuid from $uuid");
 };
 
 done_testing;
