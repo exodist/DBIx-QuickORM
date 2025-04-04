@@ -12,15 +12,18 @@ sub new {
     return bless(\$sql_ref, $class);
 }
 
-sub name        { ${$_[0]} }
-sub sqla_source { ${$_[0]} }
-sub sqla_fields { '*' }
+sub name            { ${$_[0]} }
+sub sqla_source     { ${$_[0]} }
+sub sqla_fields     { '*' }
+sub sqla_all_fields { '*' }
 
-sub sqla_rename { undef }
-sub row_class   { undef }
-sub primary_key { undef }
-sub column      { undef }
-sub column_db_names { }
+sub row_class        { undef }
+sub primary_key      { undef }
+sub column           { undef }
+sub column_db_names  { }
 sub column_orm_names { }
+
+sub rename_db_to_orm_map { {} }
+sub rename_orm_to_db_map { {} }
 
 1;

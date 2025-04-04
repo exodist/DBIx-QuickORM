@@ -15,6 +15,8 @@ sub qorm_inflate {
     my $in = pop;
     my $class = shift // __PACKAGE__;
 
+    return undef unless defined $in;
+
     return $class->looks_like_uuid($in) // $class->looks_like_bin($in) // croak "'$in' does not look like a UUID";
 }
 
@@ -22,6 +24,8 @@ sub qorm_deflate {
     my $affinity = pop;
     my $in = pop;
     my $class = shift // __PACKAGE__;
+
+    return undef unless defined $in;
 
     if (my $uuid = $class->looks_like_uuid($in)) {
         return $uuid if $affinity eq 'string';
@@ -46,7 +50,12 @@ sub qorm_compare {
     $a = $class->qorm_inflate($a);
     $b = $class->qorm_inflate($b);
 
-    return $a cmp $b;
+    my $da = defined($a);
+    my $db = defined($b);
+
+    return $a cmp $b if $da && $db;
+    return 0 unless $da || $db;
+    return 1;
 }
 
 sub qorm_affinity {

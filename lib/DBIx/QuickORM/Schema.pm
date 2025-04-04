@@ -49,12 +49,12 @@ sub merge {
     my $self = shift;
     my ($other, %params) = @_;
 
-    $params{+TABLES}    //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES}, \%params);
+    $params{+TABLES}    //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES});
     $params{+NAME}      //= $self->{+NAME} if $self->{+NAME};
     $params{+ROW_CLASS} //= $other->{+ROW_CLASS};
     $params{+SQL}       //= $other->{+SQL};
 
-    return ref($self)->new(%$self, %params);
+    return ref($self)->new(%$self, %$other, %params);
 }
 
 sub clone {

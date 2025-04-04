@@ -194,19 +194,27 @@ sub has_field {
     my $self = shift;
     my $field = shift or croak "Must specify a field name";
 
-    return $self->sqla_source->column($field) ? 1 : 0;
+    return $self->sqla_source->column($field);
 }
 
 sub field {
     my $self = shift;
     my $field = shift or croak "Must specify a field name";
 
-    croak "This row does not have a '$field' field" unless $self->has_field($field);
+    my $col = $self->has_field($field) or croak "This row does not have a '$field' field";
 
     $self->{+PENDING}->{$field} = shift if @_;
 
     return $self->_inflated_field($self->{+PENDING}, $field) if $self->{+PENDING} && exists $self->{+PENDING}->{$field};
-    return $self->_inflated_field($self->{+STORED},  $field) if $self->{+STORED}  && exists $self->{+STORED}->{$field};
+
+    if (my $st = $self->{+STORED}) {
+        unless (exists $st->{$field}) {
+            my $data = $self->source->search($self->primary_key_where, fields => $field)->one(data_only => 1);
+            $st->{$field} = $data->{$field};
+        }
+
+        return $self->_inflated_field($st, $field);
+    }
 
     return undef;
 }

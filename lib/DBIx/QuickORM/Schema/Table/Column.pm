@@ -35,6 +35,7 @@ sub init {
 
     my $debug = $self->{+CREATED} ? " (defined in $self->{+CREATED})" : "";
 
+    croak "WTF?" if exists $self->{columns};
     croak "A 'name' is a required${debug}"           unless $self->{+NAME};
     croak "Column must have an order number${debug}" unless $self->{+ORDER};
 }
@@ -67,7 +68,7 @@ sub merge {
     my $self = shift;
     my ($other, %params) = @_;
 
-    return ref($self)->new(%$self, %params);
+    return ref($self)->new(%$self, %$other, %params);
 }
 
 sub clone {

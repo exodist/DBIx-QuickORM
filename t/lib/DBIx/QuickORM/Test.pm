@@ -56,6 +56,7 @@ sub clean_err {
     return $out;
 }
 
+our $END_DELAY = 0;
 sub do_for_all_dbs(&;@) {
     my $code = shift;
     my %only = map { $_ => 1 } @_;
@@ -112,6 +113,8 @@ sub do_for_all_dbs(&;@) {
                     }
 
                     $code->($db);
+
+                    sleep $END_DELAY if $END_DELAY;
                 };
             }, 'force_fork');
         }

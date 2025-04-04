@@ -2,7 +2,7 @@ package DBIx::QuickORM::Role::SQLASource;
 use strict;
 use warnings;
 
-use Carp qw/croak/;
+use Carp qw/croak confess/;
 
 use Role::Tiny;
 
@@ -10,7 +10,9 @@ requires qw{
     name
     sqla_source
     sqla_fields
-    sqla_rename
+    sqla_all_fields
+    rename_db_to_orm_map
+    rename_orm_to_db_map
     row_class
     primary_key
     column
@@ -46,29 +48,48 @@ sub column_type {
 sub column_db_name {
     my $self = shift;
     my ($name) = @_;
-    my $col = $self->column($name) or return $name;
-    return $col->db_name // $name;
+    my $col = $self->column($name) or confess "unknown orm column '$name'";
+    return $col->db_name;
 }
 
 sub column_orm_name {
     my $self = shift;
     my ($name) = @_;
-    my $col = $self->db_column($name) or return $name;
-    return $col->name // $name;
+    my $col = $self->db_column($name) or confess "unknown db column '$name'";
+    return $col->name;
 }
 
-sub remap_columns {
+sub remap_db_to_orm {
     my $self = shift;
-    my ($data) = @_;
+    my ($hash) = @_;
 
-    for my $field (keys %$data) {
-        my $col = $self->column($field) // $self->db_column($field) // croak "Could not find column for field '$field'";
-        my $name = $col->name;
-        next if $name eq $field;
-        $data->{$name} = delete $data->{$field};
+    my $map = $self->rename_db_to_orm_map;
+
+    # In case orm and db keys conflict, we put all keeps into an array, then squash it to a hash later.
+    my @keep;
+    for my $db (keys %$hash, keys %$map) {
+        my $orm = $map->{$db} // $db;
+        push @keep => ($orm => $hash->{$db}) if exists $hash->{$db};
     }
 
-    return $data;
+    return { @keep };
 }
+
+sub remap_orm_to_db {
+    my $self = shift;
+    my ($hash) = @_;
+
+    my $map = $self->rename_orm_to_db_map;
+
+    # In case orm and db keys conflict, we put all keeps into an array, then squash it to a hash later.
+    my @keep;
+    for my $orm (keys %$hash, keys %$map) {
+        my $db = $map->{$orm} // $orm;
+        push @keep => ($db => $hash->{$orm}) if exists $hash->{$orm};
+    }
+
+    return { @keep };
+}
+
 
 1;

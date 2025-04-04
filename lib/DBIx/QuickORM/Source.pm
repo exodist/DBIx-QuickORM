@@ -16,28 +16,47 @@ use DBIx::QuickORM::Util::HashBase qw{
 
 # sub init comes from DBIx::QuickORM::Role::Handle
 
-sub all      { shift->search->all(@_) }
-sub iterator { shift->search->iterator(@_) }
-sub iterate  { shift->search->iterate(@_) }
-sub any      { shift->search->any(@_) }
-sub count    { shift->search->count(@_) }
-sub first    { shift->search->first(@_) }
-sub one      { shift->search->one(@_) }
-sub delete   { shift->search->delete(@_) }
-sub update   { shift->search->update(@_) }
+sub all      { shift->search(@_)->all() }
+sub iterator { shift->search(@_)->iterator() }
+sub iterate  { shift->search(@_)->iterate() }
+sub any      { shift->search(@_)->any() }
+sub count    { shift->search(@_)->count() }
+sub first    { shift->search(@_)->first() }
+sub one      { shift->search(@_)->one() }
+sub delete   { shift->search(@_)->delete() }
+sub update   { shift->search(@_)->update() }
 
-*select = \&search;
+{
+    no warnings 'once';
+    *select = \&search;
+}
 sub search {
     my $self = shift;
-    my ($where, $order_by, $limit) = @_;
+    my ($where, %params);
+
+    $where  = shift if @_ && ref($_[0]) eq 'HASH';
+    croak "Got a reference '$_[0]' expected a set of key/value pairs" if @_ && ref($_[0]);
+    %params = @_;
+
+    $where //= delete $params{where};
+
+    my $limit  = delete $params{limit};
+    my $fields = delete $params{fields};
+    my $order  = delete $params{order_by};
+    my $omit   = delete $params{omit};
+
+    my @bad = keys %params;
+    croak("Invalid search keys: " . join(', ' => map { "'$_'" } @bad) . ". (Did you forget to wrap your 'where' in a hashref?)") if @bad;
 
     require DBIx::QuickORM::Select;
     return DBIx::QuickORM::Select->new(
         CONNECTION()  => $self->{+CONNECTION},
         SQLA_SOURCE() => $self->{+SQLA_SOURCE},
         where         => $where,
-        order_by      => $order_by,
         limit         => $limit,
+        fields        => $fields,
+        order_by      => $order,
+        omit          => $omit,
     );
 }
 
@@ -58,54 +77,62 @@ sub insert {
     return $self->_insert($data);
 }
 
-sub _deflate {
+sub _make_sth {
     my $self = shift;
-    my ($data) = @_;
+    my ($stmt, $bind) = @_;
 
     my $sqla_source = $self->sqla_source;
     my $dialect     = $self->dialect;
     my $quote_bin   = $dialect->quote_binary_data;
-    my $dbh         = $dialect->dbh;
 
-    my $out = {};
+    my $dbh = $self->dbh;
+    my $sth = $dbh->prepare($stmt);
+    for (my $i = 0; $i < @$bind; $i++) {
+        my ($field, $val) = @{$bind->[$i]};
 
-    for my $field (keys %$data) {
-        my $val = $data->{$field};
+        my $col = $sqla_source->column($field) // $sqla_source->db_column($field);
+        $field = $col->name;
 
         my $affinity = $sqla_source->column_affinity($field, $dialect);
 
-        if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type'))  {
+        if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type')) {
             $val = $val->qorm_deflate($affinity);
         }
-        elsif(my $type = $sqla_source->column_type($field)) {
+        elsif (my $type = $sqla_source->column_type($field)) {
             $val = $type->qorm_deflate($val, $affinity);
         }
 
+        my @args;
         if ($quote_bin && $affinity eq 'binary') {
-            $val = \($dbh->quote($val, $quote_bin));
+            @args = ($quote_bin);
         }
 
-        $out->{$field} = $val;
+        $sth->bind_param(1 + $i, $val, @args);
     }
 
-    return $out;
+    $sth->execute();
+
+    return $sth;
 }
 
 sub _insert {
     my $self = shift;
     my ($data, $row) = @_;
 
-    my $ret = $self->dialect->supports_returning_insert;
-
+    my $dialect     = $self->dialect;
+    my $ret         = $dialect->supports_returning_insert;
     my $sqla_source = $self->sqla_source;
 
-    $data = $self->_deflate($data);
+    for my $col ($sqla_source->columns) {
+        my $def = $col->perl_default or next;
+        my $name = $col->name;
 
-    my ($stmt, @bind) = $self->sqla->insert($sqla_source, $data, $ret ? {returning => [$sqla_source->column_db_names]} : ());
+        $data->{$name} = $def->() unless exists $data->{$name};
+    }
 
-    my $dbh = $self->dbh;
-    my $sth = $dbh->prepare($stmt);
-    $sth->execute(@bind);
+    my ($stmt, $bind) = $self->sqla->qorm_insert($sqla_source, $data, $ret ? {returning => $sqla_source->sqla_fields} : ());
+
+    my $sth = $self->_make_sth($stmt, $bind);
 
     if ($ret) {
         $data = $sth->fetchrow_hashref;
@@ -119,7 +146,7 @@ sub _insert {
                 $where = {map { my $v = $data->{$_} or croak "Auto-generated compound primary keys are not supported for databses that do not support 'returning' functionality"; ($_ => $v) } @$pk_fields};
             }
             else {
-                my $kv = $dbh->last_insert_id(undef, undef, $sqla_source->sqla_source);
+                my $kv = $self->dbh->last_insert_id(undef, undef, $sqla_source->sqla_source);
                 $where = {$pk_fields->[0] => $kv};
             }
 
@@ -138,12 +165,39 @@ sub insert_row {
     $self->_insert($data, $row);
 }
 
+sub _deflate {
+    my $self = shift;
+    my ($data) = @_;
+
+    my $sqla_source = $self->sqla_source;
+    my $dialect     = $self->dialect;
+    my $dbh         = $dialect->dbh;
+
+    my $out = {};
+
+    for my $field (keys %$data) {
+        my $val = $data->{$field};
+
+        my $affinity = $sqla_source->column_affinity($field, $dialect);
+
+        if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type'))  {
+            $val = $val->qorm_deflate($affinity);
+        }
+        elsif(my $type = $sqla_source->column_type($field)) {
+            $val = $type->qorm_deflate($val, $affinity);
+        }
+
+        $out->{$field} = $val;
+    }
+
+    return $out;
+}
+
 sub update_row {
     my $self = shift;
     my ($row) = @_;
 
-    my $data = $row->pending_fields;
-    $data = $self->_deflate($data);
+    my $data = $self->_deflate($row->pending_fields);
 
     my $ret = $self->dialect->supports_returning_update;
 
@@ -151,11 +205,9 @@ sub update_row {
 
     my $where = $row->primary_key_where;
 
-    my ($stmt, @bind) = $self->sqla->update($sqla_source, $data, $where, $ret ? {returning => [keys %$data]} : ());
+    my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $data, $where, $ret ? {returning => [keys %$data]} : ());
 
-    my $dbh = $self->dbh;
-    my $sth = $dbh->prepare($stmt);
-    $sth->execute(@bind);
+    my $sth = $self->_make_sth($stmt, $bind);
 
     $data = $sth->fetchrow_hashref if $ret;
 
@@ -176,3 +228,6 @@ sub find_or_insert   { }
 sub update_or_insert { }
 
 1;
+
+__END__
+

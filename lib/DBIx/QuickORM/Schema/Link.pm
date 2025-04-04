@@ -71,8 +71,8 @@ sub clone {
 
     $params{+LOCAL_COLUMNS} //= [@{$self->{+LOCAL_COLUMNS}}];
     $params{+OTHER_COLUMNS} //= [@{$self->{+OTHER_COLUMNS}}];
-    $params{+UNIQUE}        //= [@{$self->{+UNIQUE}}];
     $params{+ALIASES}       //= [@{$self->{+ALIASES}}];
+    $params{+UNIQUE}        //= $self->{+UNIQUE};
     $params{+KEY}           //= column_key(@{$params{+LOCAL_COLUMNS}});
 
     my $out = blessed($self)->new(%$self, %params);
