@@ -18,7 +18,7 @@ for my $meth (qw/insert update select delete/) {
 
         my ($stmt, @bind);
         if (blessed($source)) {
-            $source_name = $source->sqla_source;
+            $source_name = $source->sqla_db_name;
             local $self->{sqla_source} = $source;
             ($stmt, @bind) = $self->$meth($source_name, @args);
         }
@@ -48,8 +48,8 @@ sub _render_ident {
 
     unless ($IN_TARGET) {
         if (my $s = $self->{sqla_source}) {
-            if (my $c = $s->column($ident->[0])) {
-                $ident->[0] = $c->db_name;
+            if (my $db_name = $s->field_db_name($ident->[0])) {
+                $ident->[0] = $db_name;
             }
         }
     }
@@ -63,9 +63,9 @@ sub _expand_insert_value {
     my $k = $SQL::Abstract::Cur_Col_Meta;
 
     if (my $s = $self->{sqla_source}) {
-        if (my $c = $s->column($k)) {
-            my $r = ref($v);
-            if (!ref($c->type) && $r eq 'HASH' || $r eq 'ARRAY') {
+        my $r = ref($v);
+        if ($r eq 'HASH' || $r eq 'ARRAY') {
+            if (my $type = $s->field_type($k)) {
                 return +{-bind => [$k, $v]};
             }
         }

@@ -78,6 +78,11 @@ sub update_from_db_data {
     my $stored  = $self->{+STORED};
     my $pending = $self->{+PENDING};
 
+    if ($params{updated}) {
+        delete $self->{+PENDING};
+        $pending = undef;
+    }
+
     if ($params{no_desync} || !$self->track_desync) {
         $self->{+STORED} = { %{$self->{+STORED} // {}}, %$new };
         return;
@@ -194,14 +199,14 @@ sub has_field {
     my $self = shift;
     my $field = shift or croak "Must specify a field name";
 
-    return $self->sqla_source->column($field);
+    return $self->sqla_source->has_field($field);
 }
 
 sub field {
     my $self = shift;
     my $field = shift or croak "Must specify a field name";
 
-    my $col = $self->has_field($field) or croak "This row does not have a '$field' field";
+    croak "This row does not have a '$field' field" unless $self->has_field($field);
 
     $self->{+PENDING}->{$field} = shift if @_;
 
@@ -284,7 +289,7 @@ sub _inflated_field {
 
     return $val if ref($val);    # Inflated already
 
-    if (my $type = $self->sqla_source->column_can_conflate($field)) {
+    if (my $type = $self->sqla_source->field_type($field)) {
         return $from->{$field} = $type->qorm_inflate($val);
     }
 
@@ -315,15 +320,15 @@ sub is_desynced {
     return $self->{+DESYNC}->{$field} // 0;
 }
 
-sub field_affinity { $_[0]->sqla_source->column_affinity($_[1], $_[0]->dialect) }
+sub field_affinity { $_[0]->sqla_source->field_affinity($_[1], $_[0]->dialect) }
 
 sub _compare_field {
     my $self = shift;
     my ($field, $a, $b) = @_;
 
     my $sqla_source = $self->sqla_source;
-    my $can_conflate = $sqla_source->column_can_conflate($field);
-    my $affinity     = $sqla_source->column_affinity($field, $self->dialect);
+    my $affinity    = $sqla_source->field_affinity($field, $self->dialect);
+    my $type        = $sqla_source->field_type($field);
 
     my $ad = defined($a);
     my $bd = defined($b);
@@ -331,8 +336,7 @@ sub _compare_field {
     return 1 if (!$ad) && (!$bd);    # Neither is defined
 
     # true if different, false if same
-    return !$can_conflate->qorm_compare($a, $b)
-        if $can_conflate;
+    return !$type->qorm_compare($a, $b) if $type;
 
     # true if same, false if different
     return DBIx::QuickORM::Affinity::compare_affinity_values($affinity, $a, $b);

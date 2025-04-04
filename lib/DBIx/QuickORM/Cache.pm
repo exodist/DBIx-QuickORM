@@ -19,14 +19,14 @@ sub lookup {
 
     my $key = $self->data_key($sqla_source, $data) or return;
 
-    return $self->{+DATA}->{$sqla_source->sqla_source}->{$key} // undef;
+    return $self->{+DATA}->{$sqla_source->sqla_orm_name}->{$key} // undef;
 }
 
 sub update {
     my $self = shift;
     my ($row, $row_data) = @_;
 
-    my $source = $row->sqla_source->sqla_source;
+    my $source = $row->sqla_source->sqla_orm_name;
 
     my $old_key = $self->row_key($row)            or return;
     my $new_key = $self->new_key($row, $row_data) or return;
@@ -43,7 +43,7 @@ sub remove {
     my $self = shift;
     my ($row) = @_;
 
-    my $source = $row->sqla_source->sqla_source;
+    my $source = $row->sqla_source->sqla_orm_name;
 
     my $key = $self->row_key($row) or return 0;
     delete $self->{+DATA}->{$source}->{$key};
@@ -53,7 +53,7 @@ sub store {
     my $self = shift;
     my ($row) = @_;
 
-    my $source = $row->sqla_source->sqla_source;
+    my $source = $row->sqla_source->sqla_orm_name;
 
     my $key = $self->row_key($row) or return 0;
     $self->{+DATA}->{$source}->{$key} = $row;

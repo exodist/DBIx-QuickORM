@@ -52,7 +52,7 @@ sub order_by {
 
 sub all_fields {
     my $self = shift;
-    return $self->clone(FIELDS() => $self->{+SQLA_SOURCE}->sqla_all_fields);
+    return $self->clone(FIELDS() => $self->{+SQLA_SOURCE}->db_fields_list_all);
 }
 
 sub fields {
@@ -61,7 +61,7 @@ sub fields {
 
     return $self->clone(FIELDS() => $_[0]) if @_ == 1 && ref($_[0]) eq 'ARRAY';
 
-    my @fields = @{$self->{+FIELDS} // $self->{+SQLA_SOURCE}->sqla_fields};
+    my @fields = @{$self->{+FIELDS} // $self->{+SQLA_SOURCE}->db_fields_to_fetch};
     push @fields => @_;
 
     return $self->clone(FIELDS() => \@fields);
@@ -107,7 +107,7 @@ sub iterator {
 
     return DBIx::QuickORM::Iterator->new(sub {
         my $data = $sth->fetchrow_hashref or return;
-        return $self->sqla_source->remap_columns($data) if $params{data_only};
+        return $self->sqla_source->fields_remap_db_to_orm($data) if $params{data_only};
         return $self->build_row($data);
     });
 }
@@ -129,7 +129,7 @@ sub iterate {
 
     while (my $data = $sth->fetchrow_hashref) {
         if ($params{data_only}) {
-            $self->sqla_source->remap_columns($data);
+            $self->sqla_source->fields_remap_db_to_orm($data);
             $cb->($data);
         }
         else {
@@ -149,7 +149,7 @@ sub any {
     my $sth  = $s->_execute_select();
     my $data = $sth->fetchrow_hashref or return;
 
-    return $self->sqla_source->remap_columns($data) if $params{data_only};
+    return $self->sqla_source->fields_remap_db_to_orm($data) if $params{data_only};
     return $self->build_row($data);
 }
 
@@ -169,7 +169,7 @@ sub first {
     my $sth  = $s->_execute_select();
     my $data = $sth->fetchrow_hashref or return;
 
-    return $self->sqla_source->remap_columns($data) if $params{data_only};
+    return $self->sqla_source->fields_remap_db_to_orm($data) if $params{data_only};
     return $self->build_row($data);
 }
 
@@ -183,7 +183,8 @@ sub one {
     croak "More than one matching row was found in the database" if $sth->fetchrow_hashref;
 
     return $data if $params{no_remap} && $params{data_only};
-    return $self->sqla_source->remap_db_to_orm($data) if $params{data_only};
+    return $self->sqla_source->fields_remap_db_to_orm($data) if $params{data_only};
+
     return $self->build_row($data);
 }
 
@@ -194,7 +195,7 @@ sub update {
     croak "No changes for update" unless $changes;
     croak "Changes must be a hashref" unless ref($changes) eq 'HASH';
 
-    my $source = $self->{+SQLA_SOURCE}->sqla_source;
+    my $source = $self->{+SQLA_SOURCE}->sqla_db_name;
 
     my ($stmt, @bind) = $self->sqla->update($source, $changes, $self->{+WHERE});
     my $sth = $self->dbh->prepare($stmt);
@@ -223,12 +224,12 @@ sub _make_sth {
 
         my @args;
         if ($field) {
-            my $affinity = $sqla_source->column_affinity($field, $dialect);
+            my $affinity = $sqla_source->field_affinity($field, $dialect);
 
             if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type')) {
                 $val = $val->qorm_deflate($affinity);
             }
-            elsif (my $type = $sqla_source->column_type($field)) {
+            elsif (my $type = $sqla_source->field_type($field)) {
                 $val = $type->qorm_deflate($val, $affinity);
             }
 
@@ -249,7 +250,7 @@ sub _execute_select {
     my $self = shift;
 
     my $sqla_source = $self->{+SQLA_SOURCE};
-    my $fields      = $self->{+FIELDS} //= $self->{+SQLA_SOURCE}->sqla_fields;
+    my $fields      = $self->{+FIELDS} //= $self->{+SQLA_SOURCE}->db_fields_to_fetch;
     my $omit        = $self->{+OMIT};
     my $dialect     = $self->dialect;
     my $quote_bin   = $dialect->quote_binary_data;
@@ -259,10 +260,10 @@ sub _execute_select {
         my $r = ref($omit);
         if    ($r eq 'HASH')  { }
         elsif ($r eq 'ARRAY') { $omit = map { $_ => 1 } @$omit }
-        elsif (!$r)           { $omit = {$omit => 1} }
+        elsif (!$r)           { $omit = { $omit => 1 } }
         else                  { croak "$omit is not a valid 'omit' value" }
 
-        $fields = grep { !$omit->{$_} } @$fields;
+        $fields = [grep { !$omit->{$_} } @$fields];
     }
 
     my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $fields, $self->{+WHERE}, $self->{+ORDER_BY});
@@ -288,9 +289,8 @@ sub _or {
 
 sub delete {
     my $self = shift;
-    my $source = $self->{+SQLA_SOURCE}->sqla_source;
 
-    my ($stmt, @bind) = $self->sqla->delete($source, $self->{+WHERE});
+    my ($stmt, @bind) = $self->sqla->delete($self->{+SQLA_SOURCE}, $self->{+WHERE});
     my $sth = $self->dbh->prepare($stmt);
     $sth->execute(@bind);
     $self->{+LAST_STH} = $sth;
