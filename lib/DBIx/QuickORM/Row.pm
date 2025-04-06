@@ -15,6 +15,9 @@ use DBIx::QuickORM::Util::HashBase qw{
     +connection
     +sqla_source
     +state
+    +transactions
+    +last_transaction
+    +insert_transaction
 };
 
 sub track_desync { 1 }
@@ -78,12 +81,19 @@ sub update_from_db_data {
     my $stored  = $self->{+STORED};
     my $pending = $self->{+PENDING};
 
-    if ($params{updated}) {
+    my $txn = delete $params{transaction};
+    my $ins = delete $params{inserted};
+    my $upd = delete $params{updated};
+    my $nod = delete $params{no_desync};
+
+    $self->txn_check($txn, $ins);
+
+    if ($upd) {
         delete $self->{+PENDING};
         $pending = undef;
     }
 
-    if ($params{no_desync} || !$self->track_desync) {
+    if ($nod || !$self->track_desync) {
         $self->{+STORED} = { %{$self->{+STORED} // {}}, %$new };
         return;
     }
@@ -101,6 +111,58 @@ sub update_from_db_data {
     delete $self->{+DESYNC} unless keys %$desync;
 
     return;
+}
+
+sub txn_check {
+    my $self = shift;
+    my ($txn, $ins) = @_;
+
+    my $txns    = $self->{+TRANSACTIONS};
+    my $ltxn    = $self->{+LAST_TRANSACTION};
+    my $itxn    = $self->{+INSERT_TRANSACTION};
+    my $any_txn = ($ltxn // $itxn // ($txns && keys %$txns)) ? 1 : 0;
+
+    if ($any_txn && !$txn) {
+        # All transactions complete
+        my $bad = grep { $_ && !$_->result } $itxn, $ltxn, values %{$txns // {}};
+        delete $self->{+TRANSACTIONS};
+        delete $self->{+LAST_TRANSACTION};
+        delete $self->{+INSERT_TRANSACTION};
+
+        # If any transaction failed, we cannot trust our storage
+        if ($bad) {
+            if ($itxn) {
+                delete $self->{+STORED}; # Was never inserted
+            }
+            else {
+                $self->{+STORED} = {}; # Cannot trust last read values, clear them
+            }
+        }
+    }
+
+    if ($txn) {
+        $txns->{$txn} //= $txn;
+        $self->{+LAST_TRANSACTION}   = $txn;
+        $self->{+INSERT_TRANSACTION} = $txn if $ins;
+
+        if ($ltxn && $ltxn != $txn) {
+            my $res = $ltxn->result;
+            if ($res) {
+                delete $txns->{$ltxn};
+            }
+            elsif (defined($res)) {
+                delete $txns->{$ltxn};
+                if ($itxn && $itxn == $ltxn) {
+                    delete $self->{+STORED}; # Was never in storage
+                }
+                else {
+                    $self->{+STORED} = {}; # Cannot trust values
+                }
+            }
+            # res not defined means txn is still open
+        }
+        # else { no change }
+    }
 }
 
 sub stored_data   { $_[0]->{+STORED} }
@@ -321,26 +383,6 @@ sub is_desynced {
 }
 
 sub field_affinity { $_[0]->sqla_source->field_affinity($_[1], $_[0]->dialect) }
-
-sub _compare_field {
-    my $self = shift;
-    my ($field, $a, $b) = @_;
-
-    my $sqla_source = $self->sqla_source;
-    my $affinity    = $sqla_source->field_affinity($field, $self->dialect);
-    my $type        = $sqla_source->field_type($field);
-
-    my $ad = defined($a);
-    my $bd = defined($b);
-    return 0 if ($ad xor $bd);       # One is defined, one is not
-    return 1 if (!$ad) && (!$bd);    # Neither is defined
-
-    # true if different, false if same
-    return !$type->qorm_compare($a, $b) if $type;
-
-    # true if same, false if different
-    return DBIx::QuickORM::Affinity::compare_affinity_values($affinity, $a, $b);
-}
 
 sub delete {
     my $self = shift;

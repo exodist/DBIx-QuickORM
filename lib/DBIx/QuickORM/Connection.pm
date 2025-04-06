@@ -22,6 +22,8 @@ use DBIx::QuickORM::Util::HashBase qw{
     <cache
     <schema
     +sqla
+    <transactions
+    +_savepoint_counter
 };
 
 sub sqla {
@@ -42,6 +44,8 @@ sub init {
 
     my $orm = $self->{+ORM} or croak "An orm is required";
     my $db = $orm->db;
+
+    $self->{+_SAVEPOINT_COUNTER} = 1;
 
     $self->{+PID} //= $$;
 
@@ -140,29 +144,26 @@ sub build_row {
     my $self = shift;
     my %params = @_;
 
-    my $row_class   = $params{row_class}   or croak "A row_class is required";
-    my $sqla_source = $params{sqla_source} or croak "An sqla_source is required";
-    my $row_data    = $params{row_data}    or croak "row_data is required";
-    my $updated     = $params{updated};
-    my $no_desync   = $params{no_desync} // $updated;
+    my $row_class   = delete $params{row_class}   or croak "A row_class is required";
+    my $sqla_source = delete $params{sqla_source} or croak "An sqla_source is required";
+    my $row_data    = delete $params{row_data}    or croak "row_data is required";
+    my $updated     = delete $params{updated};
+    my $inserted    = delete $params{inserted};
+    my $no_desync   = delete $params{no_desync} // $updated // $inserted;
+    my $row         = delete $params{row};
 
     $row_data = $sqla_source->fields_remap_db_to_orm($row_data);
     delete $row_data->{__REMAPPED_DB_TO_ORM};
 
     my $cache = $self->cache;
 
-    my $row;
-    if ($row = $params{row}) {
-        $cache->update($row, $row_data) if $cache; # Move to new cache key if pk changed
-        $row->update_from_db_data($row_data, no_desync => $no_desync // 1, updated => $updated);
-        return $row;
-    }
+    my $txn = $self->current_txn;
 
-    if ($cache) {
-        if ($row = $cache->lookup($sqla_source, $row_data)) {
-            $row->update_from_db_data($row_data, no_desync => 0);
-            return $row;
-        }
+    $row //= $cache->lookup($sqla_source, $row_data) if $cache;
+    if ($row) {
+        $row->update_from_db_data($row_data, no_desync => $no_desync // 1, updated => $updated, transaction => $txn);
+        $cache->update($row) if $cache; # Move to new cache key if pk changed
+        return $row;
     }
 
     state $LOADED = {};
@@ -175,11 +176,78 @@ sub build_row {
         stored      => $row_data,
         sqla_source => $sqla_source,
         connection  => $self,
+        transaction => $txn,
     );
 
     $cache->store($row) if $cache;
 
     return $row;
+}
+
+{
+    no warnings 'once';
+    *transaction = \&txn;
+}
+sub txn {
+    my $self = shift;
+
+    my $txns = $self->{+TRANSACTIONS} //= [];
+
+    my $cb = (@_ && ref($_[0]) eq 'CODE') ? shift : undef;
+    my %params = @_;
+
+    my $txn = DBIx::QuickORM::Transaction->new(%params, started => 0, result => undef, connection => $self);
+
+    if (@$txns) {
+        my $sp = "SAVEPOINT_${$}_" . $self->{+_SAVEPOINT_COUNTER}++;
+        $self->dialect->create_savepoint($sp);
+        $txn->set_savepoint($sp);
+        $txn->set_started(1);
+    }
+    elsif ($self->dialect->in_txn) {
+        croak "A transaction is already open, but it is not controlled by DBIx::QuickORM";
+    }
+    else {
+        $self->dialect->start_txn;
+    }
+
+    push @{$txns} => $txn;
+
+    my $out;
+    my $ok = eval { $out = $cb->($txn); 1 };
+    my $err = $@;
+
+    # End the transaction, and any nested ones
+    while (my $x = pop @{$txns}) {
+        $txn->terminate($ok, $err);
+        last if $x == $txn;
+    }
+
+    die $err unless $ok;
+    return $out;
+}
+
+{
+    no warnings 'once';
+    *in_transaction = \&in_txn;
+}
+sub in_txn {
+    my $self = shift;
+    return $self->current_txn // $self->dialect->in_txn;
+}
+
+{
+    no warnings 'once';
+    *current_transaction = \&current_txn;
+}
+sub current_txn {
+    my $self = shift;
+
+    if (my $txns = $self->{+TRANSACTIONS}) {
+        return $txns->[-1] if @$txns;
+    }
+
+    return undef;
 }
 
 1;

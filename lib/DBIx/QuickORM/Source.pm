@@ -152,7 +152,7 @@ sub _insert {
         }
     }
 
-    return $self->build_row($data, $row);
+    return $self->build_row($data, $row, inserted => 1);
 }
 
 sub insert_row {

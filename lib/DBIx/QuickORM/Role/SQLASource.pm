@@ -32,6 +32,14 @@ requires qw{
     fields_remap_orm_to_db
 };
 
+sub cachable { $_[0]->{sqlas_cachable} //= $_[0]->_cachable }
+
+sub _cachable {
+    my $pk = $_[0]->primary_key or return 0;
+    return 1 if @$pk;
+    return 0;
+}
+
 1;
 
 __END__
