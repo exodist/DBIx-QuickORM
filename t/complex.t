@@ -31,14 +31,12 @@ do_for_all_dbs {
                     affinity 'string';
                 };
 
-                column my_uuid => sub {
-                    db_name 'uuid';
+                column uuid => sub {
                     type 'UUID';
                     affinity 'binary' if $is_bin;
                 };
 
-                column my_data => sub {
-                    db_name 'data';
+                column data => sub {
                     type 'JSON';
                 };
             };
@@ -48,45 +46,45 @@ do_for_all_dbs {
     my $orm = orm('my_orm');
     my $con = $orm->connect;
 
-    my $s = $orm->source('example');
+    my $s = $con->source('example');
 
     my $a_uuid = DBIx::QuickORM::Type::UUID->new;
     my $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($a_uuid, 'binary');
 
-    my $x_row  = $s->insert({name => 'x', my_uuid => DBIx::QuickORM::Type::UUID->new, my_data => {name => 'x'}});
+    my $x_row  = $s->insert({name => 'x', uuid => DBIx::QuickORM::Type::UUID->new, data => {name => 'x'}});
 
-    my $a_row  = $s->insert({name => 'a', my_uuid => $a_uuid, my_data => {name => 'a'}});
+    my $a_row  = $s->insert({name => 'a', uuid => $a_uuid, data => {name => 'a'}});
     is(
         $a_row->stored_data,
         {
             id      => 2,
             name    => 'a',
-            my_uuid => $is_bin ? $uuid_bin : $a_uuid,
-            my_data => match qr/{"name":\s*"a"}/,
+            uuid => $is_bin ? $uuid_bin : $a_uuid,
+            data => match qr/{"name":\s*"a"}/,
         },
         "Got stored data with correct (orm) field names, and in uninflated forms"
     );
     like(
-        dies { $a_row->field('uuid') },
-        qr/This row does not have a 'uuid' field/,
-        "Cannot get field 'uuid', we have a 'my_uuid' field"
+        dies { $a_row->field('my_uuid') },
+        qr/This row does not have a 'my_uuid' field/,
+        "Cannot get field 'my_uuid', we have a 'uuid' field"
     );
-    is($a_row->field('my_uuid'),      $a_uuid,       "Inflated UUID as string");
-    is(ref($a_row->field('my_data')), 'HASH',        "Inflated JSON");
-    is($a_row->field('my_data'),      {name => 'a'}, "deserialized json");
+    is($a_row->field('uuid'),      $a_uuid,       "Inflated UUID as string");
+    is(ref($a_row->field('data')), 'HASH',        "Inflated JSON");
+    is($a_row->field('data'),      {name => 'a'}, "deserialized json");
 
-    $a_row->update({my_data => {name => 'a2'}});
-    is($a_row->stored_data->{my_data}, match qr/{"name":\s*"a2"}/, "Updated in storage");
-    is($a_row->field('my_data'),       {name => 'a2'},             "Updated json");
+    $a_row->update({data => {name => 'a2'}});
+    is($a_row->stored_data->{data}, match qr/{"name":\s*"a2"}/, "Updated in storage");
+    is($a_row->field('data'),       {name => 'a2'},             "Updated json");
 
-    $a_row->field(my_data => {name => 'a3'});
-    is($a_row->pending_data->{my_data}, {name => "a3"}, "Updated in pending");
-    is($a_row->stored_data->{my_data},  {name => 'a2'}, "Old data is still listed in stored");
+    $a_row->field(data => {name => 'a3'});
+    is($a_row->pending_data->{data}, {name => "a3"}, "Updated in pending");
+    is($a_row->stored_data->{data},  {name => 'a2'}, "Old data is still listed in stored");
     $a_row->save;
-    is($a_row->stored_data->{my_data}, match qr/{"name":\s*"a3"}/, "Updated in storage");
+    is($a_row->stored_data->{data}, match qr/{"name":\s*"a3"}/, "Updated in storage");
 
-    ref_is($s->one({my_uuid => $a_uuid}),   $a_row, "Found a by UUID string");
-    ref_is($s->one({my_uuid => $uuid_bin}), $a_row, "Found a by UUID binary");
+    ref_is($s->one({uuid => $a_uuid}),   $a_row, "Found a by UUID string");
+    ref_is($s->one({uuid => $uuid_bin}), $a_row, "Found a by UUID binary");
 
     isnt($a_uuid, $uuid_bin, "Binary and string forms are not the same");
 
@@ -105,21 +103,21 @@ do_for_all_dbs {
 
     my $b_uuid = DBIx::QuickORM::Type::UUID->new;
     $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($b_uuid, 'binary');
-    my $b_row  = $s->insert({name => 'b', my_uuid => DBIx::QuickORM::Type::UUID->qorm_deflate($b_uuid, 'binary'), my_data => {name => 'b'}});
+    my $b_row  = $s->insert({name => 'b', uuid => DBIx::QuickORM::Type::UUID->qorm_deflate($b_uuid, 'binary'), data => {name => 'b'}});
     is(
         $b_row->stored_data,
         {
             id      => 3,
             name    => 'b',
-            my_uuid => $is_bin ? $uuid_bin : $b_uuid,
-            my_data => match qr/{"name":\s*"b"}/,
+            uuid => $is_bin ? $uuid_bin : $b_uuid,
+            data => match qr/{"name":\s*"b"}/,
         },
         "Got stored data with correct (orm) field names, and in uninflated forms"
     );
-    is($b_row->field('my_uuid'), $b_uuid, "uuid conversion from binary occured");
+    is($b_row->field('uuid'), $b_uuid, "uuid conversion from binary occured");
 
     like(
-        dies { $s->insert({name => 'x', my_uuid => "NOT A UUID", my_data => {name => 'bx'}}) },
+        dies { $s->insert({name => 'x', uuid => "NOT A UUID", data => {name => 'bx'}}) },
         qr/'NOT A UUID' does not look like a uuid/,
         "Invalid UUID"
     );

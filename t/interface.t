@@ -574,7 +574,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             column a => 'MyType';
             column b => \'VARCHAR(123)', 'string';
             column c => sub {
-                db_name 'C';
                 type \'VARCHAR';
                 affinity 'string';
                 omit;
@@ -703,7 +702,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                         c => {
                             affinity => 'string',
                             name     => 'c',
-                            db_name  => 'C',
                             nullable => 1,
                             omit     => 1,
                             sql      => {
@@ -972,7 +970,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             column e => ('+DBIx::QuickORM::Type::MyType', identity, not_null, omit, affinity('numeric'));
             column f => (type('DBIx::QuickORM::Type::MyType'), identity, nullable, omit, affinity('numeric'));
             column g => sub {
-                db_name 'gg';
                 type 'MyType';
                 identity;
                 nullable;
@@ -1084,7 +1081,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             },
             g => {
                 name     => 'g',
-                db_name  => 'gg',
                 omit     => 1,
                 identity => 1,
                 nullable => 1,
@@ -1310,7 +1306,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         table lookup_name => sub {
             db_name 'db_alt_name';
             column lookup_name => sub {
-                db_name 'db_alt_name';
             };
         };
     };
@@ -1318,7 +1313,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     is(schema('name_test')->{tables}->{lookup_name}->{name},                              'lookup_name', "Name correct");
     is(schema('name_test')->{tables}->{lookup_name}->{db_name},                           'db_alt_name', "DB Name different from qorm name");
     is(schema('name_test')->{tables}->{lookup_name}->{columns}->{lookup_name}->{name},    'lookup_name', "Name correct");
-    is(schema('name_test')->{tables}->{lookup_name}->{columns}->{lookup_name}->{db_name}, 'db_alt_name', "DB Name different from qorm name");
 
     schema test_row_class => sub {
         row_class 'DBIx::QuickORM::Row::ClassA';

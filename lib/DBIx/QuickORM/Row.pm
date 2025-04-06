@@ -12,9 +12,9 @@ use DBIx::QuickORM::Util::HashBase qw{
     +stored
     +pending
     +desync
+    +invalid
     +connection
     +sqla_source
-    +state
 };
 
 sub track_desync { 1 }
@@ -22,6 +22,26 @@ sub track_desync { 1 }
 sub sqla_source { $_[0]->{+SQLA_SOURCE}->() }
 sub connection  { $_[0]->{+CONNECTION}->() }
 sub dialect     { $_[0]->connection->dialect }
+
+sub stored_data   { $_[0]->{+STORED} }
+sub pending_data  { $_[0]->{+PENDING} }
+sub desynced_data { $_[0]->{+DESYNC} }
+
+sub is_invalid  { $_[0]->{+INVALID} ? 1 : 0 }
+sub is_valid    { $_[0]->{+INVALID} ? 0 : 1 }
+sub is_stored   { $_[0]->{+STORED}  ? 1 : 0 }
+sub is_desynced { $_[0]->{+DESYNC}  ? 1 : 0 }
+sub has_pending { $_[0]->{+PENDING} ? 1 : 0 }
+
+sub has_field      { $_[0]->sqla_source->has_field($_[1] // croak "Must specify a field name") }
+sub field_affinity { $_[0]->sqla_source->field_affinity($_[1], $_[0]->dialect) }
+
+#<<<
+sub primary_key_field_list { @{$_[0]->sqla_source->primary_key // []} }
+sub primary_key_value_list { map { $_[0]->raw_stored_field($_) // undef } $_[0]->primary_key_field_list }
+sub primary_key_hash       { map { $_ => $_[0]->raw_stored_field($_) // undef } $_[0]->primary_key_field_list }
+sub primary_key_hashref    { +{ $_[0]->primary_key_hash } }
+#>>>
 
 sub init {
     my $self = shift;
@@ -71,45 +91,49 @@ sub source {
     );
 }
 
-sub update_from_db_data {
+############################
+# {{{ Manipulation Methods #
+############################
+
+sub check_row {
     my $self = shift;
-    my ($new, %params) = @_;
 
-    my $stored  = $self->{+STORED};
-    my $pending = $self->{+PENDING};
+    croak "This row has been invalidated in cache, it needs to be re-fetched" if $self->{+INVALID};
+}
 
-    if ($params{updated}) {
-        delete $self->{+PENDING};
-        $pending = undef;
-    }
+sub check_pk {
+    my $self = shift;
+    return if $self->sqla_source->primary_key;
 
-    if ($params{no_desync} || !$self->track_desync) {
-        $self->{+STORED} = { %{$self->{+STORED} // {}}, %$new };
-        return;
-    }
+    croak "Operation not allowed: the table this row is from does not have a primary key";
+}
 
-    my $desync      = $self->{+DESYNC} //= {};
-    my $has_pending = $pending && keys %$pending;
+sub check_sync {
+    my $self = shift;
 
-    for my $field (keys %$new) {
-        next if $self->_compare_field($field, $stored->{$field}, $new->{$field}); # No change
-        $stored->{$field} = $new->{$field};
-        next unless $has_pending && $pending->{$field};
-        $desync->{$field}++;
-    }
+    return unless $self->track_desync;
 
-    delete $self->{+DESYNC} unless keys %$desync;
+    return unless $self->{+DESYNC};
+
+    croak <<"    EOT";
+This row is out of sync, this means it was refreshed while it had pending
+changes and the data retrieved from the database does not match what was in
+place when the pending changes were set.
+
+To fix such conditions you need to either use row->discard() to clear the
+pending changes, or you need to call ->force_sync() to clear the desync flags
+allowing you to save the row despite the discrepency.
+    EOT
+
+}
+
+sub force_sync {
+    my $self = shift;
+
+    delete $self->{+DESYNC};
 
     return;
 }
-
-sub stored_data   { $_[0]->{+STORED} }
-sub pending_data  { $_[0]->{+PENDING} }
-sub desynced_data { $_[0]->{+DESYNC} }
-
-sub stored   { $_[0]->{+STORED}  ? wantarray ? (sort keys %{$_[0]->{+STORED}})  : 1 : () }
-sub pending  { $_[0]->{+PENDING} ? wantarray ? (sort keys %{$_[0]->{+PENDING}}) : 1 : () }
-sub desynced { $_[0]->{+DESYNC}  ? wantarray ? (sort keys %{$_[0]->{+DESYNC}})  : 1 : () }
 
 sub insert_or_save {
     my $self = shift;
@@ -118,38 +142,34 @@ sub insert_or_save {
     return $self->insert(@_) if $self->{+PENDING};
 }
 
-# Write the data to the db
 sub insert {
     my $self = shift;
+
+    $self->check_row;
 
     croak "This row is already in the database" if $self->{+STORED};
     croak "This row has no data to write" unless $self->{+PENDING} && keys %{$self->{+PENDING}};
 
-    $self->source->insert_row($self);
-    delete $self->{+PENDING};
-    delete $self->{+DESYNC};
+    $self->connection->insert($self->sqla_source, $self);
 
-    return 1;
+    return $self;
 }
 
-# Write pending changes
 sub save {
     my $self = shift;
     my %params = @_;
+
+    $self->check_row;
+    $self->check_sync;
+    $self->check_pk;
 
     croak "This row is not in the database yet" unless $self->{+STORED};
 
     my $pk = $self->sqla_source->primary_key or croak "Cannot use 'save()' on a row with a source that has no primary key";
 
-    croak "The object has changed in the database since making changes, use force => 1 to write anyway."
-        if $self->{+DESYNC} && !$params{force};
-
     return 0 unless $self->{+PENDING};
 
-    $self->source->update_row($self);
-
-    delete $self->{+PENDING};
-    delete $self->{+DESYNC};
+    $self->connection->update($self->sqla_source, $self);
 
     return 1;
 }
@@ -157,24 +177,27 @@ sub save {
 # Fetch new data from the db
 sub refresh {
     my $self = shift;
-    $self->source->refresh_row($self);
-}
 
-sub primary_key_where {
-    my $self = shift;
+    $self->check_row;
+    $self->check_pk;
 
-    my $pk_fields = $self->sqla_source->primary_key or confess "This source has no primary key";
-    return { map { $_ => $self->stored_field($_) } @$pk_fields };
+    croak "This row is not in the database yet" unless $self->{+STORED};
+
+    return $self->connection->first($self->sqla_source, {where => $self->primary_key_hashref, fields => [keys %{$self->{+STORED}}], row => $self});
 }
 
 # Remove pending changes (and clear desync)
 sub discard {
     my $self = shift;
 
+    $self->_check_row;
+
     if (@_) {
-        my ($field) = @_;
-        delete $self->{+DESYNC}->{$field};
-        delete $self->{+PENDING}->{$field};
+        for my $field (@_) {
+            delete $self->{+DESYNC}->{$field};
+            delete $self->{+PENDING}->{$field};
+        }
+
         delete $self->{+DESYNC}  unless keys %{$self->{+DESYNC}};
         delete $self->{+PENDING} unless keys %{$self->{+PENDING}};
     }
@@ -190,91 +213,93 @@ sub update {
     my $self = shift;
     my ($changes, %params) = @_;
 
+    $self->check_row;
+    $self->check_pk;
+
     $self->{+PENDING} = { %{$self->{+PENDING} // {}}, %$changes };
 
     $self->save(%params);
 }
 
-sub has_field {
+sub delete {
     my $self = shift;
-    my $field = shift or croak "Must specify a field name";
+    $self->check_row;
+    $self->check_pk;
 
-    return $self->sqla_source->has_field($field);
+    $self->connection->delete($self->sqla_source, $self);
 }
 
-sub field {
+############################
+# }}} Manipulation Methods #
+############################
+
+#####################
+# {{{ Field methods #
+#####################
+
+sub field     { shift->_field(_inflated_field => @_) }
+sub raw_field { shift->_field(_raw_field      => @_) }
+
+sub fields         { $_[0]->_fields(_field => $_[0]->{+PENDING}, $_[0]->{+STORED}) }
+sub stored_field   { $_[0]->_inflated_field($_[0]->{+STORED}, $_[1]) }
+sub stored_fields  { $_[0]->_fields(_field => $_[0]->{+STORED}) }
+sub pending_field  { $_[0]->_inflated_field($_[0]->{+PENDING}, $_[1]) }
+sub pending_fields { $_[0]->_fields(_field => $_[0]->{+PENDING}) }
+
+sub raw_fields         { $_[0]->_fields(_raw_field => $_[0]->{+PENDING}, $_[0]->{+STORED}) }
+sub raw_stored_field   { $_[0]->_raw_field($_[0]->{+STORED}, $_[1]) }
+sub raw_stored_fields  { $_[0]->_fields(_raw_field => $_[0]->{+STORED}) }
+sub raw_pending_field  { $_[0]->_raw_field($_[0]->{+PENDING}, $_[1]) }
+sub raw_pending_fields { $_[0]->_fields(_raw_field => $_[0]->{+PENDING}) }
+
+sub field_is_desynced {
     my $self = shift;
+    my ($field) = @_;
+
+    croak "You must specify a field name" unless @_;
+
+    return 0 unless $self->{+DESYNC};
+    return $self->{+DESYNC}->{$field} // 0;
+}
+
+sub _field {
+    my $self = shift;
+    my $meth = shift;
     my $field = shift or croak "Must specify a field name";
 
     croak "This row does not have a '$field' field" unless $self->has_field($field);
 
     $self->{+PENDING}->{$field} = shift if @_;
 
-    return $self->_inflated_field($self->{+PENDING}, $field) if $self->{+PENDING} && exists $self->{+PENDING}->{$field};
+    return $self->$meth($self->{+PENDING}, $field) if $self->{+PENDING} && exists $self->{+PENDING}->{$field};
 
     if (my $st = $self->{+STORED}) {
         unless (exists $st->{$field}) {
-            my $data = $self->source->search($self->primary_key_where, fields => $field)->one(data_only => 1);
+            my $data = $self->connection->data_one($self->sqla_source, {where => $self->primary_key_hashref, fields => [$field]});
             $st->{$field} = $data->{$field};
         }
 
-        return $self->_inflated_field($st, $field);
+        return $self->$meth($st, $field);
     }
 
     return undef;
 }
 
-sub raw_field {
+sub _fields {
     my $self = shift;
-    my ($field) = @_;
+    my $meth = shift;
 
-    croak "This row does not have a '$field' field" unless $self->has_field($field);
+    my %out;
+    for my $hr (@_) {
+        next unless $hr;
 
-    return $self->_raw_field($self->{+PENDING}, $field) if $self->{+PENDING} && exists $self->{+PENDING}->{$field};
-    return $self->_raw_field($self->{+STORED},  $field) if $self->{+STORED}  && exists $self->{+STORED}->{$field};
-    return undef;
-}
-
-sub stored_field      { $_[0]->_inflated_field($_[0]->{+STORED},  $_[1]) }
-sub pending_field     { $_[0]->_inflated_field($_[0]->{+PENDING}, $_[1]) }
-sub raw_stored_field  { $_[0]->_raw_field($_[0]->{+STORED},  $_[1]) }
-sub raw_pending_field { $_[0]->_raw_field($_[0]->{+PENDING}, $_[1]) }
-
-sub raw_fields {
-    my $self = shift;
-
-    my $out = { %{$self->{+STORED} // {}}, %{$self->{+PENDING} // {}} };
-    $out->{$_} = $out->{$_}->qorm_deflate($self->field_affinity($_)) for grep { blessed($out->{$_}) } keys %$out;
-
-    return $out;
-}
-
-sub raw_pending {
-    my $self = shift;
-
-    return unless $self->{+PENDING};
-
-    my $out = { %{$self->{+PENDING}} };
-    $out->{$_} = $out->{$_}->qorm_deflate($self->field_affinity($_)) for grep { blessed($out->{$_}) } keys %$out;
-
-    return $out;
-}
-
-sub fields {
-    my $self = shift;
-
-    my $out = {};
-    for my $set ($self->{+PENDING}, $self->{+STORED}) {
-        next unless $set;
-        for my $field (keys %$set) {
-            $out->{$field} //= $self->field($field);
+        for my $field (keys %$hr) {
+            $out{$field} //= $self->$meth($hr, $field);
         }
     }
 
-    return $out;
+    return \%out;
 }
-
-sub pending_fields { $_[0]->{+PENDING} // {} }
 
 sub _inflated_field {
     my $self = shift;
@@ -306,51 +331,18 @@ sub _raw_field {
     return undef unless exists $from->{$field};
     my $val = $from->{$field};
 
-    return $val unless blessed($val);    # not inflated
-    return $val->qorm_deflate($self->field_affinity($field));
-}
+    return $val->qorm_deflate($self->field_affinity($field))
+        if blessed($val) && $val->can('qorm_deflate');
 
-sub is_desynced {
-    my $self = shift;
-    my ($field) = @_;
-
-    croak "You must specify a field name" unless @_;
-
-    return 0 unless $self->{+DESYNC};
-    return $self->{+DESYNC}->{$field} // 0;
-}
-
-sub field_affinity { $_[0]->sqla_source->field_affinity($_[1], $_[0]->dialect) }
-
-sub _compare_field {
-    my $self = shift;
-    my ($field, $a, $b) = @_;
-
-    my $sqla_source = $self->sqla_source;
-    my $affinity    = $sqla_source->field_affinity($field, $self->dialect);
-    my $type        = $sqla_source->field_type($field);
-
-    my $ad = defined($a);
-    my $bd = defined($b);
-    return 0 if ($ad xor $bd);       # One is defined, one is not
-    return 1 if (!$ad) && (!$bd);    # Neither is defined
-
-    # true if different, false if same
-    return !$type->qorm_compare($a, $b) if $type;
-
-    # true if same, false if different
-    return DBIx::QuickORM::Affinity::compare_affinity_values($affinity, $a, $b);
-}
-
-sub delete {
-    my $self = shift;
-    $self->source->search($self->primary_key_where)->delete;
-    if (my $cache = $self->connection->cache) {
-        $cache->remove($self);
+    if (my $type = $self->sqla_source->field_type($field)) {
+        return $type->qorm_deflate($val, $self->field_affinity($field));
     }
-    $self->{+PENDING} = { %{ $self->{+PENDING} // {} }, %{ delete $self->{+STORED} // {} } };
-    delete $self->{+DESYNC};
-    return $self;
+
+    return $val;
 }
+
+#####################
+# }}} Field methods #
+#####################
 
 1;

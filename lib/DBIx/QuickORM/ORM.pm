@@ -57,14 +57,14 @@ sub connection {
     return $self->{+CONNECTION} //= $self->connect;
 }
 
-sub select {
-    my $self = shift;
-    return $self->connection->select(@_);
-}
-
-sub source {
-    my $self = shift;
-    return $self->connection->source(@_);
-}
+#sub select {
+#    my $self = shift;
+#    return $self->connection->select(@_);
+#}
+#
+#sub source {
+#    my $self = shift;
+#    return $self->connection->source(@_);
+#}
 
 1;

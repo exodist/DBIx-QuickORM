@@ -12,9 +12,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     +name
     +db_name
     +columns
-    +db_columns
     <unique
-    <primary_key
     <row_class
     <created
     <compiled
@@ -23,6 +21,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     +links
     <links_by_alias
     <indexes
+    <primary_key
 };
 
 sub is_view  { 0 }
@@ -41,11 +40,16 @@ sub init {
     my $cols = $self->{+COLUMNS} //= {};
     croak "The 'columns' attribute must be a hashref${debug}" unless ref($cols) eq 'HASH';
 
-    $self->{+DB_COLUMNS} = { map {$_->db_name => $_} values %$cols };
-
     for my $cname (sort keys %$cols) {
         my $cval = $cols->{$cname} or croak "Column '$cname' is empty${debug}";
         croak "Columns '$cname' is not an instance of 'DBIx::QuickORM::Schema::Table::Column', got: '$cval'$debug" unless blessed($cval) && $cval->isa('DBIx::QuickORM::Schema::Table::Column');
+    }
+
+    if (my $pk = $self->{+PRIMARY_KEY}) {
+        for my $cname (@$pk) {
+            my $col = $self->{+COLUMNS}->{$cname} or croak "Primary Key column '$cname' is not present in the column list";
+            croak "Primary key column '$cname' is set to be omitted, this is not allowed" if $col->omit;
+        }
     }
 
     $self->{+UNIQUE} //= {};
@@ -120,10 +124,8 @@ sub link {
     croak "Need a link name or table";
 }
 
-sub columns          { values %{$_[0]->{+COLUMNS}} }
-sub column_names     { sort keys %{$_[0]->{+COLUMNS}} }
-sub column_orm_names { sort keys %{$_[0]->{+COLUMNS}} }
-sub column_db_names  { sort keys %{$_[0]->{+DB_COLUMNS}} }
+sub columns      { values %{$_[0]->{+COLUMNS}} }
+sub column_names { sort keys %{$_[0]->{+COLUMNS}} }
 
 sub column {
     my $self = shift;
@@ -132,27 +134,15 @@ sub column {
     return $self->{+COLUMNS}->{$cname} // undef;
 }
 
-sub db_column {
-    my $self = shift;
-    my ($cname) = @_;
-
-    return $self->{+DB_COLUMNS}->{$cname} // undef;
-}
-
 # SQLASource role implementation
 {
     use Role::Tiny::With qw/with/;
     with 'DBIx::QuickORM::Role::SQLASource';
 
     use DBIx::QuickORM::Util::HashBase qw{
-        +db_fields_to_fetch
-        +db_fields_to_omit
-        +db_fields_list_all
-        +orm_fields_to_fetch
-        +orm_fields_to_omit
-        +orm_fields_list_all
-        +fields_map_db_to_orm
-        +fields_map_orm_to_db
+        +fields_to_fetch
+        +fields_to_omit
+        +fields_list_all
     };
 
     sub sqla_db_name  { $_[0]->{+DB_NAME} }
@@ -160,18 +150,6 @@ sub db_column {
 
     # row_class     # In HashBase at top of file
     # primary_key   # In HashBase at top of file
-
-    sub field_db_name {
-        my $self = shift;
-        my ($field) = @_;
-        $self->fields_map_orm_to_db->{$field} // undef;
-    }
-
-    sub field_orm_name {
-        my $self = shift;
-        my ($field) = @_;
-        $self->fields_map_db_to_orm->{$field} // undef;
-    }
 
     sub field_type {
         my $self = shift;
@@ -192,53 +170,9 @@ sub db_column {
 
     sub has_field { $_[0]->{+COLUMNS}->{$_[1]} ? 1 : 0 }
 
-    sub db_fields_to_fetch  { $_[0]->{+DB_FIELDS_TO_FETCH}  //= [ map { $_->db_name } grep { !$_->omit } values %{$_[0]->{+COLUMNS}} ] }
-    sub db_fields_to_omit   { $_[0]->{+DB_FIELDS_TO_OMIT}   //= [ map { $_->db_name } grep { $_->omit }  values %{$_[0]->{+COLUMNS}} ] }
-    sub db_fields_list_all  { $_[0]->{+DB_FIELDS_LIST_ALL}  //= [ map { $_->db_name }                    values %{$_[0]->{+COLUMNS}} ] }
-    sub orm_fields_to_fetch { $_[0]->{+ORM_FIELDS_TO_FETCH} //= [ map { $_->name }    grep { !$_->omit } values %{$_[0]->{+COLUMNS}} ] }
-    sub orm_fields_to_omit  { $_[0]->{+ORM_FIELDS_TO_OMIT}  //= [ map { $_->name }    grep { $_->omit }  values %{$_[0]->{+COLUMNS}} ] }
-    sub orm_fields_list_all { $_[0]->{+ORM_FIELDS_LIST_ALL} //= [ map { $_->name }                       values %{$_[0]->{+COLUMNS}} ] }
-
-    sub fields_map_db_to_orm { $_[0]->{+FIELDS_MAP_DB_TO_ORM} //= { map {($_->db_name => $_->name)} values %{$_[0]->{+COLUMNS}} } }
-    sub fields_map_orm_to_db { $_[0]->{+FIELDS_MAP_ORM_TO_DB} //= { map {($_->name => $_->db_name)} values %{$_[0]->{+COLUMNS}} } }
-
-    sub fields_remap_db_to_orm {
-        my $self = shift;
-        my ($hash) = @_;
-
-        return $hash if $hash->{__REMAPPED_DB_TO_ORM};
-
-        my $map = $self->fields_map_db_to_orm;
-
-        # In case orm and db keys conflict, we put all keeps into an array, then squash it to a hash later.
-        my @keep;
-        for my $db (keys %$hash) {
-            next if $db =~ m/^__REMAPPED_(DB|ORM)_TO_(DB|ORM)$/;
-            my $orm = $map->{$db} or croak "unknown db field '$db'";
-            push @keep => ($orm => $hash->{$db}) if exists $hash->{$db};
-        }
-
-        return {__REMAPPED_DB_TO_ORM => 1, @keep};
-    }
-
-    sub fields_remap_orm_to_db {
-        my $self = shift;
-        my ($hash) = @_;
-
-        return $hash if $hash->{__REMAPPED_ORM_TO_DB};
-
-        my $map = $self->fields_map_orm_to_db;
-
-        # In case orm and db keys conflict, we put all keeps into an array, then squash it to a hash later.
-        my @keep;
-        for my $orm (keys %$hash) {
-            next if $orm =~ m/^__REMAPPED_(DB|ORM)_TO_(DB|ORM)$/;
-            my $db = $map->{$orm} or croak "unknown orm field '$orm'";
-            push @keep => ($db => $hash->{$orm}) if exists $hash->{$orm};
-        }
-
-        return {__REMAPPED_ORM_TO_DB => 1, @keep};
-    }
+    sub fields_to_fetch  { $_[0]->{+FIELDS_TO_FETCH}  //= [ map { $_->name } grep { !$_->omit } values %{$_[0]->{+COLUMNS}} ] }
+    sub fields_to_omit   { $_[0]->{+FIELDS_TO_OMIT}   //= [ map { $_->name } grep { $_->omit }  values %{$_[0]->{+COLUMNS}} ] }
+    sub fields_list_all  { $_[0]->{+FIELDS_LIST_ALL}  //= [ map { $_->name }                    values %{$_[0]->{+COLUMNS}} ] }
 }
 
 1;

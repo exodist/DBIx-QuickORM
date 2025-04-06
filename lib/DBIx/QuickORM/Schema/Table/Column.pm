@@ -14,7 +14,6 @@ use DBIx::QuickORM::Affinity qw{
 
 use DBIx::QuickORM::Util::HashBase qw{
     +name
-    +db_name
     <sql_default
     <perl_default
     <omit
@@ -27,15 +26,13 @@ use DBIx::QuickORM::Util::HashBase qw{
     <compiled
 };
 
-sub name    { $_[0]->{+NAME}    //= $_[0]->{+DB_NAME} }
-sub db_name { $_[0]->{+DB_NAME} //= $_[0]->{+NAME} }
+sub name { $_[0]->{+NAME} }
 
 sub init {
     my $self = shift;
 
     my $debug = $self->{+CREATED} ? " (defined in $self->{+CREATED})" : "";
 
-    croak "WTF?" if exists $self->{columns};
     croak "A 'name' is a required${debug}"           unless $self->{+NAME};
     croak "Column must have an order number${debug}" unless $self->{+ORDER};
 }

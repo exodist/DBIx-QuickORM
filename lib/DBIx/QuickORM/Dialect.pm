@@ -20,9 +20,18 @@ sub dsn_socket_field { 'host' }
 sub dbi_driver { confess "Not Implemented" }
 sub db_version { confess "Not Implemented" }
 
+sub in_txn             { $_[0]->dbh->{BegunWork} ? 1 : $_[0]->dbh->{AutoCommit} ? 0 : 1 }
+sub start_txn          { croak "$_[0]->start_txn() is not implemented" }
+sub commit_txn         { croak "$_[0]->commit_txn() is not implemented" }
+sub rollback_txn       { croak "$_[0]->rollback_txn() is not implemented" }
+sub create_savepoint   { croak "$_[0]->create_savepoint() is not implemented" }
+sub commit_savepoint   { croak "$_[0]->commit_savepoint() is not implemented" }
+sub rollback_savepoint { croak "$_[0]->rollback_savepoint() is not implemented" }
+
 sub quote_binary_data         { DBI::SQL_BINARY() }
 sub supports_returning_update { 0 }
 sub supports_returning_insert { 0 }
+sub supports_returning_delete { 0 }
 sub supports_type { }
 
 sub dialect_name {

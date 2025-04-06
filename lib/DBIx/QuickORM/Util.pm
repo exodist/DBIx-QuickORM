@@ -122,7 +122,9 @@ sub debug {
     local $Data::Dumper::Quotekeys     = 0;
     local $Data::Dumper::Deepcopy      = 1;
     local $Data::Dumper::Trailingcomma = 1;
-    print Dumper(@_);
+    my $out = Dumper(@_);
+    return $out if defined wantarray;
+    print $out;
 }
 
 1;
