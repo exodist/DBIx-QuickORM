@@ -31,6 +31,7 @@ sub rollback_savepoint { croak "$_[0]->rollback_savepoint() is not implemented" 
 sub quote_binary_data         { DBI::SQL_BINARY() }
 sub supports_returning_update { 0 }
 sub supports_returning_insert { 0 }
+sub supports_returning_delete { 0 }
 sub supports_type { }
 
 sub dialect_name {

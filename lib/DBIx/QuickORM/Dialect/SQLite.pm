@@ -27,6 +27,7 @@ sub dialect_name { 'SQLite' }
 
 sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }
+sub supports_returning_delete { 1 }
 
 sub version_search { 0 }
 

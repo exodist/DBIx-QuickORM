@@ -24,6 +24,7 @@ sub quote_binary_data { { pg_type => DBD::Pg::PG_BYTEA() } }
 
 sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }
+sub supports_returning_delete { 1 }
 
 sub start_txn          { $_[0]->dbh->begin_work }
 sub commit_txn         { $_[0]->dbh->commit }

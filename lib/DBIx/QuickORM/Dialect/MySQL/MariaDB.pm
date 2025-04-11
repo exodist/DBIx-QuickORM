@@ -13,6 +13,7 @@ sub dialect_name { 'MySQL::MariaDB' }
 
 sub supports_returning_update { 0 }
 sub supports_returning_insert { 1 }
+sub supports_returning_delete { 1 }
 
 sub init {
     my $self = shift;

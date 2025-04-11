@@ -5,6 +5,8 @@ use Carp::Always;
 use lib 't/lib';
 use DBIx::QuickORM::Test;
 
+skip_all "ORM column names being different from DB names not uet supported";
+
 do_for_all_dbs {
     my $db = shift;
 

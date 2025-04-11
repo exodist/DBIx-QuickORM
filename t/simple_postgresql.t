@@ -28,8 +28,33 @@ orm myorm => sub {
     };
 };
 
-my $orm = orm('myorm');
-debug($orm->connection);
+my $orm = orm('myorm')->connection;
+
+ok(my $row = $orm->source('simple')->insert({name => 'a'}), "Inserted a row");
+debug($row);
+my $rowc = $orm->source('simple')->select({name => 'a'})->one;
+my $rowd = $orm->source('simple')->one({name => 'a'});
+ref_is($rowc, $row, "Got cached copy of row");
+use Carp::Always;
+
+ok(my $row2 = $orm->source('simple')->insert({name => 'b', data => {foo => 'bar'}}), "Inserted a row");
+debug($row2);
+
+$orm->insert('simple' => {name => 'c'});
+
+debug($orm->source('simple')->all({}))
+
+#    my $addr = "$row";
+#    $row = undef;
+#    $row = $orm->source('example')->one({name => 'a'});
+#    ok($row, "got row");
+#    isnt("$row", $addr, "uncached copy");
+#    ok(!exists($row->{stored}->{data}), "did not fetch data");
+#
+#    $row = undef;
+#
+#    $row = $orm->source('example')->one({name => 'a'}, omit => {'name' => 1});
+#    ok(!exists($row->{stored}->{name}), "Did not fetch name");
 
 
 __END__

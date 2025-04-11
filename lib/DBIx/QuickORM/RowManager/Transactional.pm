@@ -1,4 +1,18 @@
-package DBIx::QuickORM::Connection::RowAlgorithm;
+
+
+__END__
+
+    {
+        source  => $source,
+        pk      => $pk,
+        fetched => $fetched_data,
+        row     => $row,            #?
+        connection => $con,
+    }
+
+
+
+package DBIx::QuickORM::Schema::Table::Algorithm;
 use strict;
 use warnings;
 
@@ -250,7 +264,7 @@ sub get_pk {
 
 sub cachable { $_[0]->{+CACHABLE} //= $_[0]->{+SQLA_SOURCE}->cachable }
 
-sub _compare_field {
+sub compare_field {
     my $self = shift;
     my ($field, $a, $b) = @_;
 

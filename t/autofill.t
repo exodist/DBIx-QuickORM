@@ -16,7 +16,6 @@ my %BASE_SCHEMA = (
             is_temp        => F(),
             links_by_alias => {},
 
-            db_columns => T(),
             columns    => {
                 alias_id => {affinity => 'numeric', db_name => 'alias_id', name => 'alias_id', nullable => F(), order => 1, identity => T()},
                 light_id => {affinity => 'numeric', db_name => 'light_id', name => 'light_id', nullable => F(), order => 2},
@@ -39,7 +38,6 @@ my %BASE_SCHEMA = (
             is_temp        => F(),
             links_by_alias => {},
 
-            db_columns => T(),
             columns    => {
                 name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1},
                 name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2},
@@ -62,7 +60,6 @@ my %BASE_SCHEMA = (
             is_temp        => F(),
             links_by_alias => {},
 
-            db_columns => T(),
             columns    => {
                 name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1},
                 name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2},
@@ -87,7 +84,6 @@ my %BASE_SCHEMA = (
             unique         => {},
             indexes        => [],
 
-            db_columns => T(),
             columns    => {
                 name       => {affinity => 'string',  db_name => 'name',       name => 'name',       nullable => T(), order => 1},
                 alias_id   => {affinity => 'numeric', db_name => 'alias_id',   name => 'alias_id',   nullable => T(), order => 2},
@@ -104,7 +100,6 @@ my %BASE_SCHEMA = (
             is_temp        => F(),
             links_by_alias => {},
 
-            db_columns => T(),
             columns    => {
                 light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, identity => T()},
                 light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => F(), order => 2, type     => 'DBIx::QuickORM::Type::UUID'},

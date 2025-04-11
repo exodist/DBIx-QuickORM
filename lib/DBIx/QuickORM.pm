@@ -857,7 +857,7 @@ sub db_name {
     my $self = shift;
     my ($db_name) = @_;
 
-    my $top = $self->_in_builder(qw{table column db});
+    my $top = $self->_in_builder(qw{table db});
 
     $top->{meta}->{db_name} = $db_name;
 }
@@ -1949,18 +1949,15 @@ In a table class:
 
 =item db_name $NAME
 
-Sometimes you want the orm to use one name for a table or column, but the
-database actually uses another. For example you may want the orm to use the
-name 'id' for a column, but the table actually uses the name 'my_id'. You can
-use db_name to set the in-database name. Or a table named populace that you
-want to refer to with the name 'people'
+Sometimes you want the orm to use one name for a table or database, but the
+database server actually uses another. For example you may want the orm to use the
+name 'people' for a table, but the db actually uses the name 'populace'. You can
+use db_name to set the in-database name.
 
     table people => sub {
         db_name 'populace';
 
-        column id => sub {
-            db_name 'my_id';
-        };
+        ...
     };
 
 This can also be used to have a different name for an entire database in the
@@ -1975,13 +1972,11 @@ orm from its actual name on the server:
 =item column NAME => %SPECS
 
 Define a column with the given name. The name will be used both as the name the
-ORM uses for the column, and the actual name of the column in the database. If
-you wish to have the orm use one name, but the databases uses another you can
-use db_name() inside the column builder to provide the actual db name.
+ORM uses for the column, and the actual name of the column in the database.
+Currently having a column use a different name in the orm vs the table is not
+supported.
 
     column foo => sub {
-        db_name 'foooo'; # In the database it uses 4 o's, not 2.
-
         type \'BIGINT'; # Specify a type in raw SQL (can also accept DBIx::QuickORM::Type::*)
 
         not_null(); # Column cannot be null
@@ -1993,8 +1988,7 @@ use db_name() inside the column builder to provide the actual db name.
         ...
     };
 
-There is no way to set an alternate db_name without a builder.
-But here is how to do everything else above without one.
+Another simple way to do everything above:
 
     column foo => ('not_null', 'identity', \'BIGINT');
 
