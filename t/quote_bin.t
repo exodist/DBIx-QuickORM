@@ -28,8 +28,8 @@ do_for_all_dbs {
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
     my $s = $orm->source('example');
     ok(my $row = $s->insert({name => 'a', uuid => $uuid}), "Inserted a row");
-    is($row->{stored}->{uuid}, $uuid_bin, "Stored as binary");
-    isnt($row->{stored}->{uuid}, $uuid, "Sanity check that original uuid and binary do not match");
+    is($row->row_data->{stored}->{uuid}, $uuid_bin, "Stored as binary");
+    isnt($row->row_data->{stored}->{uuid}, $uuid, "Sanity check that original uuid and binary do not match");
     is($row->field('uuid'), $uuid, "Round trip returned the original UUID, no loss");
 
     ref_is($s->one({uuid => $uuid}),   $row, "Found a by UUID string");

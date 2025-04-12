@@ -36,7 +36,7 @@ do_for_all_dbs {
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
     ok(my $row = $orm->source('example')->insert({name => 'a', data => {foo => 'bar'}}), "Inserted a row");
     ok($orm->schema->{tables}->{example}->{columns}->{data}->{omit}, "omit was merged into the autofill schema");
-    ok(!exists($row->{stored}->{data}), "did not fetch data");
+    ok(!exists($row->row_data->{stored}->{data}), "did not fetch data");
     is($row->field('data'), {foo => 'bar'}, "Can fetch data");
 
     my $addr = "$row";
@@ -44,12 +44,12 @@ do_for_all_dbs {
     $row = $orm->source('example')->one({name => 'a'});
     ok($row, "got row");
     isnt("$row", $addr, "uncached copy");
-    ok(!exists($row->{stored}->{data}), "did not fetch data");
+    ok(!exists($row->row_data->{stored}->{data}), "did not fetch data");
 
     $row = undef;
 
     $row = $orm->source('example')->one({name => 'a'}, omit => {'name' => 1});
-    ok(!exists($row->{stored}->{name}), "Did not fetch name");
+    ok(!exists($row->row_data->{stored}->{name}), "Did not fetch name");
 
 };
 

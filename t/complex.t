@@ -51,9 +51,9 @@ do_for_all_dbs {
     my $a_uuid = DBIx::QuickORM::Type::UUID->new;
     my $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($a_uuid, 'binary');
 
-    my $x_row  = $s->insert({name => 'x', uuid => DBIx::QuickORM::Type::UUID->new, data => {name => 'x'}});
+    my $x_row = $s->insert({name => 'x', uuid => DBIx::QuickORM::Type::UUID->new, data => {name => 'x'}});
 
-    my $a_row  = $s->insert({name => 'a', uuid => $a_uuid, data => {name => 'a'}});
+    my $a_row = $s->insert({name => 'a', uuid => $a_uuid, data => {name => 'a'}});
     is(
         $a_row->stored_data,
         {
@@ -92,7 +92,7 @@ do_for_all_dbs {
     $con->dbh->do("UPDATE example SET name = 'ax' WHERE id = 2");
     $a_row->refresh;
     like(
-        $a_row,
+        $a_row->row_data,
         {
             stored  => {name => 'ax'},
             pending => {name => 'aa'},
