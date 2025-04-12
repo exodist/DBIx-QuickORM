@@ -5,7 +5,7 @@ use feature qw/state/;
 
 our $VERSION = '0.000005';
 
-use Carp qw/confess croak/;
+use Carp qw/confess croak cluck/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/load_class debug/;
 
@@ -23,8 +23,14 @@ use DBIx::QuickORM::Util::HashBase qw{
     +sqla
     <transactions
     +_savepoint_counter
+    +_txn_counter
     <manager
+    +internal_transactions
 };
+
+sub enable_internal_transactions  { $_[0]->{+INTERNAL_TRANSACTIONS} = 1 }
+sub disable_internal_transactions { $_[0]->{+INTERNAL_TRANSACTIONS} = 0 }
+sub internal_transactions_enabled { $_[0]->{+INTERNAL_TRANSACTIONS} ? 1 : 0 }
 
 sub sqla {
     my $self = shift;
@@ -46,6 +52,7 @@ sub init {
     my $db = $orm->db;
 
     $self->{+_SAVEPOINT_COUNTER} = 1;
+    $self->{+_TXN_COUNTER} = 1;
 
     $self->{+PID} //= $$;
 
@@ -53,7 +60,9 @@ sub init {
 
     $self->{+DIALECT} = $db->dialect->new(dbh => $self->{+DBH}, db_name => $db->db_name);
 
-    my $manager = $self->{+MANAGER} // 'DBIx::QuickORM::RowManager::Cached';
+    $self->{+INTERNAL_TRANSACTIONS} //= 1;
+
+    my $manager = $self->{+MANAGER} // 'DBIx::QuickORM::RowManager::Transactional';
     unless (blessed($manager)) {
         my $class = load_class($manager) or die $@;
         $self->{+MANAGER} = $class->new;
@@ -95,6 +104,23 @@ sub source {
     );
 }
 
+sub _internal_txn {
+    my $self = shift;
+    my ($cb) = @_;
+
+    # No txn if internal txns are disabled
+    return $cb->() unless $self->{+INTERNAL_TRANSACTIONS};
+
+    # Already inside a qorm txn
+    return $cb->() if $self->{+TRANSACTIONS} && @{$self->{+TRANSACTIONS}};
+
+    # Already inside a non qorm txn
+    return $cb->() if $self->dialect->in_txn;
+
+    # Need a txn!
+    return $self->txn(@_);
+}
+
 {
     no warnings 'once';
     *transaction = \&txn;
@@ -106,36 +132,72 @@ sub txn {
 
     my $cb = (@_ && ref($_[0]) eq 'CODE') ? shift : undef;
     my %params = @_;
+    $cb //= $params{action};
 
-    my $txn = DBIx::QuickORM::Connection::Transaction->new(%params, started => 0, result => undef, connection => $self);
+    croak "You must provide an 'action' coderef, either as the first argument to txn, or under the 'action' key in a parameterized list"
+        unless $cb;
 
+    my $id = $self->{+_TXN_COUNTER}++;
+
+    my $dialect = $self->dialect;
+
+    my $sp;
     if (@$txns) {
-        my $sp = "SAVEPOINT_${$}_" . $self->{+_SAVEPOINT_COUNTER}++;
-        $self->dialect->create_savepoint($sp);
-        $txn->set_savepoint($sp);
-        $txn->set_started(1);
+        $sp = "SAVEPOINT_${$}_" . $self->{+_SAVEPOINT_COUNTER}++;
+        $dialect->create_savepoint($sp);
     }
     elsif ($self->dialect->in_txn) {
         croak "A transaction is already open, but it is not controlled by DBIx::QuickORM";
     }
     else {
-        $self->dialect->start_txn;
+        $dialect->start_txn;
     }
+
+    my $txn = DBIx::QuickORM::Connection::Transaction->new(
+        id            => $id,
+        savepoint     => $sp,
+        on_fail       => $params{on_fail},
+        on_success    => $params{on_success},
+        on_completion => $params{on_completion},
+    );
 
     push @{$txns} => $txn;
 
-    my $out;
-    my $ok = eval { $out = $cb->($txn); 1 };
-    my $err = $@;
+    local $@;
+    my $ok = eval {
+        QORM_TRANSACTION: {
+            $cb->($txn);
+        }
 
-    # End the transaction, and any nested ones
-    while (my $x = pop @{$txns}) {
-        $txn->terminate($ok, $err);
-        last if $x == $txn;
+        1;
+    };
+    my $err = $ok ? [] : [$@];
+
+    croak "Internal Error: Transaction stack mismatch"
+        unless @$txns && $txns->[-1] == $txn;
+
+    pop @$txns;
+
+    my $rolled_back = $txn->rolled_back;
+    my $res         = $ok && !$rolled_back;
+
+    if ($sp) {
+        if   ($res) { $dialect->commit_savepoint($sp) }
+        else        { $dialect->rollback_savepoint($sp) }
+    }
+    else {
+        if   ($res) { $dialect->commit_txn }
+        else        { $dialect->rollback_txn }
     }
 
-    die $err unless $ok;
-    return $out;
+    my ($ok2, $err2) = $txn->terminate($res, $err);
+    unless ($ok2) {
+        $ok = 0;
+        push @$err => @$err2;
+    }
+
+    die join "\n" => @$err unless $ok;
+    return $txn;
 }
 
 {
@@ -222,30 +284,37 @@ sub insert {
         $data->{$name} = $def->() unless exists $data->{$name};
     }
 
+    my $orig_data = { %$data };
     $data = $self->format_insert_and_update_data($data);
 
-    my ($stmt, $bind) = $self->sqla->qorm_insert($sqla_source, $data, $ret ? {returning => $sqla_source->fields_to_fetch} : ());
-    my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
-
     my $fetched;
+    my $do_it = sub {
+        my ($stmt, $bind) = $self->sqla->qorm_insert($sqla_source, $data, $ret ? {returning => $sqla_source->fields_to_fetch} : ());
+        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+        $fetched = $sth->fetchrow_hashref if $ret;
+    };
+
     if ($ret) {
-        $fetched = $sth->fetchrow_hashref;
+        $do_it->();
     }
     else {
         my $pk_fields = $sqla_source->primary_key;
-
         if ($pk_fields && @$pk_fields) {
-            my $where;
-            if (@$pk_fields > 1) {
-                $where = {map { my $v = $fetched->{$_} or croak "Auto-generated compound primary keys are not supported for databases that do not support 'returning' functionality"; ($_ => $v) } @$pk_fields};
-            }
-            else {
-                my $kv = $self->dbh->last_insert_id(undef, undef, $sqla_source->sqla_db_name);
-                $where = {$pk_fields->[0] => $kv};
-            }
+            croak "Auto-generated compound primary keys are not supported for databases that do not support 'returning on insert' functionality" if @$pk_fields > 1;
 
-            my $sth = $self->_execute_select($sqla_source, {where => $where, fields => $sqla_source->fields_to_fetch});
-            $fetched = $sth->fetchrow_hashref
+            $self->_internal_txn(sub {
+                $do_it->();
+
+                my $kv = $self->dbh->last_insert_id(undef, undef, $sqla_source->sqla_db_name);
+                my $where = {$pk_fields->[0] => $kv};
+
+                my $sth = $self->_execute_select($sqla_source, {where => $where, fields => $sqla_source->fields_to_fetch});
+                $fetched = $sth->fetchrow_hashref;
+            });
+        }
+        else {
+            $do_it->();
+            $fetched = $orig_data;
         }
     }
 
@@ -448,11 +517,11 @@ sub delete {
         $deleted_keys //= [$row->primary_key_hashref] if $row;
     }
     else {
-#        $self->txn(sub {
+        $self->_internal_txn(sub {
             my $where;
             ($deleted_keys, $where) = $self->_get_keys($sqla_source, $query->{where});
             $do_it->($where);
-#        });
+        });
     }
 
     if ($do_cache && $deleted_keys && @$deleted_keys) {
@@ -552,7 +621,7 @@ sub update {
             $do_it->();
         }
         else {
-#            $self->txn(sub {
+            $self->_internal_txn(sub {
                 my ($keys, $where) = $self->_get_keys($sqla_source, $query->{where});
 
                 $do_it->($where);
@@ -560,9 +629,8 @@ sub update {
                 my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $fields, $where);
                 my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
                 $updated = $sth->fetchall_arrayref({});
-#            });
+            });
         }
-
 
         $self->{+MANAGER}->update(%$query, sqla_source => $sqla_source, connection => $self, fetched => $_) for @$updated;
 
@@ -574,10 +642,10 @@ sub update {
 
     # Crap, we are changing pk's, possibly multiple, and no way to associate the before and after...
     my ($keys, $where);
-#    $self->txn(sub {
+    $self->_internal_txn(sub {
         ($keys, $where) = $self->_get_keys($sqla_source, $query->{where});
         $do_it->($where);
-#    });
+    });
 
     $self->{+MANAGER}->invalidate(%$query, old_primary_key => $_) for @$keys;
 
@@ -733,7 +801,7 @@ sub find_or_insert {
 
     my $row;
 
-#    $self->txn(sub {
+    $self->_internal_txn(sub {
         my $sth = $self->_execute_select($sqla_source, {where => $data, limit => 2});
 
         if (my $fetched = $sth->fetchrow_hashref) {
@@ -743,7 +811,7 @@ sub find_or_insert {
         else {
             $row = $self->insert($sqla_source, $data);
         }
-#    });
+    });
 
     return $row;
 }

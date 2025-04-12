@@ -49,7 +49,7 @@ sub uncache {
     my $self = shift;
     my ($sqla_source, $row, $old_pk, $new_pk) = @_;
 
-    my $pk = $old_pk // $new_pk // ($row ? $row->primary_key_fields : undef);
+    my $pk = $old_pk // $new_pk // ($row ? $row->primary_key_hashref : undef);
 
     # No pk, not a cachable row
     return unless $pk && @$pk;

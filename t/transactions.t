@@ -20,6 +20,7 @@ do_for_all_dbs {
     };
 
     package main;
+    use DBIx::QuickORM::Test;
     use Test2::V0;
     My::ORM->import('qorm');
 
@@ -39,12 +40,75 @@ do_for_all_dbs {
 
     subtest rows => sub {
         ok(my $row_a = $s->insert({name => 'a'}), "Inserted a row");
-        ok(my $row_b = $s->insert({name => 'b'}), "Inserted a row");
-        ok(my $row_c = $s->insert({name => 'c'}), "Inserted a row");
 
+        my $row_b;
+        $con->txn(sub {
+            my $txn = shift;
 
+            ok($row_b = $s->insert({name => 'b'}), "Inserted a row");
+
+            ok($row_b->is_valid, "Row is valid");
+            ok($row_b->is_stored, "Row is in storage");
+
+            $txn->rollback;
+        });
+
+        ok(!$row_b->is_valid,  "Row is not valid anymore");
+        ok(!$row_b->is_stored, "Row is not in storage anymore");
+
+        like(
+            dies { $row_b->field('name') },
+            qr/This row has been invalidated in cache, it needs to be re-fetched/,
+            "Cannot use an invalid row"
+        );
+
+        $con->txn(sub {
+            my $txn = shift;
+
+            ok($row_b = $s->insert({name => 'b'}), "Inserted a row");
+
+            ok($row_b->is_valid, "Row is valid");
+            ok($row_b->is_stored, "Row is in storage");
+        });
+
+        ok($row_b->is_valid, "Row is valid");
+        ok($row_b->is_stored, "Row is in storage");
+
+        my $row_c;
+        $con->txn(sub {
+            $con->txn(sub {
+                $con->txn(sub {
+                    $con->txn(sub {
+                        ok($row_c = $s->insert({name => 'c'}), "Inserted a row");
+
+                        ok($row_c->is_valid,  "Row is valid");
+                        ok($row_c->is_stored, "Row is in storage");
+                    });
+                    ok($row_c->is_valid,  "Row is valid");
+                    ok($row_c->is_stored, "Row is in storage");
+                });
+
+                ok($row_c->is_valid,  "Row is valid");
+                ok($row_c->is_stored, "Row is in storage");
+
+                $_[0]->rollback;
+            });
+
+            ok(!$row_c->is_valid,  "Row is not valid anymore");
+            ok(!$row_c->is_stored, "Row is not in storage anymore");
+        });
+
+        ok(!$row_c->is_valid,  "Row is not valid anymore");
+        ok(!$row_c->is_stored, "Row is not in storage anymore");
+
+        like(
+            dies { $row_c->field('name') },
+            qr/This row has been invalidated in cache, it needs to be re-fetched/,
+            "Cannot use an invalid row"
+        );
     };
 } qw/system_postgresql/;
 
+            #ok(my $row_c = $s->insert({name => 'c'}), "Inserted a row");
 
 done_testing;

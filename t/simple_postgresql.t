@@ -42,7 +42,9 @@ debug($row2);
 
 $orm->insert('simple' => {name => 'c'});
 
-debug($orm->source('simple')->all({}))
+debug($orm->source('simple')->all({}));
+
+done_testing;
 
 #    my $addr = "$row";
 #    $row = undef;

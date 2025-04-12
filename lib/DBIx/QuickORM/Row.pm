@@ -15,6 +15,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     +invalid
     +connection
     +sqla_source
+    +transaction_state
 };
 
 sub track_desync { 1 }
@@ -23,15 +24,15 @@ sub sqla_source { $_[0]->{+SQLA_SOURCE}->() }
 sub connection  { $_[0]->{+CONNECTION}->() }
 sub dialect     { $_[0]->connection->dialect }
 
-sub stored_data   { $_[0]->{+STORED} }
-sub pending_data  { $_[0]->{+PENDING} }
-sub desynced_data { $_[0]->{+DESYNC} }
+sub stored_data   { $_[0]->check_txn->{+STORED} }
+sub pending_data  { $_[0]->check_txn->{+PENDING} }
+sub desynced_data { $_[0]->check_txn->{+DESYNC} }
 
-sub is_invalid  { $_[0]->{+INVALID} ? 1 : 0 }
-sub is_valid    { $_[0]->{+INVALID} ? 0 : 1 }
-sub is_stored   { $_[0]->{+STORED}  ? 1 : 0 }
-sub is_desynced { $_[0]->{+DESYNC}  ? 1 : 0 }
-sub has_pending { $_[0]->{+PENDING} ? 1 : 0 }
+sub is_invalid  { $_[0]->check_txn('no_die')->{+INVALID} ? 1 : 0 }
+sub is_valid    { $_[0]->check_txn('no_die')->{+INVALID} ? 0 : 1 }
+sub is_stored   { $_[0]->check_txn('no_die')->{+STORED}  ? 1 : 0 }
+sub is_desynced { $_[0]->check_txn('no_die')->{+DESYNC}  ? 1 : 0 }
+sub has_pending { $_[0]->check_txn('no_die')->{+PENDING} ? 1 : 0 }
 
 sub has_field      { $_[0]->sqla_source->has_field($_[1] // croak "Must specify a field name") }
 sub field_affinity { $_[0]->sqla_source->field_affinity($_[1], $_[0]->dialect) }
@@ -91,29 +92,41 @@ sub source {
     );
 }
 
-############################
-# {{{ Manipulation Methods #
-############################
+#####################
+# {{{ Sanity Checks #
+#####################
 
-sub check_row {
-    my $self = shift;
+sub check_txn {
+    croak "This row has been invalidated in cache, it needs to be re-fetched (or it was inserted during a transaction that was rolled back)" if $_[0]->{+INVALID} && !$_[1];
 
-    croak "This row has been invalidated in cache, it needs to be re-fetched" if $self->{+INVALID};
+    my $state = $_[0]->{+TRANSACTION_STATE};
+
+    # In an open transaction, no touch needed
+    return $_[0] if $state && $state->{lastest} && !defined($state->{latest}->{result});
+
+    my $con = $_[0]->connection;
+    my $txn = $con->current_txn;
+
+    # No txn and no txn in row, nothing to do
+    return $_[0] unless $txn || ($state && $state->{latest});
+
+    $con->manager->touch_row_txn($con, $_[0], check => 1);
+
+    return $_[0];
 }
 
+sub check_row { croak "This row has been invalidated in cache, it needs to be re-fetched" if $_[0]->{+INVALID}; $_[0] }
+
 sub check_pk {
-    my $self = shift;
-    return if $self->sqla_source->primary_key;
+    return $_[0] if $_[0]->sqla_source->primary_key;
 
     croak "Operation not allowed: the table this row is from does not have a primary key";
 }
 
 sub check_sync {
-    my $self = shift;
+    return $_[0] unless $_[0]->track_desync;
 
-    return unless $self->track_desync;
-
-    return unless $self->{+DESYNC};
+    return $_[0] unless $_[0]->{+DESYNC};
 
     croak <<"    EOT";
 This row is out of sync, this means it was refreshed while it had pending
@@ -127,12 +140,21 @@ allowing you to save the row despite the discrepency.
 
 }
 
+#####################
+# }}} Sanity Checks #
+#####################
+
+############################
+# {{{ Manipulation Methods #
+############################
+
 sub force_sync {
     my $self = shift;
+    $self->check_txn;
 
     delete $self->{+DESYNC};
 
-    return;
+    return $self;
 }
 
 sub insert_or_save {
@@ -145,7 +167,7 @@ sub insert_or_save {
 sub insert {
     my $self = shift;
 
-    $self->check_row;
+    $self->check_txn;
 
     croak "This row is already in the database" if $self->{+STORED};
     croak "This row has no data to write" unless $self->{+PENDING} && keys %{$self->{+PENDING}};
@@ -159,7 +181,7 @@ sub save {
     my $self = shift;
     my %params = @_;
 
-    $self->check_row;
+    $self->check_txn;
     $self->check_sync;
     $self->check_pk;
 
@@ -167,18 +189,18 @@ sub save {
 
     my $pk = $self->sqla_source->primary_key or croak "Cannot use 'save()' on a row with a source that has no primary key";
 
-    return 0 unless $self->{+PENDING};
+    return $self unless $self->{+PENDING};
 
     $self->connection->update($self->sqla_source, $self);
 
-    return 1;
+    return $self;
 }
 
 # Fetch new data from the db
 sub refresh {
     my $self = shift;
 
-    $self->check_row;
+    $self->check_txn;
     $self->check_pk;
 
     croak "This row is not in the database yet" unless $self->{+STORED};
@@ -190,7 +212,7 @@ sub refresh {
 sub discard {
     my $self = shift;
 
-    $self->_check_row;
+    $self->check_row;
 
     if (@_) {
         for my $field (@_) {
@@ -206,6 +228,8 @@ sub discard {
         delete $self->{+PENDING};
     }
 
+    $self->check_txn;
+
     return;
 }
 
@@ -213,7 +237,7 @@ sub update {
     my $self = shift;
     my ($changes, %params) = @_;
 
-    $self->check_row;
+    $self->check_txn;
     $self->check_pk;
 
     $self->{+PENDING} = { %{$self->{+PENDING} // {}}, %$changes };
@@ -223,7 +247,8 @@ sub update {
 
 sub delete {
     my $self = shift;
-    $self->check_row;
+
+    $self->check_txn;
     $self->check_pk;
 
     $self->connection->delete($self->sqla_source, $self);
@@ -237,24 +262,26 @@ sub delete {
 # {{{ Field methods #
 #####################
 
-sub field     { shift->_field(_inflated_field => @_) }
-sub raw_field { shift->_field(_raw_field      => @_) }
+sub field     { shift->check_txn->_field(_inflated_field => @_) }
+sub raw_field { shift->check_txn->_field(_raw_field      => @_) }
 
-sub fields         { $_[0]->_fields(_field => $_[0]->{+PENDING}, $_[0]->{+STORED}) }
-sub stored_field   { $_[0]->_inflated_field($_[0]->{+STORED}, $_[1]) }
-sub stored_fields  { $_[0]->_fields(_field => $_[0]->{+STORED}) }
-sub pending_field  { $_[0]->_inflated_field($_[0]->{+PENDING}, $_[1]) }
-sub pending_fields { $_[0]->_fields(_field => $_[0]->{+PENDING}) }
+sub fields         { $_[0]->check_txn->_fields(_field => $_[0]->{+PENDING}, $_[0]->{+STORED}) }
+sub stored_field   { $_[0]->check_txn->_inflated_field($_[0]->{+STORED}, $_[1]) }
+sub stored_fields  { $_[0]->check_txn->_fields(_field => $_[0]->{+STORED}) }
+sub pending_field  { $_[0]->check_txn->_inflated_field($_[0]->{+PENDING}, $_[1]) }
+sub pending_fields { $_[0]->check_txn->_fields(_field => $_[0]->{+PENDING}) }
 
-sub raw_fields         { $_[0]->_fields(_raw_field => $_[0]->{+PENDING}, $_[0]->{+STORED}) }
-sub raw_stored_field   { $_[0]->_raw_field($_[0]->{+STORED}, $_[1]) }
-sub raw_stored_fields  { $_[0]->_fields(_raw_field => $_[0]->{+STORED}) }
-sub raw_pending_field  { $_[0]->_raw_field($_[0]->{+PENDING}, $_[1]) }
-sub raw_pending_fields { $_[0]->_fields(_raw_field => $_[0]->{+PENDING}) }
+sub raw_fields         { $_[0]->check_txn->_fields(_raw_field => $_[0]->{+PENDING}, $_[0]->{+STORED}) }
+sub raw_stored_field   { $_[0]->check_txn->_raw_field($_[0]->{+STORED}, $_[1]) }
+sub raw_stored_fields  { $_[0]->check_txn->_fields(_raw_field => $_[0]->{+STORED}) }
+sub raw_pending_field  { $_[0]->check_txn->_raw_field($_[0]->{+PENDING}, $_[1]) }
+sub raw_pending_fields { $_[0]->check_txn->_fields(_raw_field => $_[0]->{+PENDING}) }
 
 sub field_is_desynced {
     my $self = shift;
     my ($field) = @_;
+
+    $self->check_txn;
 
     croak "You must specify a field name" unless @_;
 

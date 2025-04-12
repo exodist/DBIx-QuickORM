@@ -10,9 +10,14 @@ use DBIx::QuickORM::Affinity();
 use DBIx::QuickORM::Util::HashBase;
 
 sub does_cache { 0 }
+sub does_txn   { 0 }
 
 sub cache   { }
 sub uncache { }
+
+sub fix_row_post_txn { }
+
+sub touch_row_txn { }
 
 sub cache_lookup {
     my $self = shift;
@@ -57,6 +62,7 @@ sub insert {
     my ($connection, $sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, row => 1);
 
     $row = $self->do_insert($connection, $sqla_source, $fetched, $old_pk, $new_pk, $row);
+    $self->touch_row_txn($connection => $row, insert => 1);
     $self->cache($sqla_source, $row, $old_pk, $new_pk);
 
     return $row;
@@ -76,6 +82,7 @@ sub update {
     my ($connection, $sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
 
     $row = $self->do_update($connection, $sqla_source, $fetched, $old_pk, $new_pk, $row);
+    $self->touch_row_txn($connection => $row, update => 1);
     $self->cache($sqla_source, $row, $old_pk, $new_pk);
 
     return $row;
@@ -98,6 +105,7 @@ sub delete {
     my ($connection, $sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
 
     $row = $self->do_delete($connection, $sqla_source, $fetched, $old_pk, $new_pk, $row);
+    $self->touch_row_txn($connection => $row, delete => 1);
     $self->uncache($sqla_source, $row, $old_pk, $new_pk);
 
     return $row;
@@ -120,6 +128,7 @@ sub select {
     my ($connection, $sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
 
     $row = $self->do_select($connection, $sqla_source, $fetched, $old_pk, $new_pk, $row);
+    $self->touch_row_txn($connection => $row, select => 1);
     $self->cache($sqla_source, $row, $old_pk, $new_pk);
 
     return $row;
