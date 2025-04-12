@@ -62,10 +62,15 @@ sub init {
 
     $self->{+INTERNAL_TRANSACTIONS} //= 1;
 
-    my $manager = $self->{+MANAGER} // 'DBIx::QuickORM::RowManager::Transactional';
-    unless (blessed($manager)) {
+    my $txns = $self->{+TRANSACTIONS} //= [];
+    my $manager = $self->{+MANAGER} // 'DBIx::QuickORM::RowManager::Cached';
+    if (blessed($manager)) {
+        $manager->set_connection($self);
+        $manager->set_transactions($txns);
+    }
+    else {
         my $class = load_class($manager) or die $@;
-        $self->{+MANAGER} = $class->new;
+        $self->{+MANAGER} = $class->new(transactions => $txns, connection => $self);
     }
 
     if (my $autofill = $orm->autofill) {
@@ -128,7 +133,7 @@ sub _internal_txn {
 sub txn {
     my $self = shift;
 
-    my $txns = $self->{+TRANSACTIONS} //= [];
+    my $txns = $self->{+TRANSACTIONS};
 
     my $cb = (@_ && ref($_[0]) eq 'CODE') ? shift : undef;
     my %params = @_;

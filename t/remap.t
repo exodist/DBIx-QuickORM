@@ -38,15 +38,15 @@ do_for_all_dbs {
     ok(my $row = $s->insert({my_name => 'a', my_uuid => $uuid, my_json => {name => 'a'}}), "Inserted a row");
 
     subtest uuid => sub {
-        is($row->{stored}->{my_uuid}, $uuid_bin, "Stored as binary");
-        isnt($row->{stored}->{my_uuid}, $uuid, "Sanity check that original uuid and binary do not match");
+        is($row->row_data->{stored}->{my_uuid}, $uuid_bin, "Stored as binary");
+        isnt($row->row_data->{stored}->{my_uuid}, $uuid, "Sanity check that original uuid and binary do not match");
         is($row->field('my_uuid'), $uuid, "Round trip returned the original UUID, no loss");
         ref_is($s->one({my_uuid => $uuid}),   $row, "Found a by UUID string");
         ref_is($s->one({my_uuid => $uuid_bin}), $row, "Found a by UUID binary");
     };
 
     subtest json => sub {
-        like($row->{stored}->{my_json}, qr/{"name":\s*"a"}/, "Stored the json as json");
+        like($row->row_data->{stored}->{my_json}, qr/{"name":\s*"a"}/, "Stored the json as json");
         is($row->field('my_json'), {name => 'a'}, "Round trip returned the correct data structure");
         ok(lives { $s->one({my_json => bless({name => 'a'}, 'DBIx::QuickORM::Type::JSON')}) }, "JSON object in the search does not die (but is also not useful)");
     };

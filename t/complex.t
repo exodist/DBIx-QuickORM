@@ -92,7 +92,7 @@ do_for_all_dbs {
     $con->dbh->do("UPDATE example SET name = 'ax' WHERE id = 2");
     $a_row->refresh;
     like(
-        $a_row,
+        $a_row->row_data,
         {
             stored  => {name => 'ax'},
             pending => {name => 'aa'},

@@ -39,7 +39,12 @@ do_for_all_dbs {
     };
 
     subtest rows => sub {
-        ok(my $row_a = $s->insert({name => 'a'}), "Inserted a row");
+        my $row_a;
+        $con->txn(sub {
+            ok($row_a = $s->insert({name => 'a'}), "Inserted a row");
+        });
+        ok($row_a->is_valid, "Row is valid");
+        ok($row_a->is_stored, "Row is in storage");
 
         my $row_b;
         $con->txn(sub {
@@ -58,7 +63,7 @@ do_for_all_dbs {
 
         like(
             dies { $row_b->field('name') },
-            qr/This row has been invalidated in cache, it needs to be re-fetched/,
+            qr/This row is invalid \(Likely inserted during a transaction that was rolled back\)/,
             "Cannot use an invalid row"
         );
 
@@ -84,9 +89,18 @@ do_for_all_dbs {
                         ok($row_c->is_valid,  "Row is valid");
                         ok($row_c->is_stored, "Row is in storage");
                     });
+
                     ok($row_c->is_valid,  "Row is valid");
                     ok($row_c->is_stored, "Row is in storage");
                 });
+
+                $con->txn(sub {
+                    ok($row_c->is_valid,  "Row is valid");
+                    ok($row_c->is_stored, "Row is in storage");
+                    ok($row_c->row_data->{transaction} != $_[0], "It did not shift up to the new txn");
+                });
+
+                ok($row_c->row_data->{transaction} == $_[0], "It shifted down to this txn");
 
                 ok($row_c->is_valid,  "Row is valid");
                 ok($row_c->is_stored, "Row is in storage");
@@ -103,12 +117,10 @@ do_for_all_dbs {
 
         like(
             dies { $row_c->field('name') },
-            qr/This row has been invalidated in cache, it needs to be re-fetched/,
+            qr/This row is invalid \(Likely inserted during a transaction that was rolled back\)/,
             "Cannot use an invalid row"
         );
     };
-} qw/system_postgresql/;
-
-            #ok(my $row_c = $s->insert({name => 'c'}), "Inserted a row");
+};
 
 done_testing;

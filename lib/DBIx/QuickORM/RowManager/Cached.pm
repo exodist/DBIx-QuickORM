@@ -16,12 +16,13 @@ sub does_cache { 1 }
 
 sub init {
     my $self = shift;
+    $self->SUPER::init();
     $self->{+CACHE} //= {};
 }
 
 sub do_cache_lookup {
     my $self = shift;
-    my ($connection, $sqla_source, $fetched, $old_pk, $new_pk, $row) = @_;
+    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = @_;
 
     my $pk = $new_pk // $old_pk // return;
     my $scache = $self->{+CACHE}->{$sqla_source->sqla_orm_name} or return;

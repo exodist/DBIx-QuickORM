@@ -29,6 +29,13 @@ sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }
 sub supports_returning_delete { 1 }
 
+sub start_txn          { $_[0]->dbh->begin_work }
+sub commit_txn         { $_[0]->dbh->commit }
+sub rollback_txn       { $_[0]->dbh->rollback }
+sub create_savepoint   { $_[0]->dbh->do("SAVEPOINT $_[1]") }
+sub commit_savepoint   { $_[0]->dbh->do("RELEASE SAVEPOINT $_[1]") }
+sub rollback_savepoint { $_[0]->dbh->do("ROLLBACK TO SAVEPOINT $_[1]") }
+
 sub version_search { 0 }
 
 sub db_version { DBD::SQLite->VERSION }
