@@ -6,6 +6,7 @@ use feature qw/state/;
 our $VERSION = '0.000005';
 
 use Carp qw/confess croak cluck/;
+use List::Util qw/mesh/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/load_class debug/;
 
@@ -13,6 +14,14 @@ use DBIx::QuickORM::SQLAbstract;
 use DBIx::QuickORM::Select;
 use DBIx::QuickORM::Source;
 use DBIx::QuickORM::Connection::Transaction;
+
+use DBIx::QuickORM::Connection::RowData qw{
+    STORED
+    PENDING
+    DESYNC
+    TRANSACTION
+    ROW_DATA
+};
 
 use DBIx::QuickORM::Util::HashBase qw{
     <orm
@@ -32,6 +41,8 @@ sub enable_internal_transactions  { $_[0]->{+INTERNAL_TRANSACTIONS} = 1 }
 sub disable_internal_transactions { $_[0]->{+INTERNAL_TRANSACTIONS} = 0 }
 sub internal_transactions_enabled { $_[0]->{+INTERNAL_TRANSACTIONS} ? 1 : 0 }
 
+sub db { $_[0]->{+ORM}->db }
+
 sub sqla {
     my $self = shift;
     return $self->{+SQLA}->() if $self->{+SQLA};
@@ -42,8 +53,6 @@ sub sqla {
 
     return $sqla;
 }
-
-sub db { $_[0]->{+ORM}->db }
 
 sub init {
     my $self = shift;
@@ -88,6 +97,77 @@ sub init {
     }
 }
 
+sub reconnect {
+    my $self = shift;
+
+    my $dbh = delete $self->{+DBH};
+    $dbh->{InactiveDestroy} = 1 unless $self->{+PID} == $$;
+    $dbh->disconnect;
+
+    $self->{+PID} = $$;
+    $self->{+DBH} = $self->{+ORM}->db->new_dbh;
+}
+
+sub auto_retry_txn {
+    my $self = shift;
+    $self->pid_check;
+
+    my $count;
+    my %params;
+
+    if (!@_) {
+        croak "Not enough arguments";
+    }
+    elsif (@_ == 1 && ref($_[0]) eq 'CODE') {
+        $count = 1;
+        $params{action} = $_[0];
+    }
+    elsif (@_ == 2) {
+        my $ref = ref($_[1]);
+        if ($ref eq 'CODE') {
+            $count = $_[0];
+            $params{action} = $_[1];
+        }
+        elsif ($ref eq 'HASH') {
+            $count  = $_[0];
+            %params = %{$_[1]};
+        }
+        else {
+            croak "Not sure what to do with second argument '$_[0]'";
+        }
+    }
+    else {
+        %params = @_;
+        $count  = delete $params{count};
+    }
+
+    $count ||= 1;
+
+    $self->auto_retry($count => sub { $self->txn(%params) });
+}
+
+sub auto_retry {
+    my $self  = shift;
+    my $cb    = pop;
+    my $count = shift || 1;
+    $self->pid_check;
+
+    croak "Cannot use auto_retry inside a transaction" if $self->in_txn;
+
+    my ($ok, $out);
+    for (0 .. $count) {
+        $ok = eval { $out = $cb->(); 1 };
+        last if $ok;
+        warn "Error encountered in auto-retry, will retry...\n Exception was: $@\n";
+        $self->reconnect unless $self->{+DBH} && $self->{+DBH}->ping;
+    }
+
+    croak "auto_retry did not succeed (attempted " . ($count + 1) . " times)"
+        unless $ok;
+
+    return $out;
+}
+
 sub pid_check {
     my $self = shift;
     confess "Connections cannot be used across multiple processes, you must reconnect post-fork" unless $$ == $self->{+PID};
@@ -96,6 +176,7 @@ sub pid_check {
 
 sub source {
     my $self = shift;
+    $self->pid_check;
     croak "Not enough arguments" unless @_;
     my ($source) = @_;
 
@@ -132,6 +213,7 @@ sub _internal_txn {
 }
 sub txn {
     my $self = shift;
+    $self->pid_check;
 
     my $txns = $self->{+TRANSACTIONS};
 
@@ -170,10 +252,7 @@ sub txn {
 
     local $@;
     my $ok = eval {
-        QORM_TRANSACTION: {
-            $cb->($txn);
-        }
-
+        QORM_TRANSACTION: { $cb->($txn) };
         1;
     };
     my $err = $ok ? [] : [$@];
@@ -220,6 +299,7 @@ sub in_txn {
 }
 sub current_txn {
     my $self = shift;
+    $self->pid_check;
 
     if (my $txns = $self->{+TRANSACTIONS}) {
         return $txns->[-1] if @$txns;
@@ -246,8 +326,8 @@ sub _resolve_source {
 sub vivify {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
-    $self->pid_check;
     my ($data) = @_;
+    $self->pid_check;
 
     return $self->{+MANAGER}->vivify(
         sqla_source => $sqla_source,
@@ -256,17 +336,42 @@ sub vivify {
     );
 }
 
-sub insert {
-    my $self        = shift;
+sub by_id {
+    my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
-    $self->pid_check;
+    my $id = shift;
+
+    my $where;
+    my $ref = ref($id);
+    #<<<
+    if    ($ref eq 'HASH')  { $where = $id; $id = [ map { $where->{$_} } @{$sqla_source->primary_key} ] }
+    elsif ($ref eq 'ARRAY') { $where = +{ mesh($sqla_source->primary_key, $id) } }
+    elsif (!$ref)           { $id = [ $id ]; $where = +{ mesh($sqla_source->primary_key, $id) } }
+    #>>>
+
+    croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';
+
+    my $row = $self->{+MANAGER}->do_cache_lookup($sqla_source, undef, undef, $id);
+    return $row //= $self->one($sqla_source, $where);
+}
+
+sub by_ids {
+    my $self = shift;
+    my $sqla_source = $self->_resolve_source(shift);
+    return [ map { $self->by_id($sqla_source, $_) } @_ ];
+}
+
+sub insert {
+    my $self = shift;
+    my $sqla_source = $self->_resolve_source(shift);
     my ($in) = @_;
+    $self->pid_check;
 
     my ($data, $row);
     if (blessed($in)) {
         if ($in->isa('DBIx::QuickORM::Row')) {
             croak "Cannot insert a row that is already stored" if $in->{stored};
-            $data = $in->{pending} // {};
+            $data = $in->row_data->{+PENDING} // {};
             $row  = $in;
         }
         else {
@@ -473,10 +578,12 @@ sub count {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my ($query) = @_;
+    $self->pid_check;
 
+    $query->{where} //= {};
     $query->{fields} = 'COUNT(*) AS cnt';
 
-    my $sth  = $self->_execute_select($query);
+    my $sth  = $self->_execute_select($sqla_source, $query);
     my $data = $sth->fetchrow_hashref or return 0;
     return $data->{cnt};
 }
@@ -485,6 +592,7 @@ sub delete {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my ($query) = @_;
+    $self->pid_check;
 
     my $row;
     if (blessed($query) && $query->isa('DBIx::QuickORM::Row')) {
@@ -549,6 +657,7 @@ sub update {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $query = shift;
+    $self->pid_check;
 
     my ($changes, $row);
 
@@ -675,6 +784,7 @@ sub all {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $sth = $self->_execute_select($sqla_source, @_);
+    $self->pid_check;
 
     my @out;
     while (my $fetched = $sth->fetchrow_hashref) {
@@ -687,6 +797,7 @@ sub all {
 sub data_all {
     my $self = shift;
     my $sth = $self->_execute_select(@_);
+    $self->pid_check;
     return $sth->fetchall_arrayref({});
 }
 
@@ -694,6 +805,7 @@ sub iterate {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my ($query, $cb) = @_;
+    $self->pid_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
 
@@ -709,6 +821,7 @@ sub data_iterate {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my ($query, $cb) = @_;
+    $self->pid_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
 
@@ -723,6 +836,7 @@ sub iterator {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $sth = $self->_execute_select($sqla_source, @_);
+    $self->pid_check;
 
     return DBIx::QuickORM::Iterator->new(sub {
         my $fetched = $sth->fetchrow_hashref or return;
@@ -733,6 +847,7 @@ sub iterator {
 sub data_iterator {
     my $self = shift;
     my $sth = $self->_execute_select(@_);
+    $self->pid_check;
 
     return DBIx::QuickORM::Iterator->new(sub { $sth->fetchrow_hashref });
 }
@@ -741,6 +856,7 @@ sub any {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $fetched = $self->data_any($sqla_source, @_);
+    $self->pid_check;
     return unless $fetched;
     return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
 }
@@ -749,6 +865,7 @@ sub data_any {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $query = shift;
+    $self->pid_check;
 
     $self->normalize_query($sqla_source, $query, @_);
     $query = {%$query, order_by => undef, limit => 1};
@@ -761,6 +878,7 @@ sub first {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $fetched = $self->data_first($sqla_source, @_);
+    $self->pid_check;
     return unless $fetched;
     return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
 }
@@ -769,6 +887,7 @@ sub data_first {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $query = shift;
+    $self->pid_check;
 
     $self->normalize_query($sqla_source, $query, @_);
     $query = {%$query, limit => 1};
@@ -781,6 +900,7 @@ sub one {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $fetched = $self->data_one($sqla_source, @_);
+    $self->pid_check;
     return unless $fetched;
     return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
 }
@@ -789,6 +909,7 @@ sub data_one {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $query = shift;
+    $self->pid_check;
 
     $self->normalize_query($sqla_source, $query, @_);
     $query = {%$query, limit => 2};
@@ -803,6 +924,7 @@ sub find_or_insert {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my ($data) = @_;
+    $self->pid_check;
 
     my $row;
 

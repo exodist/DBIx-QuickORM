@@ -6,7 +6,7 @@ use lib 't/lib';
 use DBIx::QuickORM::Test;
 
 do_for_all_dbs {
-    my $db = shift;
+    my $db = shift or die "Failed to get a db";
 
     my $is_bin = curdialect() =~ m/(percona|community)/i || curname() =~ m/system_mysql/;
 
@@ -101,6 +101,37 @@ do_for_all_dbs {
         "Row is desynced, pending changes were made before a refresh showed changes",
     );
 
+    {
+        my $a_row2;
+        {
+            local $s->connection->{dbh} = 'oops'; # Make sure no sql can be executed
+            like(dies { $s->one({id => 2}) }, qr/Can't locate object method "prepare" via package "oops"/, "Sanity check, db requests do not work");
+
+            ok(lives { $a_row2 = $s->by_id(2) }, "Did not make a query, fetched from cache (single value id)");
+            ref_is($a_row2, $a_row, "Got the row");
+
+            ok(lives { $a_row2 = $s->by_id([2]) }, "Did not make a query, fetched from cache (array id)");
+            ref_is($a_row2, $a_row, "Got the row");
+
+            ok(lives { $a_row2 = $s->by_id({id => 2}) }, "Did not make a query, fetched from cache (hash id)");
+            ref_is($a_row2, $a_row, "Got the row");
+        }
+
+        {
+            local $s->connection->manager->{cache}->{$s->sqla_source->sqla_orm_name}->{2}; # Remove from cache
+            ok($a_row2 = $s->by_id(2), "Fetched row");
+            ref_is_not($a_row2, $a_row, "Not the previously cached copy, newly fetched (single id)");
+
+            delete $s->connection->manager->{cache}->{$s->sqla_source->sqla_orm_name}->{2}; # Remove from cache
+            ok($a_row2 = $s->by_id([2]), "Fetched row");
+            ref_is_not($a_row2, $a_row, "Not the previously cached copy, newly fetched (array id)");
+
+            delete $s->connection->manager->{cache}->{$s->sqla_source->sqla_orm_name}->{2}; # Remove from cache
+            ok($a_row2 = $s->by_id({id => 2}), "Fetched row");
+            ref_is_not($a_row2, $a_row, "Not the previously cached copy, newly fetched (hash id)");
+        }
+    }
+
     my $b_uuid = DBIx::QuickORM::Type::UUID->new;
     $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($b_uuid, 'binary');
     my $b_row  = $s->insert({name => 'b', uuid => DBIx::QuickORM::Type::UUID->qorm_deflate($b_uuid, 'binary'), data => {name => 'b'}});
@@ -121,6 +152,18 @@ do_for_all_dbs {
         qr/'NOT A UUID' does not look like a uuid/,
         "Invalid UUID"
     );
+
+    my $y = $a_row->clone(name => 'y', uuid => DBIx::QuickORM::Type::UUID->new);
+    is($y->field('name'), 'y', "Overrode name");
+    isnt($y->field('uuid'), $a_row->field('uuid'), "Clones uuid is different");
+    is($y->field('data'), $a_row->field('data'), "Clones data matches");
+    ref_is_not($y->field('data'), $a_row->field('data'), "Deep clone of data, not the same reference");
+    ok(!$y->is_stored, "Not stored yet");
+
+    $y->insert;
+
+    ok($y->in_storage, "Stored the row");
+    ok($y->field('id'), "Got new primary key " . $y->field('id'));
 };
 
 done_testing;

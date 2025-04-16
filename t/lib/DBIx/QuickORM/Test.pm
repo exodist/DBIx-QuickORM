@@ -65,7 +65,6 @@ sub do_for_all_dbs(&;@) {
         $ENV{DBIXQORM_TEST_CONCURRENCY} // ($ENV{USER} eq 'exodist' ? 16 : 4),
         iteration_callback => \&cull,
     );
-#    my $pr = Parallel::Runner->new(1, iteration_callback => \&cull);
 
     my ($pkg, $file, $line) = caller;
 
@@ -97,13 +96,15 @@ sub do_for_all_dbs(&;@) {
 
                     my $lc_dial = lc($set->{dialect});
                     $lc_dial =~ s/::/_/g;
-                    my $sql_file = $file;
-                    $sql_file =~ s{\.t$}{/$lc_dial};
-                    my $sql_file_ver = "${sql_file}$set->{ver}.sql";
-                    my $sql_file_nvr = "${sql_file}.sql";
-                    $sql_file = first { -f $_ } $sql_file_ver, $sql_file_nvr;
+                    my $prefix = $file;
+                    $prefix =~ s{\.t$}{}g;
+                    my $sql_file = "${prefix}/$lc_dial";
+                    my @check = ( "${sql_file}$set->{ver}.sql", "${sql_file}.sql" );
+                    push @check => "${prefix}/mariadb.sql" if $sql_file =~ m/mariadb/;
+                    push @check => "${prefix}/mysql.sql" if $sql_file =~ m/(mysql|mariadb)/;
+                    $sql_file = first { -f $_ } @check;
                     my $db;
-                    if (-f $sql_file) {
+                    if ($sql_file) {
                         note "Loading SQL file: $sql_file\n";
                         $db = $set->{db}->(load_sql => [quickdb => $sql_file]);
                     }

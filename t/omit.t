@@ -51,6 +51,11 @@ do_for_all_dbs {
     $row = $orm->source('example')->one({name => 'a'}, omit => {'name' => 1});
     ok(!exists($row->row_data->{stored}->{name}), "Did not fetch name");
 
+    like(
+        dies { $orm->source('example')->one({name => 'a'}, omit => {id => 1}) },
+        qr/Cannot omit primary key field 'id'/,
+        "Cannot omit a primary key field"
+    );
 };
 
 
