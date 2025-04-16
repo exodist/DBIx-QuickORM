@@ -33,6 +33,8 @@ BEGIN {
         first    data_first
         one      data_one
 
+        by_id
+        by_ids
         insert
         vivify
         search

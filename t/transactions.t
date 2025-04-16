@@ -121,6 +121,247 @@ do_for_all_dbs {
             "Cannot use an invalid row"
         );
     };
-};
+
+    subtest rollback => sub {
+        my $line;
+        my $row_d;
+        my $txn;
+
+        my $warns = warnings {
+            $con->txn(sub {
+                $txn = shift;
+                $txn->set_verbose('will fail');
+                ok($row_d = $s->insert({name => 'd'}), "Inserted a row");
+                ok($row_d->is_valid,  "Row is valid");
+                ok($row_d->is_stored, "Row is in storage");
+
+                $line = __LINE__ + 1;
+                $txn->rollback();
+            });
+        };
+
+        is($warns, ["Transaction 'will fail' rolled back in ${ \__FILE__ } line $line.\n"], "Got verbose warning");
+
+        ok(!$row_d->is_valid,  "Row is not valid anymore");
+        ok(!$row_d->is_stored, "Row is not in storage anymore");
+
+        ok(defined($txn->result), "Result is defined");
+        ok(!$txn->result, "Result is false");
+        ok($txn->complete, "txn is complete");
+        is($txn->rolled_back, "${ \__FILE__ } line $line", "Recorded where the rollback happened");
+
+        $warns = warnings {
+            $con->txn(sub {
+                $txn = shift;
+                $txn->set_verbose('will fail 2');
+
+                $line = __LINE__ + 1;
+                $txn->rollback("Cause I said so");
+            });
+        };
+
+        is($warns, ["Transaction 'will fail 2' rolled back in ${ \__FILE__ } line $line (Cause I said so)\n"], "Got verbose warning");
+        is($txn->rolled_back, "Cause I said so in ${ \__FILE__ } line $line", "Recorded where the rollback happened");
+    };
+
+    subtest commit => sub {
+        my $line;
+        my $row_d;
+        my $txn;
+
+        my $warns = warnings {
+            $con->txn(sub {
+                $txn = shift;
+                $txn->set_verbose('will work');
+                ok($row_d = $s->insert({name => 'd'}), "Inserted a row");
+                ok($row_d->is_valid,  "Row is valid");
+                ok($row_d->is_stored, "Row is in storage");
+
+                $line = __LINE__ + 1;
+                $txn->commit;
+            });
+        };
+
+        is($warns, ["Transaction 'will work' committed in ${ \__FILE__ } line $line.\n"], "Got verbose warning");
+
+        ok($row_d->is_valid,  "Row is valid");
+        ok($row_d->is_stored, "Row is in storage");
+
+        ok(defined($txn->result), "Result is defined");
+        ok($txn->result, "Result is true");
+        ok($txn->complete, "txn is complete");
+        is($txn->committed, "${ \__FILE__ } line $line", "Recorded where the commit happened");
+
+        $warns = warnings {
+            $con->txn(sub {
+                $txn = shift;
+                $txn->set_verbose('will work 2');
+
+                $line = __LINE__ + 1;
+                $txn->commit("Cause I said so");
+            });
+        };
+
+        is($warns, ["Transaction 'will work 2' committed in ${ \__FILE__ } line $line (Cause I said so)\n"], "Got verbose warning");
+        is($txn->committed, "Cause I said so in ${ \__FILE__ } line $line", "Recorded where the commit happened");
+
+    };
+
+    subtest exception => sub {
+        my $line;
+        my $row_e;
+        my $txn;
+
+        my $exception = dies {
+            $con->txn(sub {
+                $txn = shift;
+                $txn->set_verbose('will fail');
+                ok($row_e = $s->insert({name => 'e'}), "Inserted a row");
+                ok($row_e->is_valid,  "Row is valid");
+                ok($row_e->is_stored, "Row is in storage");
+
+                $line = __LINE__ + 1;
+                die "oops I did it again";
+            });
+        };
+
+        like($exception, qr{oops I did it again}, "Propogated exception");
+        like($txn->errors, [qr{oops I did it again}], "Stored error");
+
+        ok(!$row_e->is_valid,  "Row is not valid anymore");
+        ok(!$row_e->is_stored, "Row is not in storage anymore");
+
+        ok(defined($txn->result), "Result is defined");
+        ok(!$txn->result, "Result is false");
+        ok($txn->complete, "txn is complete");
+
+        $exception = dies {
+            $con->txn(sub {
+                $txn = shift;
+                $txn->set_verbose('will fail 2');
+
+                $line = __LINE__ + 1;
+                die "oops I did it again";
+            });
+        };
+
+        like($exception, qr{oops I did it again}, "Propogated exception");
+        like($txn->errors, [qr{oops I did it again}], "Stored error");
+    };
+
+    subtest on_XYZ => sub {
+        my $seen = {};
+        $con->txn(
+            action        => sub { $seen->{action}++ },
+            on_success    => sub { $seen->{success}++ },
+            on_fail       => sub { $seen->{fail}++ },
+            on_completion => sub { $seen->{comp}++ },
+        );
+        is($seen, {action => 1, success => 1, comp => 1}, "Saw everything but fail");
+
+        $seen = {};
+        $con->txn(
+            action        => sub { $seen->{action}++; $_[0]->rollback },
+            on_success    => sub { $seen->{success}++ },
+            on_fail       => sub { $seen->{fail}++ },
+            on_completion => sub { $seen->{comp}++ },
+        );
+        is($seen, {action => 1, fail => 1, comp => 1}, "Saw everything but success");
+
+        $seen = {};
+        $con->txn(sub {
+            $seen->{action}++;
+            $_[0]->add_success_callback(sub { $seen->{success}++ });
+            $_[0]->add_fail_callback(sub { $seen->{fail}++ });
+            $_[0]->add_completion_callback(sub { $seen->{comp}++ });
+        });
+        is($seen, {action => 1, success => 1, comp => 1}, "Saw everything but fail");
+
+        $seen = {};
+        ok(
+            !eval {
+                $con->txn(
+                    action        => sub { $seen->{action}++; die "oops" },
+                    on_success    => sub { $seen->{success}++ },
+                    on_fail       => sub { $seen->{fail}++ },
+                    on_completion => sub { $seen->{comp}++ },
+                );
+                1;
+            },
+            "Exception"
+        );
+        is($seen, {action => 1, fail => 1, comp => 1}, "Saw everything but success");
+    };
+
+    subtest cross_txn => sub {
+        my $row;
+        $con->txn(sub {
+            $row = $s->insert({name => 'f'});
+            $row->update({name => 'F'});
+            is($row->field('name'), 'F', "Updated Row");
+        });
+
+        $con->txn(sub {
+            like(
+                dies { $row->update({name => 'FF'}) },
+                qr/This row was fetched outside of the current transaction stack/,
+                "Did not refresh row after its txn was done, new txn needs a refresh"
+            );
+        });
+    };
+
+    subtest after_txn => sub {
+        my $row;
+        $con->txn(sub {
+            $row = $s->insert({name => 'g'});
+            $row->update({name => 'G'});
+            is($row->field('name'), 'G', "Updated Row");
+        });
+
+        ok(lives { $row->update({name => 'GG'}) }, "Not in a transaction, no issue");
+    };
+
+    subtest before_txn => sub {
+        my $row = $s->insert({name => 'g'});
+        $row->update({name => 'G'});
+        is($row->field('name'), 'G', "Updated Row");
+
+        $con->txn(sub {
+            like(
+                dies { $row->update({name => 'GG'}) },
+                qr/This row was fetched outside of the current transaction stack/,
+                "Did not refresh row after its txn was done, new txn needs a refresh"
+            );
+        });
+    };
+
+    return unless My::ORM::curqdb() =~ m/PostgreSQL/;
+
+    subtest disconnect => sub {
+        my $db = My::ORM::curdb();
+
+        my ($e, $w);
+        $w = warnings {
+            $e = dies {
+                $con->txn(sub {
+                    my $row = $s->insert({name => 'h'});
+
+                    my $sth = $con->dbh->prepare('select pg_backend_pid()');
+                    $sth->execute;
+                    my ($pid) = $sth->fetchrow_array;
+                    kill(TERM => $pid);
+                });
+            };
+        };
+
+        like($e, qr/server closed the connection unexpectedly/, "Simulated remote disconnect");
+
+        ok(!@{$con->transactions}, "No active transactions");
+
+        $con->reconnect;
+
+        ok($con->all('example'), "Connected");
+    };
+} qw/system_postgresql/;
 
 done_testing;

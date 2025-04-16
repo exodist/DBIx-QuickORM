@@ -12,8 +12,10 @@ use DBIx::QuickORM::Util::HashBase qw{
     +on_fail
     +on_completion
 
+    verbose
+
     <result
-    <error
+    <errors
 
     <rolled_back
     <committed
@@ -27,7 +29,13 @@ sub init {
     croak "A transaction ID is required" unless $self->{+ID};
 
     $self->{+RESULT} = undef;
+
+    $self->{+ON_SUCCESS}    = [$self->{+ON_SUCCESS}]    if ref($self->{+ON_SUCCESS}) eq 'CODE';
+    $self->{+ON_FAIL}       = [$self->{+ON_FAIL}]       if ref($self->{+ON_FAIL}) eq 'CODE';
+    $self->{+ON_COMPLETION} = [$self->{+ON_COMPLETION}] if ref($self->{+ON_COMPLETION}) eq 'CODE';
 }
+
+sub complete { defined $_[0]->{+RESULT} }
 
 {
     no warnings 'once';
@@ -37,9 +45,21 @@ sub rollback {
     my $self = shift;
     my ($why) = @_;
 
-    unless ($why) {
+    if ($self->{+VERBOSE} || !$why) {
         my @caller = caller;
-        $why = "$caller[1] line $caller[2]";
+        my $trace = "$caller[1] line $caller[2]";
+
+        if (my $verbose = $self->{+VERBOSE}) {
+            my $name = length($verbose) > 1 ? $verbose : $self->{+ID};
+            warn "Transaction '$name' rolled back in $trace" . ($why ? " ($why)" : ".") . "\n";
+        }
+
+        if ($why) {
+            $why .= " in $trace" unless $why =~ m/\n$/;
+        }
+        else {
+            $why = $trace;
+        }
     }
 
     $self->{+ROLLED_BACK} = $why;
@@ -50,12 +70,23 @@ sub rollback {
 
 sub commit {
     my $self = shift;
-
     my ($why) = @_;
 
-    unless ($why) {
+    if ($self->{+VERBOSE} || !$why) {
         my @caller = caller;
-        $why = "$caller[1] line $caller[2]";
+        my $trace = "$caller[1] line $caller[2]";
+
+        if (my $verbose = $self->{+VERBOSE}) {
+            my $name = length($verbose) > 1 ? $verbose : $self->{+ID};
+            warn "Transaction '$name' committed in $trace" . ($why ? " ($why)" : ".") . "\n";
+        }
+
+        if ($why) {
+            $why .= " in $trace" unless $why =~ m/\n$/;
+        }
+        else {
+            $why = $trace;
+        }
     }
 
     $self->{+COMMITTED} = $why;
@@ -69,7 +100,7 @@ sub terminate {
     my ($res, $err) = @_;
 
     $self->{+RESULT} = $res ? 1 : 0;
-    $self->{+ERROR} = $res ? undef : $err;
+    $self->{+ERRORS} = $res ? undef : $err;
 
     my $todo = $res ? $self->{+ON_SUCCESS} : $self->{+ON_FAIL};
     $todo = [@{$todo // []}, @{$self->{+ON_COMPLETION} // []}];

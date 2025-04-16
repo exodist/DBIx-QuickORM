@@ -80,13 +80,13 @@ sub _vivify {
 
 sub vivify {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, row => 1);
+    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
     return $self->_vivify($sqla_source, $self->_state(pending => $fetched));
 }
 
 sub insert {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, row => 1);
+    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
 
     $row = $self->do_insert($sqla_source, $fetched, $old_pk, $new_pk, $row);
     $self->cache($sqla_source, $row, $old_pk, $new_pk);
@@ -98,7 +98,7 @@ sub do_insert {
     my $self = shift;
     my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = @_;
 
-    my $state = $self->_state(stored => $fetched);
+    my $state = $self->_state(stored => $fetched, pending => undef);
 
     $row->{row_data}->change_state($state) if $row;
 
@@ -210,9 +210,9 @@ sub parse_params {
     unless ($skip{row}) {
         if ($row = $params->{row}) {
             confess "'$row' is not a valid row"     unless $row->isa('DBIx::QuickORM::Row');
-            confess "Row has incorrect sqla_source" unless $row->{sqla_source} == $sqla_source;
-            confess "Row has incorrect connection"  unless $row->{connection} == $self->{+CONNECTION};
-            $old_pk //= $row->primary_key_values;
+            confess "Row has incorrect sqla_source" unless $row->sqla_source == $sqla_source;
+            confess "Row has incorrect connection"  unless $row->connection == $self->{+CONNECTION};
+            $old_pk //= [$row->primary_key_value_list] if $row->in_storage;
         }
 
         my $cached = $self->do_cache_lookup($sqla_source, $fetched, $old_pk, $new_pk, $row);

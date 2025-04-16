@@ -3,6 +3,7 @@ use strict;
 use warnings;
 
 use Carp qw/confess croak/;
+use Storable qw/dclone/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Affinity();
 
@@ -36,6 +37,7 @@ sub desynced_data { $_[0]->row_data->{+DESYNC} }
 sub is_invalid { $_[0]->{+ROW_DATA}->invalid ? 1 : 0 }
 sub is_valid   { $_[0]->{+ROW_DATA}->valid   ? 1 : 0 }
 
+sub in_storage  { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
 sub is_stored   { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
 sub is_desynced { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+DESYNC}  ? 1 : 0 }
 sub has_pending { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+PENDING} ? 1 : 0 }
@@ -45,8 +47,8 @@ sub field_affinity { $_[0]->sqla_source->field_affinity($_[1], $_[0]->dialect) }
 
 #<<<
 sub primary_key_field_list { @{$_[0]->sqla_source->primary_key // []} }
-sub primary_key_value_list { map { $_[0]->raw_stored_field($_) // undef } $_[0]->primary_key_field_list }
-sub primary_key_hash       { map { $_ => $_[0]->raw_stored_field($_) // undef } $_[0]->primary_key_field_list }
+sub primary_key_value_list { map { $_[0]->raw_stored_field($_) // undef } $_[0]->check_pk->primary_key_field_list }
+sub primary_key_hash       { map { $_ => $_[0]->raw_stored_field($_) // undef } $_[0]->check_pk->primary_key_field_list }
 sub primary_key_hashref    { +{ $_[0]->primary_key_hash } }
 #>>>
 
@@ -59,13 +61,30 @@ sub init {
 sub source {
     my $self = shift;
 
-    use DBIx::QuickORM::Util qw/debug/;
-
     require DBIx::QuickORM::Source;
     return DBIx::QuickORM::Source->new(
         SQLA_SOURCE() => $self->sqla_source,
         CONNECTION()  => $self->connection,
     );
+}
+
+sub clone {
+    my $self = shift;
+    my %overrides = @_;
+
+    my $row_data = $self->row_data;
+    my $data = +{ %{$row_data->{+STORED} // {}}, %{$row_data->{+PENDING} // {}} };
+
+    # Remove primary key fields
+    delete $data->{$_} for $self->primary_key_field_list;
+
+    # Use dclone in case there is an inflated json object or similar that we do not want shared
+    $data = dclone($data);
+
+    # Add in any overrides
+    %$data = ( %$data, %overrides );
+
+    return $self->source->vivify($data);
 }
 
 #####################
@@ -81,9 +100,8 @@ sub check_pk {
 sub check_sync {
     return $_[0] unless $_[0]->track_desync;
 
-    return $_[0] unless $_[0]->{+DESYNC};
+    croak <<"    EOT" if $_[0]->{+DESYNC};
 
-    croak <<"    EOT";
 This row is out of sync, this means it was refreshed while it had pending
 changes and the data retrieved from the database does not match what was in
 place when the pending changes were set.
@@ -91,7 +109,22 @@ place when the pending changes were set.
 To fix such conditions you need to either use row->discard() to clear the
 pending changes, or you need to call ->force_sync() to clear the desync flags
 allowing you to save the row despite the discrepency.
+
+In addition it would be a good idea to call ->refresh() to have the most up to
+date data.
+
     EOT
+
+    croak <<"    EOT" if $_[0]->connection->current_txn && !$_[0]->row_data->{+TRANSACTION};
+
+This row was fetched outside of the current transaction stack. The row has not
+been refreshed since the new transaction stakc started, meaning the data is
+likely stale and unreliable. The row should be refreshed before making changes.
+You can do this with a call to ->refresh().
+
+    EOT
+
+    return $_[0];
 }
 
 #####################
@@ -130,8 +163,8 @@ sub save {
     my $self = shift;
     my %params = @_;
 
-    $self->check_sync;
     $self->check_pk;
+    $self->check_sync;
 
     croak "This row is not in the database yet" unless $self->is_stored;
 
@@ -171,7 +204,11 @@ sub update {
 
     $self->check_pk;
 
-    $self->row_data->{+PENDING} = { %{$self->pending_data // {}}, %$changes };
+    my $row_data = $self->row_data;
+    for my $field (keys %$changes) {
+        $row_data->{+PENDING}->{$field} = $changes->{$field};
+        delete $row_data->{+DESYNC}->{$field} if $row_data->{+DESYNC};
+    }
 
     $self->save(%params);
 }
@@ -228,7 +265,10 @@ sub _field {
 
     my $row_data = $self->row_data;
 
-    $row_data->{+PENDING}->{$field} = shift if @_;
+    if (@_) {
+        $self->check_pk if $row_data->{+STORED}; # We can set a field if the row has not been inserted yet, or if it has a pk
+        $row_data->{+PENDING}->{$field} = shift;
+    }
 
     return $self->$meth($row_data->{+PENDING}, $field) if $row_data->{+PENDING} && exists $row_data->{+PENDING}->{$field};
 
