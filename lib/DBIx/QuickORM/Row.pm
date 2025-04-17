@@ -4,8 +4,12 @@ use warnings;
 
 use Carp qw/confess croak/;
 use Storable qw/dclone/;
+use List::Util qw/zip/;
 use Scalar::Util qw/blessed/;
+use DBIx::QuickORM::Util qw/column_key/;
+
 use DBIx::QuickORM::Affinity();
+use DBIx::QuickORM::Schema::Link();
 
 our $VERSION = '0.000005';
 
@@ -343,5 +347,138 @@ sub _raw_field {
 #####################
 # }}} Field methods #
 #####################
+
+####################
+# {{{ Link methods #
+####################
+
+sub follow {
+    my $self = shift;
+    my ($link) = @_;
+    $link = $self->parse_link($link);
+
+    my $where = {};
+    for my $set (zip($link->local_columns, $link->other_columns)) {
+        my ($local, $other) = @$set;
+        $where->{$other} = $self->field($local);
+    }
+
+    return $self->connection->select($link->table, $where);
+}
+
+sub obtain {
+    my $self = shift;
+    my ($link) = @_;
+    $link = $self->parse_link($link);
+    croak "The specified link does not point to a unique row" unless $link->unique;
+    $self->fetch($link)->one;
+}
+
+sub insert_related {
+    my $self = shift;
+    my ($link, $row_data) = @_;
+    $link = $self->parse_link($link);
+
+    for my $set (zip($link->local_columns, $link->other_columns)) {
+        my ($local, $other) = @$set;
+        croak "field '$other' already exists in provided row data" if exists $row_data->{$other};
+        $row_data->{$other} = $self->field($local);
+    }
+
+    $self->connection->insert($link->table() => $row_data);
+}
+
+sub siblings { # This includes the original
+    my $self = shift;
+    my ($link_or_fields) = @_;
+
+    croak "You must specify a link or arrayref of fields to search on" unless $link_or_fields;
+
+    my $fields;
+    if (ref($link_or_fields) eq 'ARRAY') {
+        $fields = $link_or_fields;
+    }
+    else {
+        $fields = $self->parse_link($link_or_fields)->local_columns;
+    }
+
+    my $where = +{ map { $_ => $self->field($_) } @$fields };
+    return $self->source->select($where);
+}
+
+sub parse_link {
+    my $self = shift;
+    my ($link) = @_;
+
+    return $link if blessed($link) && $link->isa('DBIx::QuickORM::Schema::Link');
+
+    my $ref = ref($link);
+
+    if ($ref eq 'HASH' && $link->{table} && $link->{local_columns} && $link->{other_columns}) {
+        my %specs = %$link;
+        $specs{unique} //= $self->connection->schema->table($link->{table})->unique->{column_key(@{$link->{other_columns}})} ? 1 : 0;
+        return DBIx::QuickORM::Schema::Link->new(%specs);
+    }
+
+    return $self->sqla_source->links_by_alias->{$link} // croak "'$link' is not a valid link alias for table '" . $self->sqla_source->name . "'"
+        unless $ref;
+
+    if ($ref eq 'SCALAR') {
+        my ($link, @extra) = $self->sqla_source->links($$link);
+        croak "There are multiple links to table '$$link'" if @extra;
+        return $link // croak "No link to table '$$link' found";
+    }
+
+    croak "Not sure how to resolve a link from '$link'"
+        unless $ref eq 'HASH';
+
+    my @keys = keys %$link;
+    my ($table, $local, $other);
+    if (@keys == 1) {
+        ($table) = @keys;
+        my $fields = $link->{$table};
+        croak "You must provide an arrayref of columns" unless $fields;
+        my $cref = ref($fields);
+        unless ($cref) {
+            $fields = [$fields];
+            $cref   = 'ARRAY';
+        }
+
+        if ($cref eq 'ARRAY') {
+            $local = $fields;
+            $other = $fields;
+        }
+        elsif ($cref eq 'HASH') {
+            $local = $fields->{local} // $fields->{local_fields} // $fields->{local_columns} or croak "no 'local' fields specified";
+            $other = $fields->{other} // $fields->{other_fields} // $fields->{other_columns} or croak "no 'other' fields specified";
+        }
+    }
+    else {
+        $table = $link->{table} or croak "no 'table' specified";
+        my $fields = $link->{fields} // $link->{columns};
+        $local = $link->{local}  // $link->{local_fields} // $link->{local_columns} // $fields // croak "No local fields provided";
+        $other = $link->{$table} // $link->{other} // $link->{other_fields} // $link->{other_columns} // $fields // croak "No fields for table '$table' provided";
+    }
+
+    $local = [$local] unless ref($local);
+    $other = [$other] unless ref($other);
+
+    croak "'$local' is not a valid arrayref of field/column names" unless ref($local) eq 'ARRAY';
+    croak "'$other' is not a valid arrayref of field/column names" unless ref($other) eq 'ARRAY';
+
+    my $other_table = $self->connection->schema->table($table) or croak "Table '$table' does nto exist in this schema";
+    my $unique //= $other_table->unique->{column_key(@{$other})} ? 1 : 0;
+
+    return DBIx::QuickORM::Schema::Link->new(
+        table         => $table,
+        unique        => $unique,
+        local_columns => $local,
+        other_columns => $other,
+    );
+}
+
+####################
+# }}} Link methods #
+####################
 
 1;

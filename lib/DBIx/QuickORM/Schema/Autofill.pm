@@ -11,10 +11,27 @@ use DBIx::QuickORM::Util::HashBase qw{
     +skip
 };
 
+my %HOOKS = (
+    column      => 1,
+    columns     => 1,
+    index       => 1,
+    indexes     => 1,
+    links       => 1,
+    post_column => 1,
+    post_table  => 1,
+    pre_column  => 1,
+    pre_table   => 1,
+    primary_key => 1,
+    table       => 1,
+    unique_keys => 1,
+);
+
+sub is_valid_hook { $HOOKS{$_[-1]} ? 1 : 0 }
+
 sub hook {
     my $self = shift;
-    my ($hook) = @_;
-
+    my ($hook, $args) = @_;
+    $_->(%$args) for @{$self->{+HOOKS}->{$hook} // []};
 }
 
 sub skip {
@@ -55,3 +72,7 @@ sub process_column {
 }
 
 1;
+
+__END__
+
+
