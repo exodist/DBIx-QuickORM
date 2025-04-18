@@ -371,7 +371,7 @@ sub obtain {
     my ($link) = @_;
     $link = $self->parse_link($link);
     croak "The specified link does not point to a unique row" unless $link->unique;
-    $self->fetch($link)->one;
+    $self->follow($link)->one;
 }
 
 sub insert_related {

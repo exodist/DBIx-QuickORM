@@ -38,12 +38,16 @@ BEGIN {
         insert
         vivify
         search
-        select
         count
         delete
         update
         find_or_insert
         update_or_insert
+
+        select
+        async
+        aside
+        forked
     };
 
     for my $meth (@METHODS) {
