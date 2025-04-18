@@ -42,15 +42,15 @@ do_for_all_dbs {
     my $has_foo_a2 = $orm->insert('has_foo' => {foo_id => $foo_a->field('foo_id')});
     my $has_foo_b  = $orm->insert('has_foo' => {foo_id => $foo_b->field('foo_id')});
 
-    my $sel = $foo_a->fetch('get_has_foo');
+    my $sel = $foo_a->follow('get_has_foo');
     is($sel->order_by('foo_id')->all, [$has_foo_a1, $has_foo_a2], "Got both has_foo rows");
 
-    is($has_foo_a1->fetch_one('get_foo'), $foo_a, "Got foo_a");
+    is($has_foo_a1->obtain('get_foo'), $foo_a, "Got foo_a");
 
     like(
-        dies { $foo_a->fetch_one('get_has_foo') },
+        dies { $foo_a->obtain('get_has_foo') },
         qr/The specified link does not point to a unique row/,
-        "Cannot fetch_one on a non unique link",
+        "Cannot obtain on a non unique link",
     );
 
     my $has_foo_a3 = $foo_a->insert_related('get_has_foo', {});

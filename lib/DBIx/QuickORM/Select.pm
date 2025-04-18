@@ -8,6 +8,8 @@ use Sub::Util qw/set_subname/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Source;
 
+use DBIx::QuickORM::Query;
+
 use DBIx::QuickORM::Util::HashBase qw{
     <connection
     <sqla_source
@@ -17,7 +19,14 @@ use DBIx::QuickORM::Util::HashBase qw{
     +limit
     +fields
     +omit
+
+    +async
+    +aside
+    +forked
 };
+
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::Query';
 
 sub init {
     my $self = shift;
@@ -29,6 +38,8 @@ sub init {
     my $sqla_source = $self->sqla_source or confess "'sqla_source' is a required attribute";
     confess "Source '$sqla_source' does not implement the role 'DBIx::QuickORM::Role::SQLASource'"
         unless blessed($sqla_source) && $sqla_source->DOES('DBIx::QuickORM::Role::SQLASource');
+
+    $self->normalize_query;
 }
 
 BEGIN {
@@ -48,18 +59,8 @@ BEGIN {
     for my $meth (@METHODS) {
         my $name = $meth;
         no strict 'refs';
-        *$name = set_subname $name => sub { my $self = shift; $self->{+CONNECTION}->$name($self->{+SQLA_SOURCE}, $self->query, @_) };
+        *$name = set_subname $name => sub { my $self = shift; $self->{+CONNECTION}->$name($self->{+SQLA_SOURCE}, $self, @_) };
     }
-}
-
-sub query {
-    return {
-        WHERE()    => $_[0]->{+WHERE} // {},
-        ORDER_BY() => $_[0]->{+ORDER_BY},
-        LIMIT()    => $_[0]->{+LIMIT},
-        FIELDS()   => $_[0]->{+FIELDS},
-        OMIT()     => $_[0]->{+OMIT},
-    };
 }
 
 sub clone {
@@ -74,6 +75,30 @@ sub source {
         CONNECTION()  => $self->{+CONNECTION},
         SQLA_SOURCE() => $self->{+SQLA_SOURCE},
     );
+}
+
+sub sync {
+    my $self = shift;
+    return $self unless $self->{+FORKED} || $self->{+ASYNC} || $self->{+ASIDE};
+    return $self->clone(FORKED() => 0, ASYNC() => 0, ASIDE() => 0);
+}
+
+sub async {
+    my $self = shift;
+    return $self if $self->{+ASYNC};
+    return $self->clone(FORKED() => 0, ASYNC() => 1, ASIDE() => 0);
+}
+
+sub aside {
+    my $self = shift;
+    return $self if $self->{+ASIDE};
+    return $self->clone(FORKED() => 0, ASYNC() => 0, ASIDE() => 1);
+}
+
+sub forked {
+    my $self = shift;
+    return $self if $self->{+FORKED};
+    return $self->clone(FORKED() => 1, ASYNC() => 0, ASIDE() => 0);
 }
 
 sub limit {

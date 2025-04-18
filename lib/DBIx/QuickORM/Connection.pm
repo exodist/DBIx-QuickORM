@@ -7,10 +7,12 @@ our $VERSION = '0.000005';
 
 use Carp qw/confess croak cluck/;
 use List::Util qw/mesh/;
+use Importer 'List::Util' => ('first' => { -as => 'lu_first' });
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/load_class debug/;
 
 use DBIx::QuickORM::SQLAbstract;
+use DBIx::QuickORM::Query;
 use DBIx::QuickORM::Select;
 use DBIx::QuickORM::Source;
 use DBIx::QuickORM::Connection::Transaction;
@@ -22,6 +24,18 @@ use DBIx::QuickORM::Connection::RowData qw{
     TRANSACTION
     ROW_DATA
 };
+
+use DBIx::QuickORM::Role::Query ':ALL' => {-prefix => 'QUERY_'};
+#    QUERY_SQLA_SOURCE
+#    QUERY_WHERE
+#    QUERY_ORDER_BY
+#    QUERY_LIMIT
+#    QUERY_FIELDS
+#    QUERY_OMIT
+#    QUERY_ASYNC
+#    QUERY_ASIDE
+#    QUERY_FORKED
+#    QUERY_ROW
 
 use DBIx::QuickORM::Util::HashBase qw{
     <orm
@@ -36,23 +50,6 @@ use DBIx::QuickORM::Util::HashBase qw{
     <manager
     +internal_transactions
 };
-
-sub enable_internal_transactions  { $_[0]->{+INTERNAL_TRANSACTIONS} = 1 }
-sub disable_internal_transactions { $_[0]->{+INTERNAL_TRANSACTIONS} = 0 }
-sub internal_transactions_enabled { $_[0]->{+INTERNAL_TRANSACTIONS} ? 1 : 0 }
-
-sub db { $_[0]->{+ORM}->db }
-
-sub sqla {
-    my $self = shift;
-    return $self->{+SQLA}->() if $self->{+SQLA};
-
-    my $sqla = DBIx::QuickORM::SQLAbstract->new(bindtype => 'columns');
-
-    $self->{+SQLA} = sub { $sqla };
-
-    return $sqla;
-}
 
 sub init {
     my $self = shift;
@@ -97,6 +94,45 @@ sub init {
     }
 }
 
+#####################
+# {{{ SANITY CHECKS #
+#####################
+
+sub pid_check {
+    my $self = shift;
+    confess "Connections cannot be used across multiple processes, you must reconnect post-fork" unless $$ == $self->{+PID};
+    return 1;
+}
+
+#####################
+# }}} SANITY CHECKS #
+#####################
+
+########################
+# {{{ SIMPLE ACCESSORS #
+########################
+
+sub db { $_[0]->{+ORM}->db }
+
+sub sqla {
+    my $self = shift;
+    return $self->{+SQLA}->() if $self->{+SQLA};
+
+    my $sqla = DBIx::QuickORM::SQLAbstract->new(bindtype => 'columns');
+
+    $self->{+SQLA} = sub { $sqla };
+
+    return $sqla;
+}
+
+########################
+# }}} SIMPLE ACCESSORS #
+########################
+
+#####################
+# {{{ STATE CHANGES #
+#####################
+
 sub reconnect {
     my $self = shift;
 
@@ -108,87 +144,17 @@ sub reconnect {
     $self->{+DBH} = $self->{+ORM}->db->new_dbh;
 }
 
-sub auto_retry_txn {
-    my $self = shift;
-    $self->pid_check;
+#####################
+# }}} STATE CHANGES #
+#####################
 
-    my $count;
-    my %params;
+###########################
+# {{{ TRANSACTION METHODS #
+###########################
 
-    if (!@_) {
-        croak "Not enough arguments";
-    }
-    elsif (@_ == 1 && ref($_[0]) eq 'CODE') {
-        $count = 1;
-        $params{action} = $_[0];
-    }
-    elsif (@_ == 2) {
-        my $ref = ref($_[1]);
-        if ($ref eq 'CODE') {
-            $count = $_[0];
-            $params{action} = $_[1];
-        }
-        elsif ($ref eq 'HASH') {
-            $count  = $_[0];
-            %params = %{$_[1]};
-        }
-        else {
-            croak "Not sure what to do with second argument '$_[0]'";
-        }
-    }
-    else {
-        %params = @_;
-        $count  = delete $params{count};
-    }
-
-    $count ||= 1;
-
-    $self->auto_retry($count => sub { $self->txn(%params) });
-}
-
-sub auto_retry {
-    my $self  = shift;
-    my $cb    = pop;
-    my $count = shift || 1;
-    $self->pid_check;
-
-    croak "Cannot use auto_retry inside a transaction" if $self->in_txn;
-
-    my ($ok, $out);
-    for (0 .. $count) {
-        $ok = eval { $out = $cb->(); 1 };
-        last if $ok;
-        warn "Error encountered in auto-retry, will retry...\n Exception was: $@\n";
-        $self->reconnect unless $self->{+DBH} && $self->{+DBH}->ping;
-    }
-
-    croak "auto_retry did not succeed (attempted " . ($count + 1) . " times)"
-        unless $ok;
-
-    return $out;
-}
-
-sub pid_check {
-    my $self = shift;
-    confess "Connections cannot be used across multiple processes, you must reconnect post-fork" unless $$ == $self->{+PID};
-    return 1;
-}
-
-sub source {
-    my $self = shift;
-    $self->pid_check;
-    croak "Not enough arguments" unless @_;
-    my ($source) = @_;
-
-    if (ref($source) eq 'SCALAR') {
-        die "FIXME";
-    }
-
-    return DBIx::QuickORM::Source->new(
-        connection  => $self,
-        sqla_source => $self->schema->table($source),
-    );
-}
+sub enable_internal_transactions  { $_[0]->{+INTERNAL_TRANSACTIONS} = 1 }
+sub disable_internal_transactions { $_[0]->{+INTERNAL_TRANSACTIONS} = 0 }
+sub internal_transactions_enabled { $_[0]->{+INTERNAL_TRANSACTIONS} ? 1 : 0 }
 
 sub _internal_txn {
     my $self = shift;
@@ -308,6 +274,123 @@ sub current_txn {
     return undef;
 }
 
+sub auto_retry_txn {
+    my $self = shift;
+    $self->pid_check;
+
+    my $count;
+    my %params;
+
+    if (!@_) {
+        croak "Not enough arguments";
+    }
+    elsif (@_ == 1 && ref($_[0]) eq 'CODE') {
+        $count = 1;
+        $params{action} = $_[0];
+    }
+    elsif (@_ == 2) {
+        my $ref = ref($_[1]);
+        if ($ref eq 'CODE') {
+            $count = $_[0];
+            $params{action} = $_[1];
+        }
+        elsif ($ref eq 'HASH') {
+            $count  = $_[0];
+            %params = %{$_[1]};
+        }
+        else {
+            croak "Not sure what to do with second argument '$_[0]'";
+        }
+    }
+    else {
+        %params = @_;
+        $count  = delete $params{count};
+    }
+
+    $count ||= 1;
+
+    $self->auto_retry($count => sub { $self->txn(%params) });
+}
+
+###########################
+# }}} TRANSACTION METHODS #
+###########################
+
+#######################
+# {{{ UTILITY METHODS #
+#######################
+
+sub auto_retry {
+    my $self  = shift;
+    my $cb    = pop;
+    my $count = shift || 1;
+    $self->pid_check;
+
+    croak "Cannot use auto_retry inside a transaction" if $self->in_txn;
+
+    my ($ok, $out);
+    for (0 .. $count) {
+        $ok = eval { $out = $cb->(); 1 };
+        last if $ok;
+        warn "Error encountered in auto-retry, will retry...\n Exception was: $@\n";
+        $self->reconnect unless $self->{+DBH} && $self->{+DBH}->ping;
+    }
+
+    croak "auto_retry did not succeed (attempted " . ($count + 1) . " times)"
+        unless $ok;
+
+    return $out;
+}
+
+sub source {
+    my $self = shift;
+    $self->pid_check;
+    croak "Not enough arguments" unless @_;
+    my ($source) = @_;
+
+    if (ref($source) eq 'SCALAR') {
+        die "FIXME";
+    }
+
+    return DBIx::QuickORM::Source->new(
+        connection  => $self,
+        sqla_source => $self->schema->table($source),
+    );
+}
+
+sub _resolve_source_and_query {
+    my $self = shift;
+    my ($source, $query, @extra) = @_;
+
+    $source = $self->_resolve_source($source);
+    $query  = $self->_resolve_query($query, $source);
+
+    return ($source, $query, @extra);
+}
+
+sub _resolve_query {
+    my $self = shift;
+    my ($query, $sqla_source) = @_;
+
+    return DBIx::QuickORM::Query->new(QUERY_WHERE() => {}, QUERY_SQLA_SOURCE() => $sqla_source)
+        unless $query;
+
+    if (blessed($query)) {
+        return $query if $query->DOES('DBIx::QuickORM::Role::Query');
+
+        return DBIx::QuickORM::Query->new(QUERY_WHERE() => $query->primary_key_hashref, QUERY_ROW() => $query, QUERY_SQLA_SOURCE() => $sqla_source)
+            if $query->isa('DBIx::QuickORM::Row');
+    }
+
+    croak "'$query' is not a valid query" unless ref($query) eq 'HASH';
+
+    if (lu_first { $query->{$_} } QUERY_WHERE(), QUERY_ORDER_BY(), QUERY_LIMIT(), QUERY_FIELDS(), QUERY_OMIT(), QUERY_ASYNC(), QUERY_ASIDE(), QUERY_FORKED(), QUERY_ROW()) {
+        return DBIx::QuickORM::Query->new(%$query, QUERY_SQLA_SOURCE() => $sqla_source);
+    }
+
+    return DBIx::QuickORM::Query->new(QUERY_WHERE() => $query, QUERY_SQLA_SOURCE() => $sqla_source);
+}
+
 sub _resolve_source {
     my $self = shift;
     my ($s) = @_;
@@ -320,8 +403,105 @@ sub _resolve_source {
     }
 
     croak "Not sure how to get an sqla_source from '$s'" if ref($s);
-    return $self->schema->table($s),
+    return $self->schema->table($s),;
 }
+
+sub _make_sth {
+    my $self        = shift;
+    my $sqla_source = $self->_resolve_source(shift);
+    my ($stmt, $bind, $prepare_args) = @_;
+
+    my $dialect   = $self->dialect;
+    my $quote_bin = $dialect->quote_binary_data;
+
+    my $dbh = $self->dbh;
+    my $sth = $dbh->prepare($stmt, $prepare_args);
+    for (my $i = 0; $i < @$bind; $i++) {
+        my ($field, $val) = @{$bind->[$i]};
+
+        my @args;
+        if ($field) {
+            my $affinity = $sqla_source->field_affinity($field, $dialect);
+
+            if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type')) {
+                $val = $val->qorm_deflate($affinity);
+            }
+            elsif (my $type = $sqla_source->field_type($field)) {
+                $val = $type->qorm_deflate($val, $affinity);
+            }
+
+            if ($quote_bin && $affinity eq 'binary') {
+                @args = ($quote_bin);
+            }
+        }
+
+        $sth->bind_param(1 + $i, $val, @args);
+    }
+
+    $sth->execute();
+
+    return $sth;
+}
+
+sub _execute_select {
+    my $self = shift;
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($prepare_args) = @extra;
+
+    $self->pid_check;
+
+    my $dbh     = $self->dbh;
+    my $dialect = $self->dialect;
+
+    my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $query->{+QUERY_FIELDS}, $query->{+QUERY_WHERE}, $query->{+QUERY_ORDER_BY});
+    if (my $limit = $query->{+QUERY_LIMIT}) {
+        $stmt .= " LIMIT ?";
+        push @$bind => [undef, $limit];
+    }
+
+    return $self->_make_sth($sqla_source, $stmt, $bind);
+}
+
+sub _format_insert_and_update_data {
+    my $self = shift;
+    my ($data) = @_;
+
+    $data = { map { $_ => {'-value' => $data->{$_}} } keys %$data };
+
+    return $data;
+}
+
+sub _get_keys {
+    my $self = shift;
+    my ($sqla_source, $where) = @_;
+
+    my $pk_fields = $sqla_source->primary_key or croak "No primary key";
+
+    my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $pk_fields, $where);
+    my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+    my $keys = $sth->fetchall_arrayref({});
+    $where = @$pk_fields > 1 ? {'-or' => $keys} : {$pk_fields->[0] => {'-in' => [map { $_->{$pk_fields->[0]} } @$keys]}};
+
+    return ($keys, $where);
+}
+
+#######################
+# }}} UTILITY METHODS #
+#######################
+
+##############################
+# {{{ ROW/QUERY MANIPULATION #
+##############################
+
+{
+    no warnings 'once';
+    *search = \&select;
+    *sync   = \&select;
+}
+
+sub async  { shift->select(@_)->async }
+sub aside  { shift->select(@_)->aside }
+sub forked { shift->select(@_)->forked }
 
 sub vivify {
     my $self = shift;
@@ -334,31 +514,6 @@ sub vivify {
         connection => $self,
         fetched    => $data,
     );
-}
-
-sub by_id {
-    my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $id = shift;
-
-    my $where;
-    my $ref = ref($id);
-    #<<<
-    if    ($ref eq 'HASH')  { $where = $id; $id = [ map { $where->{$_} } @{$sqla_source->primary_key} ] }
-    elsif ($ref eq 'ARRAY') { $where = +{ mesh($sqla_source->primary_key, $id) } }
-    elsif (!$ref)           { $id = [ $id ]; $where = +{ mesh($sqla_source->primary_key, $id) } }
-    #>>>
-
-    croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';
-
-    my $row = $self->{+MANAGER}->do_cache_lookup($sqla_source, undef, undef, $id);
-    return $row //= $self->one($sqla_source, $where);
-}
-
-sub by_ids {
-    my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    return [ map { $self->by_id($sqla_source, $_) } @_ ];
 }
 
 sub insert {
@@ -395,7 +550,7 @@ sub insert {
     }
 
     my $orig_data = { %$data };
-    $data = $self->format_insert_and_update_data($data);
+    $data = $self->_format_insert_and_update_data($data);
 
     my $fetched;
     my $do_it = sub {
@@ -436,44 +591,156 @@ sub insert {
     );
 }
 
-sub _make_sth {
-    my $self        = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my ($stmt, $bind) = @_;
+sub update {
+    my $self = shift;
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $self->pid_check;
 
-    my $dialect   = $self->dialect;
-    my $quote_bin = $dialect->quote_binary_data;
-
-    my $dbh = $self->dbh;
-    my $sth = $dbh->prepare($stmt);
-    for (my $i = 0; $i < @$bind; $i++) {
-        my ($field, $val) = @{$bind->[$i]};
-
-        my @args;
-        if ($field) {
-            my $affinity = $sqla_source->field_affinity($field, $dialect);
-
-            if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type')) {
-                $val = $val->qorm_deflate($affinity);
-            }
-            elsif (my $type = $sqla_source->field_type($field)) {
-                $val = $type->qorm_deflate($val, $affinity);
-            }
-
-            if ($quote_bin && $affinity eq 'binary') {
-                @args = ($quote_bin);
-            }
+    my $row = $query->{+QUERY_ROW};
+    my $changes;
+    while (@extra) {
+        my $r = ref($extra[0]) or last;
+        my $it = shift @extra;
+        if (blessed($it) && $it->isa('DBIx::QuickORM::Row')) {
+            croak "Cannot provide more than 1 row" if $row;
+            $row = $it;
         }
-
-        $sth->bind_param(1 + $i, $val, @args);
+        elsif ($r eq 'HASH') {
+            croak "Cannot provide multiple changes hashrefs" if $changes;
+            $changes = $it;
+        }
     }
 
-    $sth->execute();
+    my %params = @extra;
+    if ($params{changes}) {
+        croak "changes provided in multiple ways" if $changes;
+        $changes = $params{changes};
+    }
 
-    return $sth;
+    if ($params{row}) {
+        croak "row provided in multiple ways" if $row;
+        $row = $params{row};
+    }
+
+    $changes //= $row->pending_data if $row;
+
+    croak "update() with a 'limit' clause is not currently supported"     if $query->{+QUERY_LIMIT};
+    croak "update() with an 'order_by' clause is not currently supported" if $query->{+QUERY_ORDER_BY};
+    croak "No changes for update"            unless $changes;
+    croak "Changes must be a hashref"        unless ref($changes) eq 'HASH';
+    croak "Changes hashref may not be empty" unless keys %$changes;
+
+    my $pk_fields         = $sqla_source->primary_key;
+    my $changes_pk_fields = grep { $changes->{$_} } @$pk_fields;
+
+    my $dialect  = $self->dialect;
+    my $do_cache = $self->{+MANAGER}->does_cache;
+    my $ret      = $do_cache && $dialect->supports_returning_update;
+
+    $changes = $self->_format_insert_and_update_data($changes);
+
+    # No cache, or not cachable, just do the update
+    unless ($do_cache && $pk_fields && @$pk_fields) {
+        my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $changes, $query->{+QUERY_WHERE});
+        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+
+        return $sth->rows;
+    }
+
+    my $fields;
+    my $updated;
+    my $do_it = sub {
+        my $where = shift // $query->{+QUERY_WHERE};
+        my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $changes, $where, $ret ? {returning => $fields} : ());
+        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+        $updated = $sth->fetchall_arrayref({}) if $ret;
+    };
+
+    # Simple case, updating a single row, or not updating any pks
+    if ($row || !$changes_pk_fields) {
+        my %seen;
+        $fields = [grep { !$seen{$_}++ } @{$pk_fields // []}, keys %$changes];
+
+        if ($ret) {
+            $do_it->();
+        }
+        else {
+            $self->_internal_txn(sub {
+                my ($keys, $where) = $self->_get_keys($sqla_source, $query->{+QUERY_WHERE});
+
+                $do_it->($where);
+
+                my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $fields, $where);
+                my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+                $updated = $sth->fetchall_arrayref({});
+            });
+        }
+
+        $self->{+MANAGER}->update($query->query_pairs, sqla_source => $sqla_source, connection => $self, fetched => $_) for @$updated;
+
+        return scalar(@$updated);
+    }
+
+    # Not returning anything.
+    $ret = 0;
+
+    # Crap, we are changing pk's, possibly multiple, and no way to associate the before and after...
+    my ($keys, $where);
+    $self->_internal_txn(sub {
+        ($keys, $where) = $self->_get_keys($sqla_source, $query->{+QUERY_WHERE});
+        $do_it->($where);
+    });
+
+    $self->{+MANAGER}->invalidate($query->query_pairs, old_primary_key => $_) for @$keys;
+
+    return;
 }
 
-{ no warnings 'once'; *search = \&select }
+sub delete {
+    my $self = shift;
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
+    $self->pid_check;
+
+    my $row = $query->{+QUERY_ROW};
+
+    croak "delete() with a 'limit' clause is not currently supported"     if $query->{+QUERY_LIMIT};
+    croak "delete() with an 'order_by' clause is not currently supported" if $query->{+QUERY_ORDER_BY};
+
+    my $dialect  = $self->dialect;
+    my $do_cache = $self->{+MANAGER}->does_cache;
+    my $ret      = $do_cache && $dialect->supports_returning_delete;
+
+    my $pk_fields = $sqla_source->primary_key;
+
+    my $deleted_keys;
+    my $do_it = sub {
+        my $where = shift // $query->{+QUERY_WHERE};
+        my ($stmt, $bind) = $self->sqla->qorm_delete($sqla_source, $where, $ret ? $pk_fields : ());
+        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+        $deleted_keys = $sth->fetchall_arrayref({}) if $ret;
+    };
+
+    # If we are either not managing cache, or if we can use 'returning' then we
+    # can do the easy way, no txn.
+    if ($ret || !$do_cache || $row) {
+        $do_it->();
+        $deleted_keys //= [$row->primary_key_hashref] if $row;
+    }
+    else {
+        $self->_internal_txn(sub {
+            my $where;
+            ($deleted_keys, $where) = $self->_get_keys($sqla_source, $query->{+QUERY_WHERE});
+            $do_it->($where);
+        });
+    }
+
+    if ($do_cache && $deleted_keys && @$deleted_keys) {
+        $self->{+MANAGER}->delete($query->query_pairs, sqla_source => $sqla_source, connection => $self, old_primary_key => $_) for @$deleted_keys;
+    }
+
+    return;
+}
 
 sub select {
     my $self = shift;
@@ -499,291 +766,51 @@ sub select {
     return DBIx::QuickORM::Select->new(%params, connection => $self, sqla_source => $sqla_source);
 }
 
-sub _execute_select {
-    my $self        = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $query       = shift;
-
-    $self->pid_check;
-
-    my $dbh     = $self->dbh;
-    my $dialect = $self->dialect;
-
-    $self->normalize_query($sqla_source, $query, @_);
-
-    my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $query->{fields}, $query->{where}, $query->{order_by});
-    if (my $limit = $query->{limit}) {
-        $stmt .= " LIMIT ?";
-        push @$bind => [undef, $limit];
-    }
-
-    return $self->_make_sth($sqla_source, $stmt, $bind);
-}
-
-sub normalize_query {
-    my $self = shift;
-    my ($sqla_source, $query, %mixin) = @_;
-
-    unless ($query->{where}) {
-        if (my $row = $query->{row}) {
-            $query->{where} = $row->primary_key_hashref;
-        }
-        else {
-            confess "It looks like a query hash was passed in, but neither the 'where' or 'row' fields are present:\n" . debug($query)
-                if grep { exists $query->{$_} } qw/limit order_by fields omit/;
-
-            my $where = { %$query };
-            %$query = (where => $where);
-        }
-    }
-
-    %$query = (%$query, %mixin);
-
-    my $fields = $query->{fields} //= $sqla_source->fields_to_fetch;
-
-    return $query unless ref($fields) eq 'ARRAY';
-
-    my $pk_fields = $sqla_source->primary_key;
-
-    my $omit = $query->{omit};
-    if ($omit) {
-        my $r = ref($omit);
-        if    ($r eq 'HASH')  { }
-        elsif ($r eq 'ARRAY') { $omit = map { ($_ => 1) } @$omit }
-        elsif (!$r)           { $omit = {$omit => 1} }
-        else                  { croak "$omit is not a valid 'omit' value" }
-
-        if ($pk_fields) {
-            for my $field (@$pk_fields) {
-                next unless $omit->{$field};
-                croak "Cannot omit primary key field '$field'";
-            }
-        }
-    }
-
-    if ($pk_fields || $omit) {
-        my %seen;
-        $fields = [grep { !$seen{$_}++ && !($omit && $omit->{$_}) } @{$pk_fields // []}, @$fields];
-    }
-
-    $query->{fields} = $fields;
-
-    if ($omit) { $query->{omit} = $omit }
-    else       { delete $query->{omit} }
-
-    return $query;
-}
-
 sub count {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my ($query) = @_;
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
     $self->pid_check;
 
-    $query->{where} //= {};
-    $query->{fields} = 'COUNT(*) AS cnt';
+    $query = $query->clone(QUERY_FIELDS() => 'COUNT(*) AS cnt');
 
     my $sth  = $self->_execute_select($sqla_source, $query);
     my $data = $sth->fetchrow_hashref or return 0;
     return $data->{cnt};
 }
 
-sub delete {
+sub by_id {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
-    my ($query) = @_;
-    $self->pid_check;
+    my $id = shift;
 
-    my $row;
-    if (blessed($query) && $query->isa('DBIx::QuickORM::Row')) {
-        $row = $query;
-        $query = {
-            row => $row,
-            where => $row->primary_key_hashref,
-        };
-    }
-    $row //= $query->{row};
+    my $where;
+    my $ref = ref($id);
+    #<<<
+    if    ($ref eq 'HASH')  { $where = $id; $id = [ map { $where->{$_} } @{$sqla_source->primary_key} ] }
+    elsif ($ref eq 'ARRAY') { $where = +{ mesh($sqla_source->primary_key, $id) } }
+    elsif (!$ref)           { $id = [ $id ]; $where = +{ mesh($sqla_source->primary_key, $id) } }
+    #>>>
 
-    croak "delete() with a 'limit' clause is not currently supported"     if $query->{limit};
-    croak "delete() with an 'order_by' clause is not currently supported" if $query->{order_by};
+    croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';
 
-    $self->normalize_query($sqla_source, $query);
-
-    my $dialect  = $self->dialect;
-    my $do_cache = $self->{+MANAGER}->does_cache;
-    my $ret      = $do_cache && $dialect->supports_returning_delete;
-
-    my $pk_fields = $sqla_source->primary_key;
-
-    my $deleted_keys;
-    my $do_it = sub {
-        my $where = shift // $query->{where};
-        my ($stmt, $bind) = $self->sqla->qorm_delete($sqla_source, $where, $ret ? $pk_fields : ());
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
-        $deleted_keys = $sth->fetchall_arrayref({}) if $ret;
-    };
-
-    # If we are either not managing cache, or if we can use 'returning' then we
-    # can do the easy way, no txn.
-    if ($ret || !$do_cache || $row) {
-        $do_it->();
-        $deleted_keys //= [$row->primary_key_hashref] if $row;
-    }
-    else {
-        $self->_internal_txn(sub {
-            my $where;
-            ($deleted_keys, $where) = $self->_get_keys($sqla_source, $query->{where});
-            $do_it->($where);
-        });
-    }
-
-    if ($do_cache && $deleted_keys && @$deleted_keys) {
-        $self->{+MANAGER}->delete(%$query, sqla_source => $sqla_source, connection => $self, old_primary_key => $_) for @$deleted_keys;
-    }
-
-    return;
+    my $row = $self->{+MANAGER}->do_cache_lookup($sqla_source, undef, undef, $id);
+    return $row //= $self->one($sqla_source, $where);
 }
 
-sub format_insert_and_update_data {
-    my $self = shift;
-    my ($data) = @_;
-
-    $data = { map { $_ => {'-value' => $data->{$_}}} keys %$data };
-
-    return $data;
-}
-
-sub update {
+sub by_ids {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
-    my $query = shift;
-    $self->pid_check;
-
-    my ($changes, $row);
-
-    if (blessed($query) && $query->isa('DBIx::QuickORM::Row')) {
-        $row = $query;
-        $query = {where => $row->primary_key_hashref};
-    }
-
-    while (@_) {
-        my $r = ref($_[0]) or last;
-        my $it = shift;
-        if (blessed($it) && $it->isa('DBIx::QuickORM::Row')) {
-            croak "Cannot provide more than 1 row" if $row;
-            $row = $it;
-        }
-        elsif ($r eq 'HASH') {
-            croak "Cannot provide multiple changes hashrefs" if $changes;
-            $changes = $it;
-        }
-    }
-
-    my %params = @_;
-    if ($params{changes}) {
-        croak "changes provided in multiple ways" if $changes;
-        $changes = $params{changes};
-    }
-
-    if ($params{row}) {
-        croak "row provided in multiple ways" if $row;
-        $row = $params{row};
-    }
-
-    $changes //= $row->pending_data if $row;
-
-    $self->normalize_query($sqla_source, $query);
-
-    croak "update() with a 'limit' clause is not currently supported"     if $query->{limit};
-    croak "update() with an 'order_by' clause is not currently supported" if $query->{order_by};
-    croak "No changes for update"            unless $changes;
-    croak "Changes must be a hashref"        unless ref($changes) eq 'HASH';
-    croak "Changes hashref may not be empty" unless keys %$changes;
-
-    my $pk_fields         = $sqla_source->primary_key;
-    my $changes_pk_fields = grep { $changes->{$_} } @$pk_fields;
-
-    my $dialect  = $self->dialect;
-    my $do_cache = $self->{+MANAGER}->does_cache;
-    my $ret      = $do_cache && $dialect->supports_returning_update;
-
-    $changes = $self->format_insert_and_update_data($changes);
-
-    # No cache, or not cachable, just do the update
-    unless ($do_cache && $pk_fields && @$pk_fields) {
-        my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $changes, $query->{where});
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
-
-        return $sth->rows;
-    }
-
-    my $fields;
-    my $updated;
-    my $do_it = sub {
-        my $where = shift // $query->{where};
-        my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $changes, $where, $ret ? {returning => $fields} : ());
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
-        $updated = $sth->fetchall_arrayref({}) if $ret;
-    };
-
-    # Simple case, updating a single row, or not updating any pks
-    if ($row || !$changes_pk_fields) {
-        my %seen;
-        $fields = [grep { !$seen{$_}++ } @{$pk_fields // []}, keys %$changes];
-
-        if ($ret) {
-            $do_it->();
-        }
-        else {
-            $self->_internal_txn(sub {
-                my ($keys, $where) = $self->_get_keys($sqla_source, $query->{where});
-
-                $do_it->($where);
-
-                my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $fields, $where);
-                my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
-                $updated = $sth->fetchall_arrayref({});
-            });
-        }
-
-        $self->{+MANAGER}->update(%$query, sqla_source => $sqla_source, connection => $self, fetched => $_) for @$updated;
-
-        return scalar(@$updated);
-    }
-
-    # Not returning anything.
-    $ret = 0;
-
-    # Crap, we are changing pk's, possibly multiple, and no way to associate the before and after...
-    my ($keys, $where);
-    $self->_internal_txn(sub {
-        ($keys, $where) = $self->_get_keys($sqla_source, $query->{where});
-        $do_it->($where);
-    });
-
-    $self->{+MANAGER}->invalidate(%$query, old_primary_key => $_) for @$keys;
-
-    return;
-}
-
-sub _get_keys {
-    my $self = shift;
-    my ($sqla_source, $where) = @_;
-
-    my $pk_fields = $sqla_source->primary_key or croak "No primary key";
-
-    my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $pk_fields, $where);
-    my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
-    my $keys = $sth->fetchall_arrayref({});
-    $where = @$pk_fields > 1 ? {'-or' => $keys} : {$pk_fields->[0] => {'-in' => [map { $_->{$pk_fields->[0]} } @$keys]}};
-
-    return ($keys, $where);
+    return [ map { $self->by_id($sqla_source, $_) } @_ ];
 }
 
 sub all {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $sth = $self->_execute_select($sqla_source, @_);
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
+
+    my $sth = $self->_execute_select($sqla_source, $query);
+
     $self->pid_check;
 
     my @out;
@@ -796,15 +823,21 @@ sub all {
 
 sub data_all {
     my $self = shift;
-    my $sth = $self->_execute_select(@_);
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
     $self->pid_check;
+
+    my $sth = $self->_execute_select($sqla_source, $query);
     return $sth->fetchall_arrayref({});
 }
 
 sub iterate {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my ($query, $cb) = @_;
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my $cb = pop @extra;
+
+    $query = $query->clone(@extra) if @extra;
+
     $self->pid_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
@@ -819,8 +852,11 @@ sub iterate {
 
 sub data_iterate {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my ($query, $cb) = @_;
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my $cb = pop;
+
+    $query = $query->clone(@extra) if @extra;
+
     $self->pid_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
@@ -834,9 +870,12 @@ sub data_iterate {
 
 sub iterator {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $sth = $self->_execute_select($sqla_source, @_);
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
+
     $self->pid_check;
+
+    my $sth = $self->_execute_select($sqla_source, $query);
 
     return DBIx::QuickORM::Iterator->new(sub {
         my $fetched = $sth->fetchrow_hashref or return;
@@ -846,51 +885,63 @@ sub iterator {
 
 sub data_iterator {
     my $self = shift;
-    my $sth = $self->_execute_select(@_);
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
+
     $self->pid_check;
+
+    my $sth = $self->_execute_select($sqla_source, $query);
 
     return DBIx::QuickORM::Iterator->new(sub { $sth->fetchrow_hashref });
 }
 
 sub any {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $fetched = $self->data_any($sqla_source, @_);
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
+
     $self->pid_check;
+
+    my $fetched = $self->data_any($sqla_source, $query);
+
     return unless $fetched;
     return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
 }
 
 sub data_any {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $query = shift;
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
+
     $self->pid_check;
 
-    $self->normalize_query($sqla_source, $query, @_);
-    $query = {%$query, order_by => undef, limit => 1};
+    $query = $query->clone(QUERY_ORDER_BY() => undef, QUERY_LIMIT() => 1);
 
-    my $sth = $self->_execute_select(@_);
+    my $sth = $self->_execute_select($sqla_source, $query);
     return $sth->fetchrow_hashref;
 }
 
 sub first {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $fetched = $self->data_first($sqla_source, @_);
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
+
     $self->pid_check;
+
+    my $fetched = $self->data_first($sqla_source, $query);
+
     return unless $fetched;
     return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
 }
 
 sub data_first {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $query = shift;
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
+
     $self->pid_check;
 
-    $self->normalize_query($sqla_source, $query, @_);
-    $query = {%$query, limit => 1};
+    $query = $query->clone(QUERY_LIMIT() => 1);
 
     my $sth = $self->_execute_select($sqla_source, $query);
     return $sth->fetchrow_hashref;
@@ -898,21 +949,23 @@ sub data_first {
 
 sub one {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $fetched = $self->data_one($sqla_source, @_);
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra) if @extra;
+
     $self->pid_check;
+
+    my $fetched = $self->data_one($sqla_source, $query);
+
     return unless $fetched;
     return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
 }
 
 sub data_one {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
-    my $query = shift;
-    $self->pid_check;
+    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    $query = $query->clone(@extra, QUERY_LIMIT() => 2);
 
-    $self->normalize_query($sqla_source, $query, @_);
-    $query = {%$query, limit => 2};
+    $self->pid_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
     my $fetched = $sth->fetchrow_hashref;
@@ -929,7 +982,7 @@ sub find_or_insert {
     my $row;
 
     $self->_internal_txn(sub {
-        my $sth = $self->_execute_select($sqla_source, {where => $data, limit => 2});
+        my $sth = $self->_execute_select($sqla_source, {QUERY_WHERE() => $data, QUERY_LIMIT() => 2});
 
         if (my $fetched = $sth->fetchrow_hashref) {
             croak "Multiple existing rows match the specification passed to find_or_insert" if $sth->fetchrow_hashref;
@@ -942,5 +995,9 @@ sub find_or_insert {
 
     return $row;
 }
+
+##############################
+# }}} ROW/QUERY MANIPULATION #
+##############################
 
 1;
