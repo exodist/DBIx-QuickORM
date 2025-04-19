@@ -51,11 +51,11 @@ sub invalidate {
     my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
 
     # Remove from passed in row if we got one
-    $row->{row_data}->invalidate if $row;
+    $row->{+ROW_DATA}->invalidate if $row;
 
     # Now check cache for row, might be same, might not
     $row = $self->uncache($sqla_source, $row, $old_pk, $new_pk);
-    $row->{row_data}->invalidate if $row;
+    $row->{+ROW_DATA}->invalidate if $row;
 
     return;
 }
@@ -75,7 +75,7 @@ sub _vivify {
     my $connection = $self->{+CONNECTION};
     my $row_class = load_class($sqla_source->row_class // $connection->schema->row_class // 'DBIx::QuickORM::Row') or die $@;
     my $row_data = DBIx::QuickORM::Connection::RowData->new(stack => [$state], connection => $connection, sqla_source => $sqla_source);
-    return $row_class->new(row_data => $row_data);
+    return $row_class->new(ROW_DATA() => $row_data);
 }
 
 sub vivify {
@@ -100,7 +100,7 @@ sub do_insert {
 
     my $state = $self->_state(stored => $fetched, pending => undef);
 
-    $row->{row_data}->change_state($state) if $row;
+    $row->{+ROW_DATA}->change_state($state) if $row;
 
     return $row // $self->_vivify($sqla_source, $state);
 }
@@ -124,7 +124,7 @@ sub do_update {
     return $self->_vivify($sqla_source, $state)
         unless $row;
 
-    $row->{row_data}->change_state($state);
+    $row->{+ROW_DATA}->change_state($state);
 
     return $row;
 }
@@ -143,7 +143,7 @@ sub do_delete {
     my $self = shift;
     my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = @_;
 
-    $row->{row_data}->change_state($self->_state(stored => undef));
+    $row->{+ROW_DATA}->change_state($self->_state(stored => undef));
 
     return $row;
 }
@@ -168,7 +168,7 @@ sub do_select {
     return $self->_vivify($sqla_source, $state)
         unless $row;
 
-    $row->{row_data}->change_state($state);
+    $row->{+ROW_DATA}->change_state($state);
 
     return $row;
 }

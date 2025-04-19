@@ -15,6 +15,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     async
     aside
     forked
+    data_only
 };
 
 use Role::Tiny::With qw/with/;

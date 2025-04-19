@@ -8,14 +8,16 @@ our $VERSION = '0.000005';
 use Carp qw/confess croak cluck/;
 use List::Util qw/mesh/;
 use Importer 'List::Util' => ('first' => { -as => 'lu_first' });
-use Scalar::Util qw/blessed/;
+use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/load_class debug/;
 
+use DBIx::QuickORM::Row::Async;
 use DBIx::QuickORM::SQLAbstract;
 use DBIx::QuickORM::Query;
 use DBIx::QuickORM::Select;
 use DBIx::QuickORM::Source;
 use DBIx::QuickORM::Connection::Transaction;
+use DBIx::QuickORM::Connection::Async;
 
 use DBIx::QuickORM::Connection::RowData qw{
     STORED
@@ -49,7 +51,20 @@ use DBIx::QuickORM::Util::HashBase qw{
     +_txn_counter
     <manager
     +internal_transactions
+    <in_async
 };
+
+sub clear_async {
+    my $self = shift;
+    my ($async) = @_;
+
+    croak "Not currently running an async query" unless $self->{+IN_ASYNC};
+
+    croak "Mismatch, we are in an async query, but not the one we are trying to clear"
+        unless $async == $self->{+IN_ASYNC};
+
+    delete $self->{+IN_ASYNC};
+}
 
 sub init {
     my $self = shift;
@@ -101,6 +116,15 @@ sub init {
 sub pid_check {
     my $self = shift;
     confess "Connections cannot be used across multiple processes, you must reconnect post-fork" unless $$ == $self->{+PID};
+    return 1;
+}
+
+sub async_check {
+    my $self = shift;
+
+    my $async = $self->{+IN_ASYNC} or return 1;
+    confess "There is currently an async query running, it must be completed before you run another query" unless $async->done;
+    delete $self->{+IN_ASYNC};
     return 1;
 }
 
@@ -180,6 +204,7 @@ sub _internal_txn {
 sub txn {
     my $self = shift;
     $self->pid_check;
+    $self->async_check;
 
     my $txns = $self->{+TRANSACTIONS};
 
@@ -277,6 +302,7 @@ sub current_txn {
 sub auto_retry_txn {
     my $self = shift;
     $self->pid_check;
+    $self->async_check;
 
     my $count;
     my %params;
@@ -325,6 +351,7 @@ sub auto_retry {
     my $cb    = pop;
     my $count = shift || 1;
     $self->pid_check;
+    $self->async_check;
 
     croak "Cannot use auto_retry inside a transaction" if $self->in_txn;
 
@@ -409,12 +436,22 @@ sub _resolve_source {
 sub _make_sth {
     my $self        = shift;
     my $sqla_source = $self->_resolve_source(shift);
-    my ($stmt, $bind, $prepare_args) = @_;
+    my ($stmt, $bind, $query, $prepare_args) = @_;
+
+    $self->pid_check;
+    $self->async_check;
 
     my $dialect   = $self->dialect;
     my $quote_bin = $dialect->quote_binary_data;
 
     my $dbh = $self->dbh;
+
+    if ($query && $query->{+QUERY_ASYNC}) {
+        croak "Dialect '" . $dialect->dialect_name . "' does not support async" unless $dialect->async_supported;
+        $prepare_args //= {};
+        %$prepare_args = (%$prepare_args, $dialect->async_prepare_args);
+    }
+
     my $sth = $dbh->prepare($stmt, $prepare_args);
     for (my $i = 0; $i < @$bind; $i++) {
         my ($field, $val) = @{$bind->[$i]};
@@ -440,15 +477,27 @@ sub _make_sth {
 
     $sth->execute();
 
-    return $sth;
+    return $sth unless $query && $query->{+QUERY_ASYNC};
+
+    my $ready = 0;
+
+    my $async = DBIx::QuickORM::Connection::Async->new(
+        connection  => $self,
+        sqla_source => $sqla_source,
+        dbh         => $dbh,
+        sth         => $sth,
+    );
+
+    $self->{+IN_ASYNC} = $async;
+    weaken($self->{+IN_ASYNC});
+
+    return $async;
 }
 
 sub _execute_select {
     my $self = shift;
     my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     my ($prepare_args) = @extra;
-
-    $self->pid_check;
 
     my $dbh     = $self->dbh;
     my $dialect = $self->dialect;
@@ -459,7 +508,7 @@ sub _execute_select {
         push @$bind => [undef, $limit];
     }
 
-    return $self->_make_sth($sqla_source, $stmt, $bind);
+    return $self->_make_sth($sqla_source, $stmt, $bind, $query, $prepare_args);
 }
 
 sub _format_insert_and_update_data {
@@ -521,6 +570,7 @@ sub insert {
     my $sqla_source = $self->_resolve_source(shift);
     my ($in) = @_;
     $self->pid_check;
+    $self->async_check;
 
     my ($data, $row);
     if (blessed($in)) {
@@ -595,6 +645,7 @@ sub update {
     my $self = shift;
     my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $self->pid_check;
+    $self->async_check;
 
     my $row = $query->{+QUERY_ROW};
     my $changes;
@@ -642,7 +693,7 @@ sub update {
     # No cache, or not cachable, just do the update
     unless ($do_cache && $pk_fields && @$pk_fields) {
         my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $changes, $query->{+QUERY_WHERE});
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+        my $sth = $self->_make_sth($sqla_source, $stmt, $bind, $query);
 
         return $sth->rows;
     }
@@ -652,7 +703,7 @@ sub update {
     my $do_it = sub {
         my $where = shift // $query->{+QUERY_WHERE};
         my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $changes, $where, $ret ? {returning => $fields} : ());
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+        my $sth = $self->_make_sth($sqla_source, $stmt, $bind, $query);
         $updated = $sth->fetchall_arrayref({}) if $ret;
     };
 
@@ -671,7 +722,7 @@ sub update {
                 $do_it->($where);
 
                 my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $fields, $where);
-                my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+                my $sth = $self->_make_sth($sqla_source, $stmt, $bind, $query);
                 $updated = $sth->fetchall_arrayref({});
             });
         }
@@ -701,6 +752,7 @@ sub delete {
     my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $query = $query->clone(@extra) if @extra;
     $self->pid_check;
+    $self->async_check;
 
     my $row = $query->{+QUERY_ROW};
 
@@ -717,7 +769,7 @@ sub delete {
     my $do_it = sub {
         my $where = shift // $query->{+QUERY_WHERE};
         my ($stmt, $bind) = $self->sqla->qorm_delete($sqla_source, $where, $ret ? $pk_fields : ());
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+        my $sth = $self->_make_sth($sqla_source, $stmt, $bind, $query);
         $deleted_keys = $sth->fetchall_arrayref({}) if $ret;
     };
 
@@ -746,6 +798,7 @@ sub select {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     $self->pid_check;
+    $self->async_check;
 
     croak "Not enough arguments" unless @_;
 
@@ -812,6 +865,9 @@ sub all {
     my $sth = $self->_execute_select($sqla_source, $query);
 
     $self->pid_check;
+    $self->async_check;
+
+    return $sth->fetchall_arrayref({}) if $query->{+QUERY_DATA_ONLY};
 
     my @out;
     while (my $fetched = $sth->fetchrow_hashref) {
@@ -819,16 +875,6 @@ sub all {
     }
 
     return \@out;
-}
-
-sub data_all {
-    my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
-    $query = $query->clone(@extra) if @extra;
-    $self->pid_check;
-
-    my $sth = $self->_execute_select($sqla_source, $query);
-    return $sth->fetchall_arrayref({});
 }
 
 sub iterate {
@@ -839,30 +885,19 @@ sub iterate {
     $query = $query->clone(@extra) if @extra;
 
     $self->pid_check;
+    $self->async_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
 
     while (my $fetched = $sth->fetchrow_hashref) {
-        my $row = $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
-        $cb->($row);
-    }
-
-    return;
-}
-
-sub data_iterate {
-    my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
-    my $cb = pop;
-
-    $query = $query->clone(@extra) if @extra;
-
-    $self->pid_check;
-
-    my $sth = $self->_execute_select($sqla_source, $query);
-
-    while (my $fetched = $sth->fetchrow_hashref) {
-        $cb->($fetched);
+        my $arg;
+        if ($query->{+QUERY_DATA_ONLY}) {
+            $arg = $fetched
+        }
+        else {
+            $arg = $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+        }
+        $cb->($arg);
     }
 
     return;
@@ -874,77 +909,49 @@ sub iterator {
     $query = $query->clone(@extra) if @extra;
 
     $self->pid_check;
+    $self->async_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
 
     return DBIx::QuickORM::Iterator->new(sub {
         my $fetched = $sth->fetchrow_hashref or return;
+        return $fetched if $query->{+QUERY_DATA_ONLY};
         return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
     });
-}
-
-sub data_iterator {
-    my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
-    $query = $query->clone(@extra) if @extra;
-
-    $self->pid_check;
-
-    my $sth = $self->_execute_select($sqla_source, $query);
-
-    return DBIx::QuickORM::Iterator->new(sub { $sth->fetchrow_hashref });
 }
 
 sub any {
     my $self = shift;
     my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
-    $query = $query->clone(@extra) if @extra;
+    $query = $query->clone(@extra, QUERY_ORDER_BY() => undef, QUERY_LIMIT() => 1);
 
     $self->pid_check;
-
-    my $fetched = $self->data_any($sqla_source, $query);
-
-    return unless $fetched;
-    return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
-}
-
-sub data_any {
-    my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
-    $query = $query->clone(@extra) if @extra;
-
-    $self->pid_check;
-
-    $query = $query->clone(QUERY_ORDER_BY() => undef, QUERY_LIMIT() => 1);
 
     my $sth = $self->_execute_select($sqla_source, $query);
-    return $sth->fetchrow_hashref;
+    my $fetched = $sth->fetchrow_hashref;
+
+    return unless $fetched;
+    return $fetched if $query->{+QUERY_DATA_ONLY};
+    return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
 }
 
 sub first {
     my $self = shift;
     my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
-    $query = $query->clone(@extra) if @extra;
+    $query = $query->clone(@extra, QUERY_LIMIT() => 1);
 
     $self->pid_check;
-
-    my $fetched = $self->data_first($sqla_source, $query);
-
-    return unless $fetched;
-    return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
-}
-
-sub data_first {
-    my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
-    $query = $query->clone(@extra) if @extra;
-
-    $self->pid_check;
-
-    $query = $query->clone(QUERY_LIMIT() => 1);
+    $self->async_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
-    return $sth->fetchrow_hashref;
+
+    return DBIx::QuickORM::Row::Async->new(async => $sth) if $sth->isa('DBIx::QuickORM::Connection::Async');
+
+    my $fetched = $sth->fetchrow_hashref;
+
+    return unless $fetched;
+    return $fetched if $query->{+QUERY_DATA_ONLY};
+    return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
 }
 
 sub one {
@@ -953,24 +960,15 @@ sub one {
     $query = $query->clone(@extra) if @extra;
 
     $self->pid_check;
-
-    my $fetched = $self->data_one($sqla_source, $query);
-
-    return unless $fetched;
-    return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
-}
-
-sub data_one {
-    my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
-    $query = $query->clone(@extra, QUERY_LIMIT() => 2);
-
-    $self->pid_check;
+    $self->async_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
     my $fetched = $sth->fetchrow_hashref;
     croak "Expected only 1 row, but got more than one" if $sth->fetchrow_hashref;
-    return $fetched;
+
+    return unless $fetched;
+    return $fetched if $query->{+QUERY_DATA_ONLY};
+    return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
 }
 
 sub find_or_insert {
@@ -978,6 +976,7 @@ sub find_or_insert {
     my $sqla_source = $self->_resolve_source(shift);
     my ($data) = @_;
     $self->pid_check;
+    $self->async_check;
 
     my $row;
 

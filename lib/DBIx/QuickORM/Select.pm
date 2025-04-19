@@ -23,6 +23,8 @@ use DBIx::QuickORM::Util::HashBase qw{
     +async
     +aside
     +forked
+
+    +data_only
 };
 
 use Role::Tiny::With qw/with/;
@@ -44,12 +46,12 @@ sub init {
 
 BEGIN {
     my @METHODS = qw{
-        all      data_all
-        iterator data_iterator
-        iterate  data_iterate
-        any      data_any
-        first    data_first
-        one      data_one
+        all
+        iterator
+        iterate
+        any
+        first
+        one
 
         count
         delete
@@ -99,6 +101,19 @@ sub forked {
     my $self = shift;
     return $self if $self->{+FORKED};
     return $self->clone(FORKED() => 1, ASYNC() => 0, ASIDE() => 0);
+}
+
+sub data_only {
+    my $self = shift;
+
+    if (@_) {
+        my ($val) = @_;
+        return $self->clone(DATA_ONLY() => $val);
+    }
+
+    return $self if $self->{+DATA_ONLY};
+
+    return $self->clone(DATA_ONLY() => 1);
 }
 
 sub limit {

@@ -26,12 +26,12 @@ sub init {
 
 BEGIN {
     my @METHODS = qw{
-        all      data_all
-        iterator data_iterator
-        iterate  data_iterate
-        any      data_any
-        first    data_first
-        one      data_one
+        all
+        iterator
+        iterate
+        any
+        first
+        one
 
         by_id
         by_ids
