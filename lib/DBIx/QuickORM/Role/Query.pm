@@ -15,6 +15,7 @@ sub OMIT ()       { 'omit' }
 sub ASYNC ()      { 'async' }
 sub ASIDE ()      { 'aside' }
 sub FORKED ()     { 'forked' }
+sub DATA_ONLY ()  { 'data_only' }
 
 use Importer Importer => 'import';
 
@@ -29,6 +30,7 @@ our @EXPORT_OK = qw{
     ASIDE
     FORKED
     ROW
+    DATA_ONLY
 };
 
 use Role::Tiny;
@@ -43,6 +45,7 @@ requires qw{
     ASYNC
     ASIDE
     FORKED
+    DATA_ONLY
 };
 
 sub normalize_query {

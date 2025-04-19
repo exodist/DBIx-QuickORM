@@ -40,6 +40,7 @@ sub cache {
 
     delete $scache->{$self->cache_key($old_pk)} if $old_pk;
 
+    $new_pk //= [$row->primary_key_value_list];
     my $new_key = $self->cache_key($new_pk);
     $scache->{$new_key} = $row;
     weaken($scache->{$new_key});

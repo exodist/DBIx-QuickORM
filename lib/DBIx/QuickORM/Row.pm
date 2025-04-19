@@ -278,7 +278,7 @@ sub _field {
 
     if (my $st = $row_data->{+STORED}) {
         unless (exists $st->{$field}) {
-            my $data = $self->connection->data_one($self->sqla_source, {where => $self->primary_key_hashref, fields => [$field]});
+            my $data = $self->connection->one($self->sqla_source, {data_only => 1, where => $self->primary_key_hashref, fields => [$field]});
             $st->{$field} = $data->{$field};
         }
 

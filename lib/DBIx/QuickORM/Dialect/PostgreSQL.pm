@@ -26,6 +26,13 @@ sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }
 sub supports_returning_delete { 1 }
 
+sub async_supported        { 1 }
+sub async_cancel_supported { 1 }
+sub async_prepare_args     { pg_async => DBD::Pg::PG_ASYNC() }
+sub async_ready            { $_[1]->dbh->pg_ready() }
+sub async_result           { $_[1]->sth->pg_result() }
+sub async_cancel           { $_[1]->dbh->pg_cancel() }
+
 sub start_txn          { $_[0]->dbh->begin_work }
 sub commit_txn         { $_[0]->dbh->commit }
 sub rollback_txn       { $_[0]->dbh->rollback }
