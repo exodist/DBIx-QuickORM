@@ -91,9 +91,12 @@ sub row {
     return $self->{row} = undef if $self->{invalid};
 
     my $async = $self->{async};
-    my $data = $async->fetch();
+    my $data = $async->next();
 
-    unless ($data && @$data) {
+    if ($data) {
+        $async->set_done();
+    }
+    else {
         $self->{invalid} = 1;
         return $self->{row} = undef;
     }
@@ -101,7 +104,7 @@ sub row {
     my %args = %$self;
     delete $args{async};
 
-    return $self->{row} = $async->connection->manager->select(sqla_source => $async->sqla_source, fetched => $data->[0]);
+    return $self->{row} = $async->connection->manager->select(sqla_source => $async->sqla_source, fetched => $data);
 }
 
 sub swapout {

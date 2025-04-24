@@ -24,6 +24,8 @@ do_for_all_dbs {
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
     ok(my $row = $orm->source('example')->insert({name => 'a'}), "Inserted a row");
+    ok(my $row2 = $orm->source('example')->insert({name => 'b'}), "Inserted a row");
+    ok(my $row3 = $orm->source('example')->insert({name => 'c'}), "Inserted a row");
 
     my $async = $orm->async(example => (where => {name => 'a'}, fields => ['name', 'id', \'pg_sleep(1)']))->first;
     my $other_ref = $async;
@@ -53,6 +55,24 @@ do_for_all_dbs {
     ref_is($copy, $row, "Same ref");
 
     is(blessed($other_ref), 'DBIx::QuickORM::Row::Async', "Other ref is unchanged");
+
+    my $async2 = $orm->async(example => (where => {name => 'b'}))->one;
+    is($async2->field('name'), 'b', "Got b");
+
+    my $async3 = $orm->async(example => (where => {}))->one;
+
+    like(
+        dies { sleep 0.1 until $async3->ready },
+        qr/Expected only 1 row, but got more than one/,
+        "used one() but got multiple rows"
+    );
+
+    my $async4 = $orm->async(example => (where => {}, order_by => ['name']))->iterator;
+    is($async4->next->field('name'), 'a', "Got a");
+    is($async4->next->field('name'), 'b', "Got b");
+    is($async4->next->field('name'), 'c', "Got c");
+    is($async4->next, undef, "Out of rows");
+    is($async4->next, undef, "Out of rows");
 } qw/system_postgresql/;
 
 done_testing;

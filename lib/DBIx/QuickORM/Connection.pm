@@ -18,6 +18,7 @@ use DBIx::QuickORM::Select;
 use DBIx::QuickORM::Source;
 use DBIx::QuickORM::Connection::Transaction;
 use DBIx::QuickORM::Connection::Async;
+use DBIx::QuickORM::Iterator;
 
 use DBIx::QuickORM::Connection::RowData qw{
     STORED
@@ -647,6 +648,8 @@ sub update {
     $self->pid_check;
     $self->async_check;
 
+    croak "update() cannot be used asynchronously" if $query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE} || $query->{+QUERY_FORKED};
+
     my $row = $query->{+QUERY_ROW};
     my $changes;
     while (@extra) {
@@ -754,6 +757,8 @@ sub delete {
     $self->pid_check;
     $self->async_check;
 
+    croak "delete() cannot be used asynchronously" if $query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE} || $query->{+QUERY_FORKED};
+
     my $row = $query->{+QUERY_ROW};
 
     croak "delete() with a 'limit' clause is not currently supported"     if $query->{+QUERY_LIMIT};
@@ -825,6 +830,8 @@ sub count {
     $query = $query->clone(@extra) if @extra;
     $self->pid_check;
 
+    croak "count() cannot be used asynchronously" if $query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE} || $query->{+QUERY_FORKED};
+
     $query = $query->clone(QUERY_FIELDS() => 'COUNT(*) AS cnt');
 
     my $sth  = $self->_execute_select($sqla_source, $query);
@@ -836,6 +843,7 @@ sub by_id {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
     my $id = shift;
+    my %query = @_;
 
     my $where;
     my $ref = ref($id);
@@ -848,19 +856,36 @@ sub by_id {
     croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';
 
     my $row = $self->{+MANAGER}->do_cache_lookup($sqla_source, undef, undef, $id);
-    return $row //= $self->one($sqla_source, $where);
+
+    $query{+QUERY_WHERE} = $where;
+    return $row //= $self->one($sqla_source, \%query);
 }
 
 sub by_ids {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
-    return [ map { $self->by_id($sqla_source, $_) } @_ ];
+
+    my @ids = @_;
+    my (@out, %query);
+    while (my $id = shift @ids) {
+        if ($id =~ s/^-//) {
+            $query{$id} = shift(@ids);
+            next;
+        }
+
+        push @out => $self->by_id($sqla_source, $id, %query);
+    }
+
+    return \@out;
 }
 
 sub all {
     my $self = shift;
     my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $query = $query->clone(@extra) if @extra;
+
+    croak "all() cannot be used asynchronously, use iterate() to get an async iterator instead"
+        if $query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE} || $query->{+QUERY_FORKED};
 
     my $sth = $self->_execute_select($sqla_source, $query);
 
@@ -874,7 +899,7 @@ sub all {
         push @out => $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
     }
 
-    return \@out;
+    return @out;
 }
 
 sub iterate {
@@ -883,6 +908,8 @@ sub iterate {
     my $cb = pop @extra;
 
     $query = $query->clone(@extra) if @extra;
+
+    croak "iterate() cannot be used asynchronously" if $query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE} || $query->{+QUERY_FORKED};
 
     $self->pid_check;
     $self->async_check;
@@ -913,11 +940,24 @@ sub iterator {
 
     my $sth = $self->_execute_select($sqla_source, $query);
 
-    return DBIx::QuickORM::Iterator->new(sub {
-        my $fetched = $sth->fetchrow_hashref or return;
-        return $fetched if $query->{+QUERY_DATA_ONLY};
-        return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
-    });
+    my ($next, $ready);
+    if ($sth->isa('DBIx::QuickORM::Connection::Async')) {
+        $ready = sub { $sth->ready };
+        $next  = sub {
+            my $fetched = $sth->next or return;
+            return $fetched if $query->{+QUERY_DATA_ONLY};
+            return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+        };
+    }
+    else {
+        $next = sub {
+            my $fetched = $sth->fetchrow_hashref or return;
+            return $fetched if $query->{+QUERY_DATA_ONLY};
+            return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+        };
+    }
+
+    return DBIx::QuickORM::Iterator->new($next, $ready);
 }
 
 sub any {
@@ -928,6 +968,9 @@ sub any {
     $self->pid_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
+
+    return DBIx::QuickORM::Row::Async->new(async => $sth) if $sth->isa('DBIx::QuickORM::Connection::Async');
+
     my $fetched = $sth->fetchrow_hashref;
 
     return unless $fetched;
@@ -963,6 +1006,12 @@ sub one {
     $self->async_check;
 
     my $sth = $self->_execute_select($sqla_source, $query);
+
+    if ($sth->isa('DBIx::QuickORM::Connection::Async')) {
+        $sth->set_only_one(1);
+        return DBIx::QuickORM::Row::Async->new(async => $sth);
+    }
+
     my $fetched = $sth->fetchrow_hashref;
     croak "Expected only 1 row, but got more than one" if $sth->fetchrow_hashref;
 
