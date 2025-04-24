@@ -29,6 +29,11 @@ sub init {
     $self->{+ROW_CLASS} //= 'DBIx::QuickORM::Row';
 
     $self->resolve_links;
+
+    for my $table ($self->tables) {
+        my $autofill = $table->row_class_autofill or next;
+        $autofill->define_autorow($table->row_class, $table);
+    }
 }
 
 sub tables      { values %{$_[0]->{+TABLES}} }

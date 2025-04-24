@@ -14,6 +14,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     +columns
     <unique
     <row_class
+    <row_class_autofill
     <created
     <compiled
     <is_temp
