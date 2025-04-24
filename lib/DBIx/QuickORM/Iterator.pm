@@ -11,13 +11,15 @@ use DBIx::QuickORM::Util::HashBase qw{
     items
     generator_done
     index
+    +ready
+    +is_ready
 };
 
 sub new {
     my $class = shift;
-    my ($gen) = @_;
+    my ($gen, $ready) = @_;
 
-    my $self = bless({GENERATOR() => $gen}, $class);
+    my $self = bless({GENERATOR() => $gen, READY => $ready}, $class);
     $self->init;
 
     return $self;
@@ -50,6 +52,12 @@ sub list {
     $self->_grow until $self->{+GENERATOR_DONE};
 
     return @$set;
+}
+
+sub ready {
+    my $self = shift;
+    my $cb = $self->{+READY} or return 1;
+    return $self->{+IS_READY} ||= $cb->();
 }
 
 sub next {

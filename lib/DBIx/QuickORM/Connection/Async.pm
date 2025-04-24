@@ -11,9 +11,11 @@ use DBIx::QuickORM::Util::HashBase qw{
     <sth
     <sqla_source
 
+    only_one
+
     +dialect
     +ready
-    +fetched
+    +got_result
     <done
 };
 
@@ -28,8 +30,6 @@ sub init {
     # Fix this for non dbh/sth ones like aside and forked
     croak "'sth' and 'dbh' are required attributes"
         unless $self->{+DBH} && $self->{+STH};
-
-    delete $self->{+FETCHED};
 }
 
 sub ready { $_[0]->{+READY} ||= $_[0]->dialect->async_ready($_[0]) }
@@ -45,18 +45,41 @@ sub cancel {
     $self->{+DONE} = 1;
 }
 
-sub fetch {
+sub next {
+    my $self = shift;
+    my $row = $self->_next;
+
+    if ($self->{+ONLY_ONE}) {
+        croak "Expected only 1 row, but got more than one" if $self->_next;
+        $self->set_done;
+    }
+
+    return $row;
+}
+
+sub _next {
     my $self = shift;
 
-    return $self->{+FETCHED} if exists $self->{+FETCHED};
+    return if $self->{+DONE};
 
-    $self->dialect->async_result($self);
-    $self->{+FETCHED} = $self->sth->fetchall_arrayref({});
+    $self->{+GOT_RESULT} //= $self->dialect->async_result($self);
+
+    my $row = $self->sth->fetchrow_hashref();
+
+    return $row if $row;
+
+    $self->set_done;
+
+    return;
+}
+
+sub set_done {
+    my $self = shift;
+
+    return if $self->{+DONE};
 
     $self->{+CONNECTION}->clear_async($self);
     $self->{+DONE} = 1;
-
-    return $self->{+FETCHED};
 }
 
 sub DESTROY {
@@ -64,12 +87,14 @@ sub DESTROY {
 
     return if $self->{+DONE};
 
-    if ($self->dialect->async_cancel_supported) {
-        $self->cancel;
-    }
-    else {
-        sleep 0.1 until $self->ready;
-        $self->dialect->async_result($self);
+    unless ($self->{+GOT_RESULT}) {
+        if ($self->dialect->async_cancel_supported) {
+            $self->cancel;
+        }
+        else {
+            sleep 0.1 until $self->ready;
+            $self->dialect->async_result($self);
+        }
     }
 
     $self->{+DONE} = 1;
