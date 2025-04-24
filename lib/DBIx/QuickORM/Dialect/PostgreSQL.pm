@@ -112,7 +112,7 @@ sub build_tables_from_db {
 
         $params{autofill}->hook(post_table => {table => $table, class => \$class});
 
-        $tables{$tname} = $class->new($table);
+        $tables{$table->{name}} = $class->new($table);
         $params{autofill}->hook(table => {table => $tables{$tname}});
     }
 

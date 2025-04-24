@@ -17,23 +17,16 @@ do_for_all_dbs {
     orm my_orm => sub {
         db 'mydb';
         autofill sub {
-            autohook links => sub {
+            autoname link => sub {
                 my %params = @_;
-
-                my $links = $params{links} // return;
-                return unless @$links;
-                for my $link_pair (@$links) {
-                    my ($a, $b) = @$link_pair;
-                    my $table_a = $a->[0];
-                    my $table_b = $b->[0];
-                    push @$a => "get_$table_b";
-                    push @$b => "get_$table_a";
-                }
+                return "get_$params{fetch_table}";
             };
         };
     };
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
+
+    debug($orm->schema);
 
     my $foo_a = $orm->insert('foo' => {name => 'a'});
     my $foo_b = $orm->insert('foo' => {name => 'b'});
@@ -43,7 +36,7 @@ do_for_all_dbs {
     my $has_foo_b  = $orm->insert('has_foo' => {foo_id => $foo_b->field('foo_id')});
 
     my $sel = $foo_a->follow('get_has_foo');
-    is($sel->order_by('foo_id')->all, [$has_foo_a1, $has_foo_a2], "Got both has_foo rows");
+    is([$sel->order_by('foo_id')->all], [$has_foo_a1, $has_foo_a2], "Got both has_foo rows");
 
     is($has_foo_a1->obtain('get_foo'), $foo_a, "Got foo_a");
 

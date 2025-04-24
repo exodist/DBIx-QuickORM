@@ -8,30 +8,35 @@ use DBIx::QuickORM::Util::HashBase qw{
     <types
     <affinities
     <hooks
+    <autorow
     +skip
 };
 
 my %HOOKS = (
-    column      => 1,
-    columns     => 1,
-    index       => 1,
-    indexes     => 1,
-    links       => 1,
-    post_column => 1,
-    post_table  => 1,
-    pre_column  => 1,
-    pre_table   => 1,
-    primary_key => 1,
-    table       => 1,
-    unique_keys => 1,
+    column         => 1,
+    columns        => 1,
+    index          => 1,
+    indexes        => 1,
+    links          => 1,
+    post_column    => 1,
+    post_table     => 1,
+    pre_column     => 1,
+    pre_table      => 1,
+    primary_key    => 1,
+    table          => 1,
+    unique_keys    => 1,
+    link_accessor  => 1,
+    field_accessor => 1,
 );
 
 sub is_valid_hook { $HOOKS{$_[-1]} ? 1 : 0 }
 
 sub hook {
     my $self = shift;
-    my ($hook, $args) = @_;
-    $_->(%$args) for @{$self->{+HOOKS}->{$hook} // []};
+    my ($hook, $args, $seed) = @_;
+    my $out = $seed;
+    $out = $_->(%$args, autofill => $self) for @{$self->{+HOOKS}->{$hook} // []};
+    return $out;
 }
 
 sub skip {
@@ -69,6 +74,38 @@ sub process_column {
 
     $col->{type} = $new_type;
     $col->{affinity} = $new_type->qorm_affinity(sql_type => $$type);
+}
+
+sub define_autorow {
+    my $self = shift;
+    my ($row_class, $table) = @_;
+
+    for my $column ($table->columns) {
+        my $field = $column->name;
+        my $accessor = $self->hook(field_accessor => {table => $table, name => $field, field => $field, spec => $column}, $field);
+        next unless $accessor;
+
+        no strict 'refs';
+        next if defined &{"$row_class\::$accessor"};
+        *{"$row_class\::$accessor"} = sub { shift->field($field, @_) };
+    }
+
+    for my $link ($table->links) {
+        my $to = $link->table;
+        my $aliass = $link->aliases;
+
+        unless ($aliass && @$aliass) {
+            $aliass = [$link->unique ? $to : "${to}s" ];
+        }
+
+        for my $alias (@$aliass) {
+            my $accessor = $self->hook(link_accessor => {table => $table, name => $link->table, alias => $alias, link => $link}, $alias);
+            next unless $accessor;
+            no strict 'refs';
+            next if defined &{"$row_class\::$accessor"};
+            *{"$row_class\::$accessor"} = $link->unique ? sub { shift->obtain($link) } : sub { shift->follow($link) };
+        }
+    }
 }
 
 1;
