@@ -82,7 +82,7 @@ sub define_autorow {
 
     for my $column ($table->columns) {
         my $field = $column->name;
-        my $accessor = $self->hook(field_accessor => {table => $table, name => $field, field => $field, spec => $column}, $field);
+        my $accessor = $self->hook(field_accessor => {table => $table, name => $field, field => $field, column => $column}, $field);
         next unless $accessor;
 
         no strict 'refs';
@@ -92,14 +92,14 @@ sub define_autorow {
 
     for my $link ($table->links) {
         my $to = $link->table;
-        my $aliass = $link->aliases;
+        my $aliases = $link->aliases;
 
-        unless ($aliass && @$aliass) {
-            $aliass = [$link->unique ? $to : "${to}s" ];
+        unless ($aliases && @$aliases) {
+            $aliases = [$link->unique ? $to : "${to}s" ];
         }
 
-        for my $alias (@$aliass) {
-            my $accessor = $self->hook(link_accessor => {table => $table, name => $link->table, alias => $alias, link => $link}, $alias);
+        for my $alias (@$aliases) {
+            my $accessor = $self->hook(link_accessor => {table => $table, linked_table => $link->table, name => $alias, link => $link}, $alias);
             next unless $accessor;
             no strict 'refs';
             next if defined &{"$row_class\::$accessor"};
