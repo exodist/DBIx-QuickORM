@@ -33,7 +33,6 @@ my @EXPORT = qw{
     orm
     autofill
      autotype
-     autoclass
      autohook
      autoskip
      autorow
@@ -347,6 +346,11 @@ sub autofill {
 
     my $frame = {building => 'AUTOFILL', class => 'DBIx::QuickORM::Schema::Autofill', meta => {}};
 
+    if (@_ && !ref($_[0])) {
+        my $proto = shift @_;
+        $frame->{class} = load_class($proto, 'DBIx::QuickORM::Schema::Autofill') or croak "Could not load autofill class '$proto': $@";
+    }
+
     if (!@_) {
         $top->{meta}->{autofill} = $frame;
         return;
@@ -364,19 +368,6 @@ sub autotype {
     my $class = load_class($type, 'DBIx::QuickORM::Type') or croak "Could not load type '$type': $@";
 
     $class->qorm_register_type($top->{meta}->{types} //= {}, $top->{meta}->{affinities} //= {});
-
-    return;
-}
-
-sub autoclass {
-    my $self = shift;
-    my ($proto) = @_;
-
-    my $top = $self->_in_builder(qw{autofill});
-
-    my $class = load_class($proto, 'DBIx::QuickORM::Schema::Autofill') or croak "Could not load autoclass '$proto': $@";
-
-    $top->{class} = $class;
 
     return;
 }
@@ -447,6 +438,13 @@ sub autoname {
             return $callback->(%params) || $params{name};
         });
     }
+    elsif ($type eq 'table') {
+        $self->autohook(pre_table => sub {
+            my %params = @_;
+            my $table = $params{table} // return;
+            $table->{name} = $callback->(table => $table, name => $table->{name}) || $table->{name};
+        });
+    }
     elsif ($type eq 'link') {
         $self->autohook(links => sub {
             my %params = @_;
@@ -457,19 +455,13 @@ sub autoname {
                 my ($a, $b) = @$link_pair;
                 my $table_a = $a->[0];
                 my $table_b = $b->[0];
+
                 push @$a => $callback->(in_table => $a->[0], fetch_table => $b->[0], in_fields => $a->[1], fetch_fields => $b->[1])
                     unless @$a > 2; # Skip if it has an alias
 
                 push @$b => $callback->(in_table => $b->[0], fetch_table => $a->[0], in_fields => $b->[1], fetch_fields => $a->[1])
                     unless @$b > 2; # Skip if it has an alias
             }
-        });
-    }
-    elsif ($type eq 'table') {
-        $self->autohook(pre_table => sub {
-            my %params = @_;
-            my $table = $params{table} // return;
-            $table->{name} = $callback->(table => $table, name => $table->{name}) || $table->{name};
         });
     }
     else {
@@ -1376,12 +1368,10 @@ The ORM class
 
         # Define your schema
         schema myschema => sub {
-            autofill => sub {
+            # The class name is optional, the one shown here is the default
+            autofill 'DBIx::QuickORM::Schema::Autofill' => sub {
                 autotype 'UUID';    # Automatically handle UUID fields
                 autotype 'JSON';    # Automatically handle JSON fields
-
-                # Default, specifies class to do the autofilling
-                autoclass 'DBIx::QuickORM::Schema::Autofill';
 
                 # Do not autofill these tables
                 autoskip table => qw/foo bar baz/;
@@ -1786,6 +1776,7 @@ provided unless it starts with a '+', in whcih case the plus is removed and the
 rest of the string is left unmodified.
 
 The following are all supported by DBIx::QuickORM by default
+
 =over 4
 
 =item PostgreSQL
@@ -2426,35 +2417,139 @@ for the current scope.
 
 =item autofill()
 
+=item autofill($CLASS)
+
+=item autofill(sub { ... })
+
+=item autofill($CLASS, sub { ... })
+
+=item autofill $CLASS
+
 =item autofill sub { ... }
 
-=item autoclass 'DBIx::QuickORM::Schema::Autofill'
+=item autofill $CLASS => sub { ... }
 
-=item autoclass $AUTOFILL_CLASS
+Used inside an C<orm()> builder. This tells the QuickORM to build an
+L<DBIx::QuickORM::Schema> object by asking the database what tables and columns
+it has.
+
+    orm my_orm => sub {
+        db ...;
+
+        autofill; # Autofill schema from the db itself
+    };
+
+By default the L<DBIx::QuickORM::Schema::Autofill> class is used to do the
+autofill operation. You can provide an alternate class as the first argument if
+you wish to use a custom one.
+
+There are additional operations that can be done inside autofill, just provide
+a subref and call them:
+
+    autofill sub {
+        autotype $TYPE;                         # Automatically use DBIx::QuickORM::Type::TYPE classes when applicable
+        autoskip table => qw/table1 table2/;    # Do not generate schema for the specified tables
+        autorow 'My::Row::Namespace';           # Automatically generate My::Row::Namespace::TABLE classes, also loading any that exist as .pm files
+        autoname TYPE => sub { ... };           # Custom names for tables, accessors, links, etc.
+        autohook HOOK => sub { ... };           # Run behavior at specific hook points
+    };
+
+=item autotype $TYPE_CLASS
 
 =item autotype 'JSON'
 
 =item autotype '+DBIx::QuickORM::Type::JSON'
 
-=item autotype $TYPE_CLASS
+=item autotype 'UUID'
+
+=item autotype '+DBIx::QuickORM::Type::UUID'
+
+Load custom L<DBIx::QuickORM::Type> subclasses. If a column is found with the
+right type then the type class will be used to inflate/deflate the values
+automatically.
 
 =item autoskip table => qw/table1 table2 .../
 
 =item autoskip column => qw/col1 col2 .../
 
+Skip defining schema entries for the specified tables or columns.
+
 =item autorow 'My::App::Row'
 
 =item autorow $ROW_BASE_CLASS
 
-=item autoname table => sub { ... }
+Generate C<My::App::Row::TABLE> classes for each table autofilled. If you write
+a C<My/App/Row/TABLE.pm> file it will be loaded as well.
 
-=item autoname link => sub { ... }
+If you define a C<My::App::Row> class it will be loaded and all table rows will
+use it as a base class. If no such class is found the new classes will use
+L<DBIx::QuickORM::Row> as a base class.
 
 =item autoname link_accessor => sub { ... }
 
 =item autoname field_accessor => sub { ... }
 
-=item autohook ...
+=item autoname table => sub { ... }
+
+=item autoname link => sub { ... }
+
+You can name the C<< $row->FIELD >> accessor:
+
+    autoname field_accessor => sub {
+        my %params     = @_;
+        my $name       = $params{name};   # Name that would be used by default
+        my $field_name = $params{field};  # Usually the same as 'name'
+        my $table      = $params{table};  # The DBIx::QuickORM::Schema::Table object
+        my $column     = $params{column}; # The DBIx::QuickORM::Schema::Table::Column object
+
+        return $new_name;
+    };
+
+You can also name the C<< $row->LINK >> accessor
+
+    autoname link_accessor => sub {
+        my %params = @_;
+        my $name         = $params{name};        # Name that would be used by default
+        my $link         = $params{link};        # DBIx::QuickORM::Schema::Link object
+        my $table        = $params{table};       # DBIx::QuickORM::Schema::Table object
+        my $linked_table = $params{linked_table} # Name of the table being linked to
+
+        # If the foreign key points to a unique row, then the accessor will
+        # return a single row object:
+        return "obtain_" . $linked_table if $link->unique;
+
+        # If the foreign key points to non-unique rows, then the accessor will
+        # return a DBIx::QuickORM::Select object:
+        return "select_" . $linked_table . "s";
+    };
+
+You can also provide custom names for tables. When using the table in the ORM
+you would use the name provided here, but under the hood the ORM will use the
+correct table name in queries.
+
+    autoname table => sub {
+        my %params = @_;
+        my $name   = $params{name};     # The name of the table in the database
+        my $table  = $params{table};    # A hashref that will be blessed into the DBIx::QuickORM::Schema::Table once the name is set.
+
+        return $new_name;
+    };
+
+You can also set aliases for links before they are constructed:
+
+    autoname link => sub {
+        my %params       = @_;
+        my $in_table     = $params{in_table};
+        my $in_fields    = $params{in_fields};
+        my $fetch_table  = $params{fetch_table};
+        my $fetch_fields = $params{fetch_fields};
+
+        return $alias;
+    };
+
+=item autohook HOOK => sub { my %params = @_; ... }
+
+See L<DBIx::QuickORM::Schema::Autofill> for a list of hooks and their params.
 
 =back
 

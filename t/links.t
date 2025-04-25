@@ -26,8 +26,6 @@ do_for_all_dbs {
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
 
-    debug($orm->schema);
-
     my $foo_a = $orm->insert('foo' => {name => 'a'});
     my $foo_b = $orm->insert('foo' => {name => 'b'});
 

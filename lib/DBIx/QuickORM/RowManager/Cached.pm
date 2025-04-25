@@ -40,6 +40,8 @@ sub cache {
 
     delete $scache->{$self->cache_key($old_pk)} if $old_pk;
 
+    return unless $sqla_source->primary_key;
+
     $new_pk //= [$row->primary_key_value_list];
     my $new_key = $self->cache_key($new_pk);
     $scache->{$new_key} = $row;
@@ -51,7 +53,10 @@ sub uncache {
     my $self = shift;
     my ($sqla_source, $row, $old_pk, $new_pk) = @_;
 
-    my $pk = $old_pk // $new_pk // ($row ? $row->primary_key_hashref : undef);
+    my $pk = $old_pk // $new_pk;
+    if ($row && !$pk && $row->primary_key) {
+        $pk = $row->primary_key_hashref;
+    }
 
     # No pk, not a cachable row
     return unless $pk && @$pk;
