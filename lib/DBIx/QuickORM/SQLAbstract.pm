@@ -2,7 +2,7 @@ package DBIx::QuickORM::SQLAbstract;
 use strict;
 use warnings;
 
-our $VERSION = '0.000007';
+our $VERSION = '0.000008';
 
 use Scalar::Util qw/blessed/;
 use parent 'SQL::Abstract';
