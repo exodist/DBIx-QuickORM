@@ -81,7 +81,9 @@ sub _vivify {
 sub vivify {
     my $self = shift;
     my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
-    return $self->_vivify($sqla_source, $self->_state(pending => $fetched));
+    $row //= $self->_vivify($sqla_source, $self->_state(pending => $fetched));
+
+    return $row;
 }
 
 sub insert {
@@ -102,7 +104,9 @@ sub do_insert {
 
     $row->{+ROW_DATA}->change_state($state) if $row;
 
-    return $row // $self->_vivify($sqla_source, $state);
+    $row //= $self->_vivify($sqla_source, $state);
+
+    return $row;
 }
 
 sub update {
@@ -121,10 +125,12 @@ sub do_update {
 
     my $state = $self->_state(stored => $fetched, pending => undef, desync => undef);
 
-    return $self->_vivify($sqla_source, $state)
-        unless $row;
-
-    $row->{+ROW_DATA}->change_state($state);
+    if ($row) {
+        $row->{+ROW_DATA}->change_state($state);
+    }
+    else {
+        $row = $self->_vivify($sqla_source, $state)
+    }
 
     return $row;
 }
@@ -182,6 +188,7 @@ sub parse_params {
 
     my $new_pk = $params->{new_primary_key};
 
+    my $prefetched;
     my $fetched = $params->{fetched};
     unless ($skip{fetched}) {
         my @pk_vals;
@@ -204,6 +211,12 @@ sub parse_params {
         }
     }
 
+    if ($fetched) {
+        if (my $cb = $sqla_source->prefetch) {
+            $prefetched = $cb->($fetched);
+        }
+    }
+
     my $old_pk = $params->{old_primary_key};
 
     my $row;
@@ -221,7 +234,7 @@ sub parse_params {
         $row //= $cached;
     }
 
-    return ($sqla_source, $fetched, $old_pk, $new_pk, $row);
+    return ($sqla_source, $fetched, $old_pk, $new_pk, $row, $prefetched);
 }
 
 1;

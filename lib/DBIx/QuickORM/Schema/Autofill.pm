@@ -80,6 +80,8 @@ sub define_autorow {
     my $self = shift;
     my ($row_class, $table) = @_;
 
+    print "Defined '$row_class'";
+
     for my $column ($table->columns) {
         my $field = $column->name;
         my $accessor = $self->hook(field_accessor => {table => $table, name => $field, field => $field, column => $column}, $field);
@@ -91,7 +93,7 @@ sub define_autorow {
     }
 
     for my $link ($table->links) {
-        my $to = $link->table;
+        my $to = $link->other_table;
         my $aliases = $link->aliases;
 
         unless ($aliases && @$aliases) {
@@ -99,7 +101,7 @@ sub define_autorow {
         }
 
         for my $alias (@$aliases) {
-            my $accessor = $self->hook(link_accessor => {table => $table, linked_table => $link->table, name => $alias, link => $link}, $alias);
+            my $accessor = $self->hook(link_accessor => {table => $table, linked_table => $link->other_table, name => $alias, link => $link}, $alias);
             next unless $accessor;
             no strict 'refs';
             next if defined &{"$row_class\::$accessor"};

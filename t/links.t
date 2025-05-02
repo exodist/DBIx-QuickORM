@@ -1,6 +1,7 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 use Carp::Always;
+use Test2::Plugin::DieOnFail;
 
 use lib 't/lib';
 use DBIx::QuickORM::Test;
@@ -57,14 +58,22 @@ do_for_all_dbs {
     is($has_foo_a4->siblings(['foo_id'])->count,     4, "Got all 4 siblings (including self)");
     is($has_foo_a4->siblings(['has_foo_id'])->count, 1, "Only self");
 
-    my $link = bless({}, 'DBIx::QuickORM::Schema::Link');
+    my $link = bless({}, 'DBIx::QuickORM::Link');
     ref_is($foo_a->parse_link($link), $link, "If it is already a link just return it");
 
-    $link = $foo_a->parse_link({table => 'foo', local_columns => ['foo_id'], other_columns => ['foo_id']});
-    isa_ok($link, ['DBIx::QuickORM::Schema::Link'], "Created a link object");
+    $link = $foo_a->parse_link({table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id']});
+    isa_ok($link, ['DBIx::QuickORM::Link'], "Created a link object");
     like(
         $link,
-        {table => 'foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => T()},
+        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
+        "Created link, and set unique"
+    );
+
+    $link = $has_foo_a1->parse_link({table => 'foo', local_columns => ['foo_id'], other_columns => ['foo_id']});
+    isa_ok($link, ['DBIx::QuickORM::Link'], "Created a link object");
+    like(
+        $link,
+        {local_table => 'has_foo', other_table => 'foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => T()},
         "Created link, and set unique"
     );
 
@@ -76,39 +85,39 @@ do_for_all_dbs {
 
     like(
         $foo_a->parse_link({has_foo => 'foo_id'}),
-        {table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
+        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
         "Super simple search"
     );
 
     like(
         $foo_a->parse_link({has_foo => ['foo_id']}),
-        {table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
+        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
         "Super simple search, multi-col"
     );
 
     like(
         $foo_a->parse_link({has_foo => {local => 'foo_id', other => 'foo_id'}}),
-        {table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
+        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
         "Another form"
     );
 
     like(
-        $foo_a->parse_link({table => 'has_foo', fields => 'foo_id', has_foo => 'foo_id'}),
-        {table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
+        $foo_a->parse_link({local_table => 'foo', other_table => 'has_foo', fields => 'foo_id', has_foo => 'foo_id'}),
+        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
         "Long form"
     );
 
     like(
-        $foo_a->parse_link({table => 'has_foo', local_fields => 'foo_id', has_foo => 'foo_id'}),
-        {table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
+        $foo_a->parse_link({local_table => 'foo', other_table => 'has_foo', local_fields => 'foo_id', has_foo => 'foo_id'}),
+        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
         "Long form 2"
     );
 
     like(
         $foo_a->parse_link({table => 'has_foo', fields => ['foo_id']}),
-        {table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
+        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
         "Long form 3"
     );
-};
+} qw/system_postgresql/;
 
 done_testing;

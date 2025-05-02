@@ -22,8 +22,8 @@ do_for_all_dbs {
                 my %params = @_;
                 my $link = $params{link};
 
-                return "obtain_" . $link->table if $params{link}->unique;
-                return "select_" . $link->table . "s";
+                return "obtain_" . $link->other_table if $params{link}->unique;
+                return "select_" . $link->other_table . "s";
             };
 
             autoname field_accessor => sub {
