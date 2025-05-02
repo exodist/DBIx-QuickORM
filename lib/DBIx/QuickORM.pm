@@ -1311,6 +1311,7 @@ The ORM class
     orm my_orm => sub {
         # Define your object
         db my_db => sub {
+            dialect 'PostgreSQL'; # Or MySQL, MariaDB, SQLite
             host 'mydb.mydomain.com';
             port 1234;
 
@@ -1358,6 +1359,7 @@ The ORM class
     orm my_orm => sub {
         # Define your object
         db my_db => sub {
+            dialect 'PostgreSQL'; # Or MySQL, MariaDB, SQLite
             host 'mydb.mydomain.com';
             port 1234;
 
@@ -1556,12 +1558,15 @@ or even both.
     orm my_orm => sub {
         db myapp => sub {
             alt mysql => sub {
+                dialect 'MySQL';
+                driver '+DBD::mysql';     # Or 'mysql', '+DBD::MariaDB', 'MariaDB'
                 host 'mysql.myapp.com';
                 user $MYSQL_USER;
                 pass $MYSQL_PASS;
                 db_name 'myapp_mysql';    # In mysql the db is named myapp_mysql
             };
             alt pgsql => sub {
+                dialect 'PostgreSQL';
                 host 'pgsql.myapp.com';
                 user $PGSQL_USER;
                 pass $PGSQL_PASS;
@@ -1614,6 +1619,7 @@ combine them. You can also define a 'server' that has multiple databases.
     use DBIx::QuickORM;
 
     server pg => sub {
+        dialect 'PostgreSQL';
         host 'pg.myapp.com';
         user $USER;
         pass $PASS;
@@ -1704,11 +1710,11 @@ Can be used to add variations to any builder:
         db mydb => sub {
             # ************************************
             alt mysql => sub {
-                driver 'MySQL';
+                dialect 'MySQL';
             };
 
             alt pgsql => sub {
-                driver 'PostgreSQL';
+                dialect 'PostgreSQL';
             };
             # ************************************
         };
@@ -1752,7 +1758,7 @@ the mysql variants of the db, schema, tables and rows.
 Used to define a database.
 
     db mydb => sub {
-        driver 'MySQL';
+        dialect 'MySQL';
         host 'mysql.myapp.com';
         port 1234;
         user $MYSQL_USER;
