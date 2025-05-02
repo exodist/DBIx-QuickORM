@@ -157,6 +157,23 @@ The ORM class
         print $person->field('first_name') . "\n"
     }
 
+    my $new_select = $select->limit(5)->order_by('surname')->omit(@large_fields);
+    my $iterator = $new_select->iterator; # Query is actually sent to DB here.
+    while (my $row = $iterator->next) {
+        ...
+    }
+
+    # Start an async query
+    my $async = $select->async->iterator;
+
+    while (!$async->ready) {
+        do_something_else();
+    }
+
+    while (my $item = $iterator->next) {
+        ...
+    }
+
 # A NOTE ON AFFINITY
 
 Whenever you define a column in DBIx::QuickORM it is necessary for the orm to
