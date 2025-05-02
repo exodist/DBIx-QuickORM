@@ -390,7 +390,7 @@ sub autorow {
     $top->{autorow} = $base;
 
     local $@;
-    my $parent = load_class($base) // load_class('DBIx::QuickORM::Row');
+    my $parent = load_class($base) // load_class('DBIx::QuickORM::Row') or die $@;
     $self->autohook(post_table => sub {
         my %params = @_;
         my $autofill = $params{autofill};
@@ -1407,8 +1407,8 @@ The ORM class
                     my %params = @_;
                     my $link = $params{link};
 
-                    return "obtain_" . $link->table if $params{link}->unique;
-                    return "select_" . $link->table . "s";
+                    return "obtain_" . $link->other_table if $params{link}->unique;
+                    return "select_" . $link->other_table . "s";
                 };
 
                 # You can provide custom names for field accessors when using autorow
@@ -2510,7 +2510,7 @@ You can also name the C<< $row->LINK >> accessor
     autoname link_accessor => sub {
         my %params = @_;
         my $name         = $params{name};        # Name that would be used by default
-        my $link         = $params{link};        # DBIx::QuickORM::Schema::Link object
+        my $link         = $params{link};        # DBIx::QuickORM::Link object
         my $table        = $params{table};       # DBIx::QuickORM::Schema::Table object
         my $linked_table = $params{linked_table} # Name of the table being linked to
 

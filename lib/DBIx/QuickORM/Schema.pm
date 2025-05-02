@@ -9,7 +9,7 @@ use Scalar::Util qw/blessed/;
 
 use DBIx::QuickORM::Util qw/merge_hash_of_objs column_key/;
 
-use DBIx::QuickORM::Schema::Link;
+use DBIx::QuickORM::Link;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <name
@@ -91,18 +91,20 @@ sub resolve_links {
         my $local_unique //= $other_table->unique->{column_key(@{$other_cols})} ? 1 : 0;
         my $other_unique //= $local_table->unique->{column_key(@{$local_cols})} ? 1 : 0;
 
-        my $local_link = DBIx::QuickORM::Schema::Link->new(
-            table         => $other_tname,
+        my $local_link = DBIx::QuickORM::Link->new(
+            local_table   => $local_tname,
             local_columns => $local_cols,
+            other_table   => $other_tname,
             other_columns => $other_cols,
             unique        => $local_unique,
             aliases       => [grep { $_ } $local_alias],
             created       => $debug,
         );
 
-        my $other_link = DBIx::QuickORM::Schema::Link->new(
-            table         => $local_tname,
+        my $other_link = DBIx::QuickORM::Link->new(
+            local_table   => $other_tname,
             local_columns => $other_cols,
+            other_table   => $local_tname,
             other_columns => $local_cols,
             unique        => $other_unique,
             aliases       => [grep { $_ } $other_alias],

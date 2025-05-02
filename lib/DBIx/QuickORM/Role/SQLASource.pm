@@ -23,6 +23,8 @@ requires qw{
     fields_list_all
 };
 
+sub prefetch { }
+
 sub cachable { $_[0]->{sqlas_cachable} //= $_[0]->_cachable }
 
 sub _cachable {

@@ -17,7 +17,6 @@ use DBIx::QuickORM::Schema;
 use DBIx::QuickORM::Schema::Table;
 use DBIx::QuickORM::Schema::Table::Column;
 use DBIx::QuickORM::Schema::View;
-use DBIx::QuickORM::Schema::Link;
 
 sub fallback_ver { 1 }
 sub oldest_ver   { 1 }

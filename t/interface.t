@@ -634,7 +634,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     links => {
                         foo => {
                             x => {
-                                table         => 'foo',
+                                local_table   => 'bar',
+                                other_table   => 'foo',
                                 key           => 'x',
                                 aliases       => ['foo2', 'foo3'],
                                 local_columns => ['x'],
@@ -643,7 +644,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                                 created       => T(),
                             },
                             xyz => {
-                                table         => 'foo',
+                                local_table   => 'bar',
+                                other_table   => 'foo',
                                 key           => 'xyz',
                                 aliases       => ['foo1'],
                                 local_columns => ['xyz'],
@@ -655,7 +657,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     },
                     links_by_alias => {
                         foo1 => {
-                            table         => 'foo',
+                            local_table   => 'bar',
+                            other_table   => 'foo',
                             key           => 'xyz',
                             aliases       => ['foo1'],
                             local_columns => ['xyz'],
@@ -664,7 +667,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             created       => T(),
                         },
                         foo2 => {
-                            table         => 'foo',
+                            local_table   => 'bar',
+                            other_table   => 'foo',
                             key           => 'x',
                             aliases       => ['foo2', 'foo3'],
                             local_columns => ['x'],
@@ -673,7 +677,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             created       => T(),
                         },
                         foo3 => {
-                            table         => 'foo',
+                            local_table   => 'bar',
+                            other_table   => 'foo',
                             key           => 'x',
                             aliases       => ['foo2', 'foo3'],
                             local_columns => ['x'],
@@ -736,7 +741,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     links => {
                         bar => {
                             c => {
-                                table         => 'bar',
+                                local_table   => 'foo',
+                                other_table   => 'bar',
                                 key           => 'c',
                                 aliases       => ['get_bar'],
                                 local_columns => ['c'],
@@ -745,7 +751,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                                 created       => T(),
                             },
                             x => {
-                                table         => 'bar',
+                                local_table   => 'foo',
+                                other_table   => 'bar',
                                 key           => 'x',
                                 aliases       => ['bar1', 'bar2'],
                                 local_columns => ['x'],
@@ -757,7 +764,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     },
                     links_by_alias => {
                         get_bar => {
-                            table         => 'bar',
+                            local_table   => 'foo',
+                            other_table   => 'bar',
                             key           => 'c',
                             aliases       => ['get_bar'],
                             local_columns => ['c'],
@@ -766,7 +774,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             created       => T(),
                         },
                         bar1 => {
-                            table         => 'bar',
+                            local_table   => 'foo',
+                            other_table   => 'bar',
                             key           => 'x',
                             aliases       => ['bar1', 'bar2'],
                             local_columns => ['x'],
@@ -775,7 +784,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             created       => T(),
                         },
                         bar2 => {
-                            table         => 'bar',
+                            local_table   => 'foo',
+                            other_table   => 'bar',
                             key           => 'x',
                             aliases       => ['bar1', 'bar2'],
                             local_columns => ['x'],
@@ -783,7 +793,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             unique        => F(),
                             created       => T(),
                         },
-
                     },
                 },
             }

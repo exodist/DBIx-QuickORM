@@ -23,7 +23,7 @@ my %BASE_SCHEMA = (
             },
             links => {
                 lights => {
-                    light_id => {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], table => 'lights', unique => T()},
+                    light_id => {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], local_table => 'aliases', other_table => 'lights', unique => T()},
                 },
             },
             unique => {
@@ -45,7 +45,7 @@ my %BASE_SCHEMA = (
             },
             links => {
                 complex_ref => {
-                    'name_a, name_b' => {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], table => 'complex_ref', unique => T()},
+                    'name_a, name_b' => {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], local_table => 'complex_keys', other_table => 'complex_ref', unique => T()},
                 },
             },
             unique => {
@@ -67,7 +67,7 @@ my %BASE_SCHEMA = (
             },
             links => {
                 complex_keys => {
-                    'name_a, name_b' => {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], table => 'complex_keys', unique => T()},
+                    'name_a, name_b' => {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], local_table => 'complex_ref', other_table => 'complex_keys', unique => T()},
                 },
             },
             unique => {
@@ -108,7 +108,7 @@ my %BASE_SCHEMA = (
             },
             links => {
                 aliases => {
-                    light_id => {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], table => 'aliases', unique => F()},
+                    light_id => {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], local_table => 'lights', other_table => 'aliases', unique => F()},
                 },
             },
             unique => {
@@ -389,14 +389,14 @@ do_for_all_dbs {
         }
 
         for my $link ($table->links) {
-            isa_ok($link, ['DBIx::QuickORM::Schema::Link'], "Link $table->{name}->$link->{table} is correct type");
+            isa_ok($link, ['DBIx::QuickORM::Link'], "Link $table->{name}->$link->{other_table} is correct type");
         }
     }
 
     isa_ok($schema->maybe_table('aliases'), ['DBIx::QuickORM::Schema::Table'], "Can get table by name");
     isa_ok($schema->maybe_table('aliases')->column('alias_id'), ['DBIx::QuickORM::Schema::Table::Column'], "Can get column by name");
-    isa_ok($schema->maybe_table('aliases')->link(table => 'lights'), ['DBIx::QuickORM::Schema::Link'], "Can get link by table");
-    isa_ok($schema->maybe_table('aliases')->link(table => 'lights', cols => ['light_id']), ['DBIx::QuickORM::Schema::Link'], "Can get link by table + cols");
+    isa_ok($schema->maybe_table('aliases')->link(table => 'lights'), ['DBIx::QuickORM::Link'], "Can get link by table");
+    isa_ok($schema->maybe_table('aliases')->link(table => 'lights', cols => ['light_id']), ['DBIx::QuickORM::Link'], "Can get link by table + cols");
 };
 
 done_testing;
