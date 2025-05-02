@@ -71,6 +71,7 @@ sub do_for_all_dbs(&;@) {
     for my $set (@SETS) {
         next if @_ && !$only{$set->{name}};
         for my $dbi (@{$set->{dbi}}) {
+            cull();
             $pr->run(sub {
                 subtest "$set->{name} x DBD::$dbi" => sub {
                     $ENV{$_} = $set->{env}->{$_} for keys %{$set->{env}};

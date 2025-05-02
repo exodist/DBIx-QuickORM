@@ -80,8 +80,6 @@ sub define_autorow {
     my $self = shift;
     my ($row_class, $table) = @_;
 
-    print "Defined '$row_class'";
-
     for my $column ($table->columns) {
         my $field = $column->name;
         my $accessor = $self->hook(field_accessor => {table => $table, name => $field, field => $field, column => $column}, $field);
