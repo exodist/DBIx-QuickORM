@@ -362,6 +362,6 @@ do_for_all_dbs {
 
         ok($con->all('example'), "Connected");
     };
-} qw/system_postgresql/;
+};
 
 done_testing;
