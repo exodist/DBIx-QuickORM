@@ -118,6 +118,6 @@ do_for_all_dbs {
         {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
         "Long form 3"
     );
-} qw/system_postgresql/;
+};
 
 done_testing;
