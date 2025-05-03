@@ -21,6 +21,13 @@ use DBIx::QuickORM::Util::HashBase qw{
     +dbi_driver
 };
 
+sub async_supported        { 1 }
+sub async_cancel_supported { 0 }
+sub async_prepare_args     { $_[0]->dbi_driver eq 'DBD::mysql' ? (async => 1)                     : (mariadb_async => 1) }
+sub async_ready            { $_[0]->dbi_driver eq 'DBD::mysql' ? $_[1]->sth->mysql_async_ready()  : $_[1]->sth->mariadb_async_ready() }
+sub async_result           { $_[0]->dbi_driver eq 'DBD::mysql' ? $_[1]->sth->mysql_async_result() : $_[1]->sth->mariadb_async_result() }
+sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does not support canceling async queries" }
+
 sub start_txn          { $_[0]->dbh->begin_work }
 sub commit_txn         { $_[0]->dbh->commit }
 sub rollback_txn       { $_[0]->dbh->rollback }
