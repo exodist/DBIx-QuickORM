@@ -28,6 +28,13 @@ sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }
 sub supports_returning_delete { 1 }
 
+sub async_supported        { 0 }
+sub async_cancel_supported { 0 }
+sub async_prepare_args     { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
+sub async_ready            { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
+sub async_result           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
+sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
+
 sub start_txn          { $_[0]->dbh->begin_work }
 sub commit_txn         { $_[0]->dbh->commit }
 sub rollback_txn       { $_[0]->dbh->rollback }

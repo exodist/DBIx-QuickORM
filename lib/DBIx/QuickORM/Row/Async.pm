@@ -14,8 +14,9 @@ sub isa {
 
     if (my $class = Scalar::Util::blessed($this)) {
         if ($this->ready) {
+            my $a = $_[0];
             $_[0] = $this->swapout;
-            return $_[0]->isa($check);
+            return $_[0]->isa($check) unless $a == $_[0];
         }
 
         return 1 if $check eq $class;

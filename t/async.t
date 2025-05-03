@@ -11,6 +11,11 @@ use DBIx::QuickORM::Test;
 do_for_all_dbs {
     my $db = shift;
 
+    if (curdialect() =~ m/sqlite/i) {
+        skip_all "Skipping for sqlite...";
+        return;
+    }
+
     db mydb => sub {
         dialect curdialect();
         db_name 'quickdb';
@@ -27,7 +32,12 @@ do_for_all_dbs {
     ok(my $row2 = $orm->source('example')->insert({name => 'b'}), "Inserted a row");
     ok(my $row3 = $orm->source('example')->insert({name => 'c'}), "Inserted a row");
 
-    my $async = $orm->async(example => (where => {name => 'a'}, fields => ['name', 'id', \'pg_sleep(1)']))->first;
+    my $async = $orm->async(
+        example => (
+            where  => {name => 'a'},
+            fields => ['name', 'id', curdialect() =~ m/PostgreSQL/ ? \'pg_sleep(1)' : \'SLEEP(1)']
+        )
+    )->first;
     my $other_ref = $async;
 
     my $nasync = $orm->in_async;
@@ -73,6 +83,6 @@ do_for_all_dbs {
     is($async4->next->field('name'), 'c', "Got c");
     is($async4->next, undef, "Out of rows");
     is($async4->next, undef, "Out of rows");
-} qw/system_postgresql/;
+};
 
 done_testing;
