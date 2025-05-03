@@ -188,7 +188,6 @@ sub parse_params {
 
     my $new_pk = $params->{new_primary_key};
 
-    my $prefetched;
     my $fetched = $params->{fetched};
     unless ($skip{fetched}) {
         my @pk_vals;
@@ -211,12 +210,6 @@ sub parse_params {
         }
     }
 
-    if ($fetched) {
-        if (my $cb = $sqla_source->prefetch) {
-            $prefetched = $cb->($fetched);
-        }
-    }
-
     my $old_pk = $params->{old_primary_key};
 
     my $row;
@@ -234,7 +227,7 @@ sub parse_params {
         $row //= $cached;
     }
 
-    return ($sqla_source, $fetched, $old_pk, $new_pk, $row, $prefetched);
+    return ($sqla_source, $fetched, $old_pk, $new_pk, $row);
 }
 
 1;
