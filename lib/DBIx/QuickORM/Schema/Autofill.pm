@@ -3,6 +3,7 @@ use strict;
 use warnings;
 
 use List::Util qw/first/;
+use DBIx::QuickORM::Util qw/load_class/;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <types
@@ -79,6 +80,15 @@ sub process_column {
 sub define_autorow {
     my $self = shift;
     my ($row_class, $table) = @_;
+
+    unless(load_class($row_class)) {
+        my $err = $@;
+        die $@ unless $@ =~ m/Can't locate.*in \@INC/;
+        my $row_file = $row_class;
+        $row_file =~ s{::}{/}g;
+        $row_file .= ".pm";
+        $INC{$row_file} = __FILE__;
+    }
 
     for my $column ($table->columns) {
         my $field = $column->name;

@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use feature qw/state/;
 
-use Carp qw/confess/;
+use Carp qw/confess croak/;
 use Sub::Util qw/set_subname/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Source;
@@ -76,6 +76,74 @@ sub source {
     return DBIx::QuickORM::Source->new(
         CONNECTION()  => $self->{+CONNECTION},
         SQLA_SOURCE() => $self->{+SQLA_SOURCE},
+    );
+}
+
+{
+    no warnings 'once';
+    *join = \&prefetch;
+}
+sub prefetch {
+    my $self = shift;
+    my ($link, %params) = @_;
+
+    $link = $self->_parse_link($link, %params);
+
+    my $join;
+    my $source = $self->{+SQLA_SOURCE};
+    if ($source->isa('DBIx::QuickORM::Join')) {
+        $join = $source;
+    }
+    else {
+        require DBIx::QuickORM::Join;
+        $join = DBIx::QuickORM::Join->new(
+            primary_source => $self->{+SQLA_SOURCE},
+            schema         => $self->{+CONNECTION}->schema,
+        );
+    }
+
+    $join = $join->join($link);
+
+    my $x = $self->clone(SQLA_SOURCE() => $join, FIELDS() => $join->fields_to_fetch);
+
+    return $x;
+}
+
+# TODO move this to a role, ::Row uses it too.
+sub _parse_link {
+    my $self = shift;
+    my ($link, %params) = @_;
+
+    return $link if blessed($link) && $link->isa('DBIx::QuickORM::Link');
+
+    my $ref = ref($link);
+    my $found;
+
+    unless ($ref) {
+        my $source = $self->{+SQLA_SOURCE};
+        $source = $self->{+SQLA_SOURCE}->from($params{from}) if $params{from} && $source->can('from');
+
+        $found //= $source->links_by_alias->{$link} if $source->can('links_by_alias');
+
+        if ($source->can('links_by_table')) {
+            if (my $set = $source->links_by_table->{$link}) {
+                my $count = keys %$set;
+                croak "Could not find any links to table '$link'" unless $count;
+                if ($count > 1) {
+                    use Data::Dumper;
+                    croak "Found $count links to table '$link', you need to be more specific: " . Dumper($set);
+                }
+                ($found) = values %$set;
+            }
+        }
+
+        croak "Could not resolve link '$link'" unless $found;
+    }
+
+    return DBIx::QuickORM::Link->parse(
+        sqla_source => $self->{+SQLA_SOURCE},
+        connection  => $self->{+CONNECTION},
+        link        => $found // $link,
     );
 }
 

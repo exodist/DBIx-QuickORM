@@ -174,10 +174,9 @@ sub parse {
     croak "expected an arrayref in 'local_columns' got '$local_columns'" unless ref($local_columns) eq 'ARRAY' && @$local_columns;
     croak "expected an arrayref in 'other_columns' got '$other_columns'" unless ref($other_columns) eq 'ARRAY' && @$other_columns;
 
-    #<<<
-    my $unique = $link->{+UNIQUE} // $other ? ($other->unique->{column_key(@$other_columns)} ? 1 : 0)
-                                            : croak "'unique' not defined, and no schema provided to check";
-    #>>>
+    my $unique = $link->{+UNIQUE};
+    $unique //= $other->unique->{column_key(@$other_columns)} ? 1 : 0 if $other;
+    croak "'unique' not defined, and no schema provided to check" unless defined $unique;
 
     return $class->new(
         LOCAL_TABLE()   => $local_table,
