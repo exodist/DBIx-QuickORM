@@ -805,8 +805,6 @@ sub select {
     $self->pid_check;
     $self->async_check;
 
-    croak "Not enough arguments" unless @_;
-
     my %params;
     if (@_) {
         if (ref($_[0]) eq 'HASH') {
