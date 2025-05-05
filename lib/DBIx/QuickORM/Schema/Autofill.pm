@@ -100,7 +100,7 @@ sub define_autorow {
         *{"$row_class\::$accessor"} = sub { shift->field($field, @_) };
     }
 
-    for my $link ($table->links) {
+    for my $link (@{$table->links}) {
         my $to = $link->other_table;
         my $aliases = $link->aliases;
 

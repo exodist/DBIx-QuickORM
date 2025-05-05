@@ -76,9 +76,7 @@ sub clone {
 #####################
 
 sub check_sync {
-    return $_[0] unless $_[0]->track_desync;
-
-    croak <<"    EOT" if $_[0]->{+DESYNC};
+    croak <<"    EOT" if $_[0]->{+DESYNC} && !$_[0]->track_desync;
 
 This row is out of sync, this means it was refreshed while it had pending
 changes and the data retrieved from the database does not match what was in
@@ -96,7 +94,7 @@ date data.
     croak <<"    EOT" if $_[0]->connection->current_txn && !$_[0]->row_data->{+TRANSACTION};
 
 This row was fetched outside of the current transaction stack. The row has not
-been refreshed since the new transaction stakc started, meaning the data is
+been refreshed since the new transaction stack started, meaning the data is
 likely stale and unreliable. The row should be refreshed before making changes.
 You can do this with a call to ->refresh().
 
@@ -137,7 +135,7 @@ sub discard {
     delete $self->row_data->{+DESYNC};
     delete $self->row_data->{+PENDING};
 
-    return;
+    return $self;
 }
 
 sub update {
@@ -153,6 +151,7 @@ sub update {
     }
 
     $self->save(%params);
+    return $self;
 }
 
 ############################
@@ -277,13 +276,5 @@ sub _raw_field {
 #####################
 # }}} Field methods #
 #####################
-
-####################
-# {{{ Link methods #
-####################
-
-####################
-# }}} Link methods #
-####################
 
 1;

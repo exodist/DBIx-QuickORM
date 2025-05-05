@@ -5,9 +5,11 @@ use warnings;
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 use Sub::Util qw/set_subname/;
+use DBIx::QuickORM::Join::Row;
 
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::SQLASource';
+with 'DBIx::QuickORM::Role::Linked';
 
 use DBIx::QuickORM::Util::HashBase qw{
     <schema
@@ -37,11 +39,11 @@ sub init {
     $self->{+COMPONENTS} //= {};
 
     my $first = $self->{+JOIN_AS}++;
-    push @{$self->{+ORDER}}                                         => $first;
+    push @{$self->{+ORDER}}                                            => $first;
     push @{$self->{+LOOKUP}->{$self->{+PRIMARY_SOURCE}->sqla_db_name}} => $first;
     $self->{+COMPONENTS}->{$first} = {table => $self->{+PRIMARY_SOURCE}, as => $first};
 
-    $self->{+ROW_CLASS} //= 'DBIx::QuickORM::Row';
+    $self->{+ROW_CLASS} //= 'DBIx::QuickORM::Join::Row';
 }
 
 sub fracture {
@@ -53,10 +55,12 @@ sub fracture {
     for my $as (@{$self->{+ORDER}}) {
         my $comp = $self->{+COMPONENTS}->{$as};
 
-        my $link  = $comp->{link};
-        my $table = $comp->{table};
-        my $data  = {map { m/^\Q$as\E\.(\.+)$/; ($1 => $in->{$_}) } grep { m/^\Q$as\E\./ } keys %$in};
+        my $not_null = 0;
+        my $link     = $comp->{link};
+        my $table    = $comp->{table};
+        my $data     = {map { $not_null ||= defined($in->{$_}); m/^\Q$as\E\.(.+)$/; ($1 => $in->{$_}) } grep { m/^\Q$as\E\./ } keys %$in};
 
+        next unless $not_null;
         push @$out => {sqla_source => $table, data => $data, as => $as, link => $link};
     }
 
@@ -172,35 +176,17 @@ sub fields_to_fetch {
     return join(', ' => @fields);
 }
 
-sub links_by_alias {
+sub links {
     my $self = shift;
 
-    my $out = {};
+    my @out;
 
     for my $as (@{$self->{+ORDER}}) {
         my $table = $self->{+COMPONENTS}->{$as}->{table};
-        %$out = (%$out, %{$table->links_by_alias});
+        push @out => @{$table->links};
     }
 
-    return $out;
-}
-
-sub links_by_table {
-    my $self = shift;
-
-    my $out = {};
-
-    for my $as (@{$self->{+ORDER}}) {
-        my $table = $self->{+COMPONENTS}->{$as}->{table};
-        for my $tname (keys %{$table->links_by_table}) {
-            %{$out->{$tname} //= {}} = (
-                %{$out->{$tname} //= {}},
-                %{$table->links_by_table->{$tname}},
-            );
-        }
-    }
-
-    return $out;
+    return \@out;
 }
 
 sub from {
@@ -253,10 +239,14 @@ sub from {
 
         croak "A join has already been made using the identifier '$as'" if $self->{+COMPONENTS}->{$as};
 
-        if ($from) {
-            croak "'$from' is not defined" unless $self->{+COMPONENTS}->{$from};
+        if ($from && !$self->{+COMPONENTS}->{$from}) {
+            my $check = $self->{+LOOKUP}->{$self->{+PRIMARY_SOURCE}->sqla_db_name};
+            croak "'$from' is not defined" unless @$check;
+            croak "'$from' source has multiple aliases: " . join(', ' => @$check) if @$check > 1;
+            ($from) = @$check;
         }
-        else {
+
+        unless($from) {
             my $lt = $link->local_table;
             if ($lt eq $self->{+PRIMARY_SOURCE}->name) {
                 $from = $self->{+ORDER}->[0];

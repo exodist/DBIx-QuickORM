@@ -91,7 +91,7 @@ sub resolve_links {
         my $local_unique //= $other_table->unique->{column_key(@{$other_cols})} ? 1 : 0;
         my $other_unique //= $local_table->unique->{column_key(@{$local_cols})} ? 1 : 0;
 
-        my $local_link = DBIx::QuickORM::Link->new(
+        push @{$local_table->links} => DBIx::QuickORM::Link->new(
             local_table   => $local_tname,
             local_columns => $local_cols,
             other_table   => $other_tname,
@@ -101,7 +101,7 @@ sub resolve_links {
             created       => $debug,
         );
 
-        my $other_link = DBIx::QuickORM::Link->new(
+        push @{$other_table->links} => DBIx::QuickORM::Link->new(
             local_table   => $other_tname,
             local_columns => $other_cols,
             other_table   => $local_tname,
@@ -110,20 +110,6 @@ sub resolve_links {
             aliases       => [grep { $_ } $other_alias],
             created       => $debug,
         );
-
-        if (my $exist = $local_table->links_by_table->{$other_tname}->{$local_link->key}) {
-            $local_link = $exist->merge($local_link);
-        }
-
-        if (my $exist = $other_table->links_by_table->{$local_tname}->{$other_link->key}) {
-            $other_link = $exist->merge($other_link);
-        }
-
-        $local_table->links_by_table->{$other_tname}->{$local_link->key} = $local_link;
-        $other_table->links_by_table->{$local_tname}->{$other_link->key} = $other_link;
-
-        $local_table->links_by_alias->{$_} = $local_link for @{$local_link->aliases};
-        $other_table->links_by_alias->{$_} = $other_link for @{$other_link->aliases};
     }
 
     return;

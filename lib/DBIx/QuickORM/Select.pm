@@ -87,7 +87,7 @@ sub prefetch {
     my $self = shift;
     my ($link, %params) = @_;
 
-    $link = $self->_parse_link($link, %params);
+    $link = $self->{+SQLA_SOURCE}->resolve_link($link, %params);
 
     my $join;
     my $source = $self->{+SQLA_SOURCE};
@@ -102,49 +102,11 @@ sub prefetch {
         );
     }
 
-    $join = $join->join($link);
+    $join = $join->join(%params, link => $link);
 
     my $x = $self->clone(SQLA_SOURCE() => $join, FIELDS() => $join->fields_to_fetch);
 
     return $x;
-}
-
-# TODO move this to a role, ::Row uses it too.
-sub _parse_link {
-    my $self = shift;
-    my ($link, %params) = @_;
-
-    return $link if blessed($link) && $link->isa('DBIx::QuickORM::Link');
-
-    my $ref = ref($link);
-    my $found;
-
-    unless ($ref) {
-        my $source = $self->{+SQLA_SOURCE};
-        $source = $self->{+SQLA_SOURCE}->from($params{from}) if $params{from} && $source->can('from');
-
-        $found //= $source->links_by_alias->{$link} if $source->can('links_by_alias');
-
-        if ($source->can('links_by_table')) {
-            if (my $set = $source->links_by_table->{$link}) {
-                my $count = keys %$set;
-                croak "Could not find any links to table '$link'" unless $count;
-                if ($count > 1) {
-                    use Data::Dumper;
-                    croak "Found $count links to table '$link', you need to be more specific: " . Dumper($set);
-                }
-                ($found) = values %$set;
-            }
-        }
-
-        croak "Could not resolve link '$link'" unless $found;
-    }
-
-    return DBIx::QuickORM::Link->parse(
-        sqla_source => $self->{+SQLA_SOURCE},
-        connection  => $self->{+CONNECTION},
-        link        => $found // $link,
-    );
 }
 
 sub sync {
@@ -199,7 +161,7 @@ sub where {
 sub order_by {
     my $self = shift;
     return $self->{+ORDER_BY} unless @_;
-    return $self->clone(ORDER_BY() => $_[0]);
+    return $self->clone(ORDER_BY() => @_ > 1 ? [@_] : $_[0]);
 }
 
 sub all_fields {

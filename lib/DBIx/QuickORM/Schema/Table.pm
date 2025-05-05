@@ -8,6 +8,9 @@ use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/column_key merge_hash_of_objs clone_hash_of_objs/;
 
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::Linked';
+
 use DBIx::QuickORM::Util::HashBase qw{
     +name
     +db_name
@@ -18,16 +21,16 @@ use DBIx::QuickORM::Util::HashBase qw{
     <created
     <compiled
     <is_temp
-    +_links
-    +links
-    <links_by_alias
+    <links
     <indexes
     <primary_key
+    +_links
 };
 
-sub is_view  { 0 }
-sub name     { $_[0]->{+NAME}    //= $_[0]->{+DB_NAME} }
-sub db_name  { $_[0]->{+DB_NAME} //= $_[0]->{+NAME} }
+sub is_view { 0 }
+sub name    { $_[0]->{+NAME}    //= $_[0]->{+DB_NAME} }
+sub db_name { $_[0]->{+DB_NAME} //= $_[0]->{+NAME} }
+sub _links  { delete $_[0]->{+_LINKS} }
 
 sub init {
     my $self = shift;
@@ -53,9 +56,8 @@ sub init {
         }
     }
 
-    $self->{+UNIQUE} //= {};
-    $self->{+LINKS} //= {};
-    $self->{+LINKS_BY_ALIAS} //= {};
+    $self->{+UNIQUE}  //= {};
+    $self->{+LINKS}   //= [];
     $self->{+INDEXES} //= [];
 }
 
@@ -63,12 +65,11 @@ sub merge {
     my $self = shift;
     my ($other, %params) = @_;
 
-    $params{+COLUMNS}        //= merge_hash_of_objs($self->{+COLUMNS}, $other->{+COLUMNS})               if $self->{+COLUMNS}        || $other->{+COLUMNS};
-    $params{+UNIQUE}         //= merge_hash_of_objs($self->{+UNIQUE}, $other->{+UNIQUE})                 if $self->{+UNIQUE}         || $other->{+UNIQUE};
-    $params{+LINKS}          //= merge_hash_of_objs($self->{+LINKS}, $other->{+LINKS})                   if $self->{+LINKS}          || $other->{+LINKS};
-    $params{+LINKS_BY_ALIAS} //= merge_hash_of_objs($self->{+LINKS_BY_ALIAS}, $other->{+LINKS_BY_ALIAS}) if $self->{+LINKS_BY_ALIAS} || $other->{+LINKS_BY_ALIAS};
-    $params{+INDEXES}        //= [@{$self->{+INDEXES}}, @{$other->{+INDEXES}}]                           if $self->{+INDEXES}        || $other->{+INDEXES};
-    $params{+PRIMARY_KEY}    //= [@{$self->{+PRIMARY_KEY}}]                                              if $self->{+PRIMARY_KEY}    || $other->{+PRIMARY_KEY};
+    $params{+COLUMNS}     //= merge_hash_of_objs($self->{+COLUMNS}, $other->{+COLUMNS}) if $self->{+COLUMNS}     || $other->{+COLUMNS};
+    $params{+UNIQUE}      //= merge_hash_of_objs($self->{+UNIQUE}, $other->{+UNIQUE})   if $self->{+UNIQUE}      || $other->{+UNIQUE};
+    $params{+LINKS}       //= [@{$self->{+LINKS}}, @{$other->{+LINKS}}]                 if $self->{+LINKS}       || $other->{+LINKS};
+    $params{+INDEXES}     //= [@{$self->{+INDEXES}}, @{$other->{+INDEXES}}]             if $self->{+INDEXES}     || $other->{+INDEXES};
+    $params{+PRIMARY_KEY} //= [@{$self->{+PRIMARY_KEY}}]                                if $self->{+PRIMARY_KEY} || $other->{+PRIMARY_KEY};
 
     return blessed($self)->new(%$self, %$other, %params);
 }
@@ -77,52 +78,13 @@ sub clone {
     my $self = shift;
     my (%params) = @_;
 
-    $params{+COLUMNS}        //= clone_hash_of_objs($self->{+COLUMNS})        if $self->{+COLUMNS};
-    $params{+UNIQUE}         //= clone_hash_of_objs($self->{+UNIQUE})         if $self->{+UNIQUE};
-    $params{+LINKS}          //= clone_hash_of_objs($self->{+LINKS})          if $self->{+LINKS};
-    $params{+LINKS_BY_ALIAS} //= clone_hash_of_objs($self->{+LINKS_BY_ALIAS}) if $self->{+LINKS_BY_ALIAS};
-    $params{+INDEXES}        //= [@{$self->{+INDEXES}}]                       if $self->{+INDEXES};
-    $params{+PRIMARY_KEY}    //= [@{$self->{+PRIMARY_KEY}}]                   if $self->{+PRIMARY_KEY};
+    $params{+COLUMNS}     //= clone_hash_of_objs($self->{+COLUMNS}) if $self->{+COLUMNS};
+    $params{+UNIQUE}      //= clone_hash_of_objs($self->{+UNIQUE})  if $self->{+UNIQUE};
+    $params{+LINKS}       //= [@{$self->{+LINKS}}]                  if $self->{+LINKS};
+    $params{+INDEXES}     //= [@{$self->{+INDEXES}}]                if $self->{+INDEXES};
+    $params{+PRIMARY_KEY} //= [@{$self->{+PRIMARY_KEY}}]            if $self->{+PRIMARY_KEY};
 
     return blessed($self)->new(%$self, %params);
-}
-
-sub _links { delete $_[0]->{+_LINKS} }
-
-sub links_by_table { $_[0]->{+LINKS} }
-
-sub links {
-    my $self = shift;
-    my ($table) = @_;
-
-    my @tables = $table ? ($table) : keys %{ $self->{+LINKS} };
-
-    return map { values %{ $self->{+LINKS}->{$_} // {}} } @tables;
-}
-
-sub link {
-    my $self = shift;
-    my %params = @_;
-
-    if (my $table = $params{table}) {
-        my $links = $self->{+LINKS}->{$table} or return undef;
-
-        if (my $cols = $params{columns} // $params{cols}) {
-            my $key = column_key(@$cols);
-            return $links->{$key} // undef;
-        }
-
-        for my $key (sort keys %$links) {
-            return $links->{$key} // undef;
-        }
-
-        return undef;
-    }
-    elsif (my $alias = $params{name}) {
-        return $self->{+LINKS_BY_ALIAS}->{$alias} // undef;
-    }
-
-    croak "Need a link name or table";
 }
 
 sub columns      { values %{$_[0]->{+COLUMNS}} }
@@ -137,7 +99,6 @@ sub column {
 
 # SQLASource role implementation
 {
-    use Role::Tiny::With qw/with/;
     with 'DBIx::QuickORM::Role::SQLASource';
 
     use DBIx::QuickORM::Util::HashBase qw{

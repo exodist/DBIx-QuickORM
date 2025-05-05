@@ -14,18 +14,15 @@ my %BASE_SCHEMA = (
             db_name        => 'aliases',
             primary_key    => ['alias_id'],
             is_temp        => F(),
-            links_by_alias => {},
 
             columns    => {
                 alias_id => {affinity => 'numeric', db_name => 'alias_id', name => 'alias_id', nullable => F(), order => 1, identity => T()},
                 light_id => {affinity => 'numeric', db_name => 'light_id', name => 'light_id', nullable => F(), order => 2},
                 name     => {affinity => 'string',  db_name => 'name',     name => 'name',     nullable => F(), order => 3},
             },
-            links => {
-                lights => {
-                    light_id => {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], local_table => 'aliases', other_table => 'lights', unique => T()},
-                },
-            },
+            links => [
+                {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], local_table => 'aliases', other_table => 'lights', unique => T(), created => T()},
+            ],
             unique => {
                 alias_id => ['alias_id'],
                 name     => ['name'],
@@ -36,18 +33,15 @@ my %BASE_SCHEMA = (
             db_name        => 'complex_keys',
             primary_key    => ['name_a', 'name_b'],
             is_temp        => F(),
-            links_by_alias => {},
 
             columns    => {
                 name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1},
                 name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2},
                 name_c => {affinity => 'string', db_name => 'name_c', name => 'name_c', nullable => T(), order => 3},
             },
-            links => {
-                complex_ref => {
-                    'name_a, name_b' => {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], local_table => 'complex_keys', other_table => 'complex_ref', unique => T()},
-                },
-            },
+            links => [
+                {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], local_table => 'complex_keys', other_table => 'complex_ref', unique => T(), created => T()},
+            ],
             unique => {
                 'name_a, name_b'         => ['name_a', 'name_b'],
                 'name_a, name_b, name_c' => ['name_a', 'name_b', 'name_c'],
@@ -58,18 +52,15 @@ my %BASE_SCHEMA = (
             db_name        => 'complex_ref',
             primary_key    => ['name_a', 'name_b'],
             is_temp        => F(),
-            links_by_alias => {},
 
             columns    => {
                 name_a => {affinity => 'string', db_name => 'name_a', name => 'name_a', nullable => F(), order => 1},
                 name_b => {affinity => 'string', db_name => 'name_b', name => 'name_b', nullable => F(), order => 2},
                 extras => {affinity => 'string', db_name => 'extras', name => 'extras', nullable => T(), order => 3},
             },
-            links => {
-                complex_keys => {
-                    'name_a, name_b' => {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], local_table => 'complex_ref', other_table => 'complex_keys', unique => T()},
-                },
-            },
+            links => [
+                {aliases => [], key => 'name_a, name_b', local_columns => ['name_a', 'name_b'], other_columns => ['name_a', 'name_b'], local_table => 'complex_ref', other_table => 'complex_keys', unique => T(), created => T()},
+            ],
             unique => {
                 'name_a, name_b' => ['name_a', 'name_b',],
             },
@@ -79,8 +70,7 @@ my %BASE_SCHEMA = (
             db_name        => 'light_by_name',
             primary_key    => undef,
             is_temp        => F(),
-            links          => {},
-            links_by_alias => {},
+            links          => [],
             unique         => {},
             indexes        => [],
 
@@ -98,7 +88,6 @@ my %BASE_SCHEMA = (
             db_name        => 'lights',
             primary_key    => ['light_id',],
             is_temp        => F(),
-            links_by_alias => {},
 
             columns    => {
                 light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, identity => T()},
@@ -106,11 +95,9 @@ my %BASE_SCHEMA = (
                 stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 3},
                 color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => F(), order => 4},
             },
-            links => {
-                aliases => {
-                    light_id => {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], local_table => 'lights', other_table => 'aliases', unique => F()},
-                },
-            },
+            links => [
+                {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], local_table => 'lights', other_table => 'aliases', unique => F(), created => T()},
+            ],
             unique => {
                 light_id => ['light_id',],
             },
@@ -388,15 +375,15 @@ do_for_all_dbs {
             isa_ok($col, ['DBIx::QuickORM::Schema::Table::Column'], "Column $table->{name}.$col->{name} is correct type");
         }
 
-        for my $link ($table->links) {
+        for my $link (@{$table->links}) {
             isa_ok($link, ['DBIx::QuickORM::Link'], "Link $table->{name}->$link->{other_table} is correct type");
         }
     }
 
     isa_ok($schema->maybe_table('aliases'), ['DBIx::QuickORM::Schema::Table'], "Can get table by name");
     isa_ok($schema->maybe_table('aliases')->column('alias_id'), ['DBIx::QuickORM::Schema::Table::Column'], "Can get column by name");
-    isa_ok($schema->maybe_table('aliases')->link(table => 'lights'), ['DBIx::QuickORM::Link'], "Can get link by table");
-    isa_ok($schema->maybe_table('aliases')->link(table => 'lights', cols => ['light_id']), ['DBIx::QuickORM::Link'], "Can get link by table + cols");
+    isa_ok($schema->maybe_table('aliases')->resolve_link(table => 'lights'), ['DBIx::QuickORM::Link'], "Can get link by table");
+    isa_ok($schema->maybe_table('aliases')->resolve_link(table => 'lights', cols => ['light_id']), ['DBIx::QuickORM::Link'], "Can get link by table + cols");
 };
 
 done_testing;
