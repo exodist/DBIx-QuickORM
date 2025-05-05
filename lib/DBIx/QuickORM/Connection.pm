@@ -18,6 +18,7 @@ use DBIx::QuickORM::Select;
 use DBIx::QuickORM::Source;
 use DBIx::QuickORM::Connection::Transaction;
 use DBIx::QuickORM::Connection::Async;
+use DBIx::QuickORM::Connection::Aside;
 use DBIx::QuickORM::Iterator;
 
 use DBIx::QuickORM::Connection::RowData qw{
@@ -53,6 +54,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <manager
     +internal_transactions
     <in_async
+    <asides
 };
 
 sub clear_async {
@@ -65,6 +67,15 @@ sub clear_async {
         unless $async == $self->{+IN_ASYNC};
 
     delete $self->{+IN_ASYNC};
+}
+
+sub clear_aside {
+    my $self = shift;
+    my ($aside) = @_;
+
+    croak "Not currently running that aside query" unless $self->{+ASIDES}->{$aside};
+
+    delete $self->{+ASIDES}->{$aside};
 }
 
 sub init {
@@ -83,6 +94,8 @@ sub init {
     $self->{+DIALECT} = $db->dialect->new(dbh => $self->{+DBH}, db_name => $db->db_name);
 
     $self->{+INTERNAL_TRANSACTIONS} //= 1;
+
+    $self->{+ASIDES} = {};
 
     my $txns = $self->{+TRANSACTIONS} //= [];
     my $manager = $self->{+MANAGER} // 'DBIx::QuickORM::RowManager::Cached';
@@ -205,13 +218,19 @@ sub _internal_txn {
 sub txn {
     my $self = shift;
     $self->pid_check;
-    $self->async_check;
 
     my $txns = $self->{+TRANSACTIONS};
 
     my $cb = (@_ && ref($_[0]) eq 'CODE') ? shift : undef;
     my %params = @_;
     $cb //= $params{action};
+
+    croak "Cannot start a transaction while there is an active async query" if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
+
+    unless ($params{ignore_aside}) {
+        my $count = grep { $_ && !$_->done } values %{$self->{+ASIDES} // {}};
+        croak "Cannot start a transaction while there is an active aside query (unless you use ignore_aside => 1)" if $count;
+    }
 
     croak "You must provide an 'action' coderef, either as the first argument to txn, or under the 'action' key in a parameterized list"
         unless $cb;
@@ -446,11 +465,12 @@ sub _make_sth {
     my $quote_bin = $dialect->quote_binary_data;
 
     my $dbh = $self->dbh;
-
-    if ($query && $query->{+QUERY_ASYNC}) {
+    if ($query && ($query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE})) {
         croak "Dialect '" . $dialect->dialect_name . "' does not support async" unless $dialect->async_supported;
         $prepare_args //= {};
         %$prepare_args = (%$prepare_args, $dialect->async_prepare_args);
+
+        $dbh = $self->{+ORM}->db->new_dbh if $query->{+QUERY_ASIDE};
     }
 
     my $sth = $dbh->prepare($stmt, $prepare_args);
@@ -478,21 +498,38 @@ sub _make_sth {
 
     $sth->execute();
 
-    return $sth unless $query && $query->{+QUERY_ASYNC};
+    return $sth unless $query && ($query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE});
 
     my $ready = 0;
 
-    my $async = DBIx::QuickORM::Connection::Async->new(
-        connection  => $self,
-        sqla_source => $sqla_source,
-        dbh         => $dbh,
-        sth         => $sth,
-    );
+    if ($query->{+QUERY_ASYNC}) {
+        my $async = DBIx::QuickORM::Connection::Async->new(
+            connection  => $self,
+            sqla_source => $sqla_source,
+            dbh         => $dbh,
+            sth         => $sth,
+        );
 
-    $self->{+IN_ASYNC} = $async;
-    weaken($self->{+IN_ASYNC});
+        $self->{+IN_ASYNC} = $async;
+        weaken($self->{+IN_ASYNC});
 
-    return $async;
+        return $async;
+    }
+    elsif ($query->{+QUERY_ASIDE}) {
+        my $aside = DBIx::QuickORM::Connection::Aside->new(
+            connection  => $self,
+            sqla_source => $sqla_source,
+            dbh         => $dbh,
+            sth         => $sth,
+        );
+
+        $self->{+ASIDES}->{$aside} = $aside;
+        weaken($self->{+ASIDES}->{$aside});
+
+        return $aside;
+    }
+
+    croak "This should not be reachable";
 }
 
 sub _execute_select {

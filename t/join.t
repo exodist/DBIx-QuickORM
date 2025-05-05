@@ -71,7 +71,11 @@ do_for_all_dbs {
     ok(!defined($five->by_alias('c')), "No baz reference");
 
     ok(!$iter->next, "Got all rows");
-};
+
+    $sel = $orm->select('foo')->left_join('bar')->left_join('bar:get_baz')->left_join('foo:get_baz')->order_by(qw/a.foo_id b.bar_id c.baz_id d.baz_id/);
+    debug($sel->data_only->all);
+
+} qw/system_postgresql/;
 
 done_testing;
 

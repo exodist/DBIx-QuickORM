@@ -2,6 +2,9 @@ package DBIx::QuickORM::Connection::Async;
 use strict;
 use warnings;
 
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::Async';
+
 use Carp qw/croak/;
 use Time::HiRes qw/sleep/;
 
@@ -15,11 +18,17 @@ use DBIx::QuickORM::Util::HashBase qw{
 
     +dialect
     +ready
-    +got_result
+    <got_result
     <done
 };
 
-sub dialect { $_[0]->{+DIALECT} //= $_[0]->{+CONNECTION}->dialect }
+sub dialect { $_[0]->{+DIALECT}    //= $_[0]->{+CONNECTION}->dialect }
+sub result  { $_[0]->{+GOT_RESULT} //= $_[0]->dialect->async_result($_[0]) }
+sub ready   { $_[0]->{+READY} ||= $_[0]->dialect->async_ready($_[0]) }
+
+sub cancel_supported { $_[0]->dialect->async_cancel_supported }
+
+sub clear { $_[0]->{+CONNECTION}->clear_async($_[0]) }
 
 sub init {
     my $self = shift;
@@ -32,8 +41,6 @@ sub init {
         unless $self->{+DBH} && $self->{+STH};
 }
 
-sub ready { $_[0]->{+READY} ||= $_[0]->dialect->async_ready($_[0]) }
-
 sub cancel {
     my $self = shift;
 
@@ -41,7 +48,7 @@ sub cancel {
 
     $self->dialect->async_cancel($self);
 
-    $self->{+CONNECTION}->clear_async($self);
+    $self->clear;
     $self->{+DONE} = 1;
 }
 
@@ -62,7 +69,7 @@ sub _next {
 
     return if $self->{+DONE};
 
-    $self->{+GOT_RESULT} //= $self->dialect->async_result($self);
+    $self->result;
 
     my $row = $self->sth->fetchrow_hashref();
 
@@ -78,25 +85,7 @@ sub set_done {
 
     return if $self->{+DONE};
 
-    $self->{+CONNECTION}->clear_async($self);
-    $self->{+DONE} = 1;
-}
-
-sub DESTROY {
-    my $self = shift;
-
-    return if $self->{+DONE};
-
-    unless ($self->{+GOT_RESULT}) {
-        if ($self->dialect->async_cancel_supported) {
-            $self->cancel;
-        }
-        else {
-            sleep 0.1 until $self->ready;
-            $self->dialect->async_result($self);
-        }
-    }
-
+    $self->clear;
     $self->{+DONE} = 1;
 }
 

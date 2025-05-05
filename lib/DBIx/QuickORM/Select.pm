@@ -79,6 +79,9 @@ sub source {
     );
 }
 
+sub left_join  { shift->prefetch(@_, type => 'LEFT') }
+sub right_join { shift->prefetch(@_, type => 'RIGHT') }
+sub inner_join { shift->prefetch(@_, type => 'INNER') }
 {
     no warnings 'once';
     *join = \&prefetch;
@@ -86,6 +89,8 @@ sub source {
 sub prefetch {
     my $self = shift;
     my ($link, %params) = @_;
+
+    ($params{from}, $link) = ($1, $2) if !ref($link) && $link =~ m/^(.+)\:(.+)$/;
 
     $link = $self->{+SQLA_SOURCE}->resolve_link($link, %params);
 
