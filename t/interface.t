@@ -11,11 +11,11 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     use DBIx::QuickORM::Util::HashBase;
     use Role::Tiny::With qw/with/;
     with 'DBIx::QuickORM::Role::Type';
-    sub qorm_inflate {}
-    sub qorm_deflate {}
-    sub qorm_compare {}
-    sub qorm_affinity {}
-    sub qorm_sql_type {}
+    sub qorm_inflate  { }
+    sub qorm_deflate  { }
+    sub qorm_compare  { }
+    sub qorm_affinity { }
+    sub qorm_sql_type { }
 
     package DBIx::QuickORM::Row::ClassA;
     $INC{'DBIx/QuickORM/Row/ClassA.pm'} = __FILE__;
@@ -35,7 +35,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
 {
     package Test::ORM;
-    use Test2::V0 qw/!pass !meta/, meta => { '-as' => 't2_meta' };
+    use Test2::V0 qw/!pass !meta/, meta => {'-as' => 't2_meta'};
     use Scalar::Util qw/blessed/;
 
     use ok 'DBIx::QuickORM';
@@ -479,11 +479,11 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     like(
         db('variable.db_one:mysql'),
         {
-            host => 'mysql',
-            name => 'db_one',
-            pass => 'foo',
-            port => 1234,
-            user => 'my_user',
+            host    => 'mysql',
+            name    => 'db_one',
+            pass    => 'foo',
+            port    => 1234,
+            user    => 'my_user',
             dialect => 'DBIx::QuickORM::Dialect::MySQL',
 
             created  => T(),
@@ -495,11 +495,11 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     like(
         db('variable.db_one:postgresql'),
         {
-            host => 'postgresql',
-            name => 'db_one',
-            pass => 'foo',
-            port => 2345,
-            user => 'pg_user',
+            host    => 'postgresql',
+            name    => 'db_one',
+            pass    => 'foo',
+            port    => 2345,
+            user    => 'pg_user',
             dialect => 'DBIx::QuickORM::Dialect::PostgreSQL',
 
             created  => T(),
@@ -511,11 +511,11 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     like(
         db('variable.db_two:mysql'),
         {
-            host => 'mysql',
-            name => 'db_two',
-            pass => 'foo',
-            port => 1234,
-            user => 'my_user',
+            host    => 'mysql',
+            name    => 'db_two',
+            pass    => 'foo',
+            port    => 1234,
+            user    => 'my_user',
             dialect => 'DBIx::QuickORM::Dialect::MySQL',
 
             created  => T(),
@@ -527,11 +527,11 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     like(
         db('variable.db_two:postgresql'),
         {
-            host => 'postgresql',
-            name => 'db_two',
-            pass => 'foo',
-            port => 2345,
-            user => 'pg_user',
+            host    => 'postgresql',
+            name    => 'db_two',
+            pass    => 'foo',
+            port    => 2345,
+            user    => 'pg_user',
             dialect => 'DBIx::QuickORM::Dialect::PostgreSQL',
 
             created  => T(),
@@ -554,10 +554,10 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     like(
         db('from_creds'),
         {
-            name   => 'from_creds',
-            user   => 'username',
-            pass   => 'password',
-            socket => 'socketname',
+            name    => 'from_creds',
+            user    => 'username',
+            pass    => 'password',
+            socket  => 'socketname',
             dialect => 'DBIx::QuickORM::Dialect::PostgreSQL',
 
             created  => T(),
@@ -605,7 +605,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         );
 
         link foo2 => [bar => [qw/x/]],
-             bar2 => [foo => [qw/x/]];
+            bar2  => [foo => [qw/x/]];
 
         link foo3 => [bar => [qw/x/]], foo => [qw/x/];
 
@@ -614,6 +614,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             bar => [qw/x/],
         );
     };
+
+    use DBIx::QuickORM::Util qw/debug/;
+    debug(schema('deeptest')->{tables}->{foo}->{links});
 
     like(
         schema('deeptest'),
@@ -631,32 +634,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             type => 'DBIx::QuickORM::Type::MyType',
                         },
                     },
-                    links => {
-                        foo => {
-                            x => {
-                                local_table   => 'bar',
-                                other_table   => 'foo',
-                                key           => 'x',
-                                aliases       => ['foo2', 'foo3'],
-                                local_columns => ['x'],
-                                other_columns => ['x'],
-                                unique        => F(),
-                                created       => T(),
-                            },
-                            xyz => {
-                                local_table   => 'bar',
-                                other_table   => 'foo',
-                                key           => 'xyz',
-                                aliases       => ['foo1'],
-                                local_columns => ['xyz'],
-                                other_columns => ['x'],
-                                unique        => F(),
-                                created       => T(),
-                            },
-                        },
-                    },
-                    links_by_alias => {
-                        foo1 => {
+                    links => [
+                        {
                             local_table   => 'bar',
                             other_table   => 'foo',
                             key           => 'xyz',
@@ -666,27 +645,27 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             unique        => F(),
                             created       => T(),
                         },
-                        foo2 => {
+                        {
                             local_table   => 'bar',
                             other_table   => 'foo',
                             key           => 'x',
-                            aliases       => ['foo2', 'foo3'],
+                            aliases       => ['foo2'],
                             local_columns => ['x'],
                             other_columns => ['x'],
                             unique        => F(),
                             created       => T(),
                         },
-                        foo3 => {
+                        {
                             local_table   => 'bar',
                             other_table   => 'foo',
                             key           => 'x',
-                            aliases       => ['foo2', 'foo3'],
+                            aliases       => ['foo3'],
                             local_columns => ['x'],
                             other_columns => ['x'],
                             unique        => F(),
                             created       => T(),
                         },
-                    },
+                    ],
                 },
                 foo => {
                     name        => 'foo',
@@ -738,32 +717,48 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                         {columns => ['b', 'y',], name => 'myidx2', type => 'foo', unique => 0},
                         {columns => ['a', 'b', 'x', 'y',], name => undef},
                     ],
-                    links => {
-                        bar => {
-                            c => {
-                                local_table   => 'foo',
-                                other_table   => 'bar',
-                                key           => 'c',
-                                aliases       => ['get_bar'],
-                                local_columns => ['c'],
-                                other_columns => ['xyz'],
-                                unique        => F(),
-                                created       => T(),
-                            },
-                            x => {
-                                local_table   => 'foo',
-                                other_table   => 'bar',
-                                key           => 'x',
-                                aliases       => ['bar1', 'bar2'],
-                                local_columns => ['x'],
-                                other_columns => ['xyz'],
-                                unique        => F(),
-                                created       => T(),
-                            },
+                    links => [
+                        {
+                            local_table   => 'foo',
+                            other_table   => 'bar',
+                            key           => 'x',
+                            aliases       => ['bar1'],
+                            local_columns => ['x'],
+                            other_columns => ['xyz'],
+                            unique        => F(),
+                            created       => T(),
                         },
-                    },
-                    links_by_alias => {
-                        get_bar => {
+                        {
+                            local_table   => 'foo',
+                            other_table   => 'bar',
+                            key           => 'x',
+                            aliases       => ['bar2'],
+                            local_columns => ['x'],
+                            other_columns => ['x'],
+                            unique        => F(),
+                            created       => T(),
+                        },
+                        {
+                          local_table => 'foo',
+                          other_table => 'bar',
+                          key => 'x',
+                          aliases => [],
+                          local_columns => [ 'x' ],
+                          other_columns => [ 'x' ],
+                          unique => F(),
+                          created => T(),
+                        },
+                        {
+                          local_table => 'foo',
+                          other_table => 'bar',
+                          key => 'x',
+                          aliases => [],
+                          local_columns => [ 'x' ],
+                          other_columns => [ 'x' ],
+                          unique => F(),
+                          created => T(),
+                        },
+                        {
                             local_table   => 'foo',
                             other_table   => 'bar',
                             key           => 'c',
@@ -773,27 +768,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                             unique        => F(),
                             created       => T(),
                         },
-                        bar1 => {
-                            local_table   => 'foo',
-                            other_table   => 'bar',
-                            key           => 'x',
-                            aliases       => ['bar1', 'bar2'],
-                            local_columns => ['x'],
-                            other_columns => ['xyz'],
-                            unique        => F(),
-                            created       => T(),
-                        },
-                        bar2 => {
-                            local_table   => 'foo',
-                            other_table   => 'bar',
-                            key           => 'x',
-                            aliases       => ['bar1', 'bar2'],
-                            local_columns => ['x'],
-                            other_columns => ['xyz'],
-                            unique        => F(),
-                            created       => T(),
-                        },
-                    },
+                    ],
                 },
             }
         },
@@ -801,6 +776,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     );
 
     {
+
         package Test::ORM::Table::ABC;
         $INC{'Test/ORM/Table/ABC.pm'} = __FILE__;
 
@@ -944,7 +920,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 },
             },
             xyz => {
-                foo       => DNE, # Make sure it did not bleed in
+                foo       => DNE,                       # Make sure it did not bleed in
                 name      => 'xyz',
                 row_class => 'Test::ORM::Table::XYZ',
                 columns   => {
@@ -969,13 +945,12 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         "Found both tables under the specified parent namespace, also added just xyz as xyz2 with modification"
     );
 
-
     schema test_column => sub {
         table test_column => sub {
             column a => (qw/MyType identity nullable omit numeric/);
             column b => (\'VARCHAR(20)', identity, nullable, omit, affinity('numeric'));
             column c => (bless({x => 1}, 'DBIx::QuickORM::Type::MyType'), identity, nullable, omit, affinity('numeric'));
-            column d => ('DBIx::QuickORM::Type::MyType', identity(0), nullable(0), omit(0), affinity('numeric'));
+            column d => ('DBIx::QuickORM::Type::MyType',  identity(0), nullable(0), omit(0), affinity('numeric'));
             column e => ('+DBIx::QuickORM::Type::MyType', identity, not_null, omit, affinity('numeric'));
             column f => (type('DBIx::QuickORM::Type::MyType'), identity, nullable, omit, affinity('numeric'));
             column g => sub {
@@ -987,9 +962,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             };
 
             columns qw/h i j/ => {
-                type => \'VARCHAR(20)',
+                type     => \'VARCHAR(20)',
                 nullable => 1,
-                omit => 0,
+                omit     => 0,
             };
 
             like(
@@ -1017,7 +992,10 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             );
 
             like(
-                dies { local @INC = (sub { die "Exception!" }); column x => '+Fake::Class' },
+                dies {
+                    local @INC = (sub { die "Exception!" });
+                    column x => '+Fake::Class'
+                },
                 qr/Error loading class for type '\+Fake::Class': Exception!/,
                 "Errors encountered when loading a class are passed on"
             );
@@ -1029,7 +1007,9 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             );
 
             like(
-                dies { columns x => sub {} },
+                dies {
+                    columns x => sub { }
+                },
                 qr/Not sure what to do with/,
                 "Cannot use a sub"
             );
@@ -1185,7 +1165,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                         blank_infix => {
                             name => 'blank_infix',
                             sql  => {
-                                infix => '', # Make sure it never gets wiped out
+                                infix => '',    # Make sure it never gets wiped out
                             },
                         },
                     },
@@ -1294,7 +1274,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
 
     schema typetest => sub {
         table typetest => sub {
-            column ref => sub { type \'varchar' };
+            column ref  => sub { type \'varchar' };
             column type => sub { type 'DBIx::QuickORM::Type::MyType' };
         };
     };
@@ -1319,16 +1299,16 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         };
     };
 
-    is(schema('name_test')->{tables}->{lookup_name}->{name},                              'lookup_name', "Name correct");
-    is(schema('name_test')->{tables}->{lookup_name}->{db_name},                           'db_alt_name', "DB Name different from qorm name");
-    is(schema('name_test')->{tables}->{lookup_name}->{columns}->{lookup_name}->{name},    'lookup_name', "Name correct");
+    is(schema('name_test')->{tables}->{lookup_name}->{name},                           'lookup_name', "Name correct");
+    is(schema('name_test')->{tables}->{lookup_name}->{db_name},                        'db_alt_name', "DB Name different from qorm name");
+    is(schema('name_test')->{tables}->{lookup_name}->{columns}->{lookup_name}->{name}, 'lookup_name', "Name correct");
 
     schema test_row_class => sub {
         row_class 'DBIx::QuickORM::Row::ClassA';
         table test_row_class => sub {
             row_class 'DBIx::QuickORM::Row::ClassB';
         };
-        table test_row_class2 => sub {};
+        table test_row_class2 => sub { };
 
         like(
             dies { row_class 'A Fake Class' },
@@ -1465,7 +1445,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         "Got postgresql variant"
     );
 
-
     schema test_pk_and_unique => sub {
         table foo => sub {
             column foo => sub {
@@ -1473,14 +1452,14 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 unique;
 
                 like(dies { primary_key('xxx') }, qr/Too many arguments/, "No args when used in column");
-                like(dies { unique('xxx') }, qr/Too many arguments/, "No args when used in column");
+                like(dies { unique('xxx') },      qr/Too many arguments/, "No args when used in column");
             };
 
             like(
                 $bld->{stack}->[-1]->{meta},
                 {
                     primary_key => ['foo'],
-                    unique => { foo => ['foo'] },
+                    unique      => {foo => ['foo']},
                 },
                 "Added pk and unique"
             );
@@ -1503,7 +1482,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             like(
                 $bld->{stack}->[-1]->{meta}->{columns}->{x}->{meta},
                 {
-                    sql_default => 'NOW()',
+                    sql_default  => 'NOW()',
                     perl_default => $def,
                 },
                 "Set both default types"
@@ -1512,7 +1491,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
             like(
                 $bld->{stack}->[-1]->{meta}->{columns}->{y}->{meta},
                 {
-                    sql_default => 'NOW()',
+                    sql_default  => 'NOW()',
                     perl_default => $def,
                 },
                 "Set both default types"
@@ -1522,13 +1501,14 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     };
 
     like(
-        { default(\'NOW()'), default($def) },
-        { sql_default => 'NOW()', perl_default => $def },
+        {default(\'NOW()'), default($def)},
+        {sql_default => 'NOW()', perl_default => $def},
         "non-void context"
     );
 }
 
 {
+
     package Test::Consumer;
     use Test2::V0;
 

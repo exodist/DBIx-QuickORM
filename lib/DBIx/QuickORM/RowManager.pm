@@ -183,7 +183,7 @@ sub parse_params {
     my $self = shift;
     my ($params, %skip) = @_;
 
-    my $sqla_source = $params->{sqla_source} or confess "'source' is a required parameter";
+    my $sqla_source = $params->{sqla_source} or confess "'sqla_source' is a required parameter";
     confess "'$sqla_source' is not a valid SQLA Source" unless $sqla_source->DOES('DBIx::QuickORM::Role::SQLASource');
 
     my $new_pk = $params->{new_primary_key};

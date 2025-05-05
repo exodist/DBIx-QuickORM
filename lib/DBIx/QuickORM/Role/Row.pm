@@ -151,7 +151,8 @@ requires qw{
 sub follow {
     my $self = shift;
     my ($link) = @_;
-    $link = $self->parse_link($link);
+
+    $link = $self->sqla_source->resolve_link($link);
 
     my $where = {};
     for my $set (zip($link->local_columns, $link->other_columns)) {
@@ -165,7 +166,8 @@ sub follow {
 sub obtain {
     my $self = shift;
     my ($link) = @_;
-    $link = $self->parse_link($link);
+
+    $link = $self->sqla_source->resolve_link($link);
     croak "The specified link does not point to a unique row" unless $link->unique;
 
     $self->follow($link)->one;
@@ -174,7 +176,8 @@ sub obtain {
 sub insert_related {
     my $self = shift;
     my ($link, $row_data) = @_;
-    $link = $self->parse_link($link);
+
+    $link = $self->sqla_source->resolve_link($link);
 
     for my $set (zip($link->local_columns, $link->other_columns)) {
         my ($local, $other) = @$set;
@@ -196,29 +199,12 @@ sub siblings { # This includes the original
         $fields = $link_or_fields;
     }
     else {
-        $fields = $self->parse_link($link_or_fields)->local_columns;
+        my $link = $self->sqla_source->resolve_link($link_or_fields);
+        $fields = $link->local_columns;
     }
 
     my $where = +{ map { $_ => $self->field($_) } @$fields };
     return $self->source->select($where);
-}
-
-sub parse_link {
-    my $self = shift;
-    my ($link) = @_;
-
-    return $link if blessed($link) && $link->isa('DBIx::QuickORM::Link');
-
-    my $ref = ref($link);
-
-    return $self->sqla_source->links_by_alias->{$link} // croak "'$link' is not a valid link alias for table '" . $self->sqla_source->name . "'"
-        unless $ref;
-
-    return DBIx::QuickORM::Link->parse(
-        sqla_source => $self->sqla_source,
-        connection  => $self->connection,
-        link        => $link,
-    );
 }
 
 ####################
