@@ -1277,7 +1277,7 @@ DBIx::QuickORM - Composable ORM builder.
 
 =head1 DESCRIPTION
 
-DBIx::QuickORM allows you to define ORM's with reusable and composible parts.
+DBIx::QuickORM allows you to define ORMs with reusable and composible parts.
 
 With this ORM builder you can specify:
 
@@ -1298,6 +1298,7 @@ With this ORM builder you can specify:
 The common use case is to create an ORM package for your app, then use that ORM
 package any place in the app that needs ORM access.
 
+# TODO broken sentence
 The ORM class
 
 =head2 YOUR ORM PACKAGE
@@ -1458,27 +1459,27 @@ The ORM class
 
 =head1 A NOTE ON AFFINITY
 
-Whenever you define a column in DBIx::QuickORM it is necessary for the orm to
-know the 'affinity' of the column. It may be any of these:
+Whenever you define a column in DBIx::QuickORM it is necessary for the ORM to
+know the I<affinity> of the column. It may be any of these:
 
 =over 4
 
-=item string
+=item C<string>
 
 The column should be treated as a string when written to, or read from the
 database.
 
-=item numeric
+=item C<numeric>
 
 The column should be treated as a number when written to, or read from the
 database.
 
-=item boolean
+=item C<boolean>
 
 The column should be treated as a boolean when written to, or read from the
 database.
 
-=item binary
+=item C<binary>
 
 The column should be treated as a binary data when written to, or read from the
 database.
@@ -1487,7 +1488,7 @@ database.
 
 Much of the time the affinity can be derived from other data. The
 L<DBIx::QuickORM::Affinity> package has an internal map for default affinities
-for many sql types. Also if you use a class implementing
+for many SQL types. Also if you use a class implementing
 L<DBIx::QuickORM::Role::Type> it will often provide an affinity. You can
 override the affinity if necessary. If the affinity cannot be derived you
 must specify it.
@@ -1500,14 +1501,14 @@ If you have many tables, or want each to have a custom row class (custom
 methods for items returned by tables), then you probably want to define tables
 in their own files.
 
-When you follow this example you create the table My::ORM::Table::Foo. The
+When you follow this example you create the table C<My::ORM::Table::Foo>. The
 package will automatically subclass L<DBIx::QuickORM::Row> unless you use
 C<row_class()> to set an alternative base.
 
 Any methods added in the file will be callable on the rows returned when
 querying this table.
 
-First create My/ORM/Table/Foo.pm:
+First create F<My/ORM/Table/Foo.pm>:
 
     package My::ORM::Table::Foo;
     use DBIx::QuickORM 'table';
@@ -1539,7 +1540,7 @@ Then in your ORM package:
         table 'My::ORM::Table::Foo'; # Bring in the table
     };
 
-Or if you have many tables and want to load all the tables under My::ORM::Table:: at once:
+Or if you have many tables and want to load all the tables under C<My::ORM::Table::> at once:
 
     schema my_schema => sub {
         tables 'My::ORM::Table';
@@ -1547,8 +1548,8 @@ Or if you have many tables and want to load all the tables under My::ORM::Table:
 
 =head2 APP THAT CAN USE NEARLY IDENTICAL MYSQL AND POSTGRESQL DATABASES
 
-Lets say you have a test app that can connect to nearly identical mysql or
-postgres dbs. The schemas are the same apart from minor differences required by
+Lets say you have a test app that can connect to nearly identical MySQL or
+PostgreSQL databases. The schemas are the same apart from minor differences required by
 the database engine. You want to make it easy to access whichever one you want,
 or even both.
 
@@ -1563,14 +1564,14 @@ or even both.
                 host 'mysql.myapp.com';
                 user $MYSQL_USER;
                 pass $MYSQL_PASS;
-                db_name 'myapp_mysql';    # In mysql the db is named myapp_mysql
+                db_name 'myapp_mysql';    # In MySQL the db is named myapp_mysql
             };
             alt pgsql => sub {
                 dialect 'PostgreSQL';
                 host 'pgsql.myapp.com';
                 user $PGSQL_USER;
                 pass $PGSQL_PASS;
-                db_name 'myapp_pgsql';    # In postgresql the db is names myapp_pgsql
+                db_name 'myapp_pgsql';    # In PostgreSQL the db is named myapp_pgsql
             };
         };
 
@@ -1603,17 +1604,17 @@ Then to use it:
     my $orm_mysql = orm('my_orm:mysql');
     my $orm_pgsql = orm('my_orm:pgsql');
 
-Each orm object is a complete and self-contained ORM with its own caching and
-db connection. One connects to mysql and one connects to postgresql. Both can
-ask for rown in the 'differs' table, on mysql it will query the
-'differs_mysql', on postgresql it will query the 'differs_pgsql' table. You can
+Each ORM object is a complete and self-contained ORM with its own caching and
+db connection. One connects to MySQL and one connects to PostgreSQL. Both can
+ask for rows in the C<differs> table, on MySQL it will query the
+C<differs_mysql>, on PostgreSQL it will query the C<differs_pgsql> table. You can
 use them both at the same time in the same code.
 
 
 =head2 ADVANCED COMPOSING
 
-You can define databses and schemas on their own and create multiple orms that
-combine them. You can also define a 'server' that has multiple databases.
+You can define databases and schemas on their own and create multiple ORMs that
+combine them. You can also define a C<server> that has multiple databases.
 
     package My::ORM;
     use DBIx::QuickORM;
@@ -1649,7 +1650,7 @@ Then to use them:
     my $otherapp = orm('otherapp');
 
 Also note that C<< alt(variant => sub { ... }) >> can be used in any of the
-above builders to create mysql/postgres/etc variants on the databses and
+above builders to create MySQL/PostgreSQL/etc. variants on the databases and
 schemas. Then access them like:
 
     my $myapp_pgsql = orm('myapp:pgsql');
@@ -1661,9 +1662,9 @@ You get all these when using DBIx::QuickORM.
 
 =over 4
 
-=item orm $NAME => sub { ... }
+=item C<< orm $NAME => sub { ... } >>
 
-=item my $orm = orm($NAME)
+=item C<< my $orm = orm($NAME) >>
 
 Define or fetch an ORM.
 
@@ -1674,7 +1675,7 @@ Define or fetch an ORM.
 
     my $orm = orm('myorm');
 
-You can also compose using dbs or schemas you defined previously:
+You can also compose using databases or schemas you defined previously:
 
     db mydb1 => sub { ... };
     db mydb2 => sub { ... };
@@ -1702,7 +1703,7 @@ You can also compose using dbs or schemas you defined previously:
         schema 'myschema1';
     };
 
-=item alt $VARIANT => sub { ... }
+=item C<< alt $VARIANT => sub { ... } >>
 
 Can be used to add variations to any builder:
 
@@ -1738,22 +1739,22 @@ Can be used to add variations to any builder:
         };
     };
 
-Variants can be fetched using the ':' in the name:
+Variants can be fetched using the colon C<:> in the name:
 
     my $pg_orm    = orm('my_orm:pgsql');
     my $mysql_orm = orm('my_orm:mysql');
 
-This works in orm(), db(), schema(), table(), and row() builders. It does
-cascade, so if you ask for the 'mysql' variant of an orm, it will also give you
-the mysql variants of the db, schema, tables and rows.
+This works in C<orm()>, C<db()>, C<schema()>, C<table()>, and C<row()> builders. It does
+cascade, so if you ask for the C<mysql> variant of an ORM, it will also give you
+the C<mysql> variants of the database, schema, tables and rows.
 
-=item db $NAME
+=item C<< db $NAME >>
 
-=item db $NAME => sub { ... }
+=item C<< db $NAME => sub { ... } >>
 
-=item $db = db $NAME
+=item C<< $db = db $NAME >>
 
-=item $db = db $NAME => sub { ... }
+=item C<< $db = db $NAME => sub { ... } >>
 
 Used to define a database.
 
@@ -1766,105 +1767,105 @@ Used to define a database.
         db_name 'myapp_mysql';    # In mysql the db is named myapp_mysql
     };
 
-Can also be used to fetch a db by name:
+Can also be used to fetch a database by name:
 
     my $db = db('mydb');
 
-Can also be used to tell an ORM which db to use:
+Can also be used to tell an ORM which database to use:
 
     orm myorm => sub {
         db 'mydb';
         ...
     };
 
-=item dialect '+DBIx::QuickORM::Dialect::PostgreSQL'
+=item C<dialect '+DBIx::QuickORM::Dialect::PostgreSQL'>
 
-=item dialect 'PostgreSQL'
+=item C<dialect 'PostgreSQL'>
 
-=item dialect 'MySQL'
+=item C<dialect 'MySQL'>
 
-=item dialect 'MySQL::MariaDB'
+=item C<dialect 'MySQL::MariaDB'>
 
-=item dialect 'MySQL::Percona'
+=item C<dialect 'MySQL::Percona'>
 
-=item dialect 'MySQL::Community'
+=item C<dialect 'MySQL::Community'>
 
-=item dialect 'SQLite'
+=item C<dialect 'SQLite'>
 
 Specify what dialect of SQL should be used. This is important for reading
 schema from an existing database, or writing new schema SQL.
 
-'DBIx::QuickORM::Dialect::' will be prefixed to the start of any string
-provided unless it starts with a '+', in whcih case the plus is removed and the
-rest of the string is left unmodified.
+C<DBIx::QuickORM::Dialect::> will be prefixed to the start of any string
+provided unless it starts with a plus C<+>, in which case the plus is removed
+and the rest of the string is left unmodified.
 
 The following are all supported by DBIx::QuickORM by default
 
 =over 4
 
-=item PostgreSQL
+=item L<PostgreSQL|DBIx::QuickORM::Dialect::PostgreSQL>
 
 For interacting with PostgreSQL databases.
 
-=item MySQL
+=item L<MySQL|DBIx::QuickORM::Dialect::MySQL>
 
 For interacting with generic MySQL databases. Selecting this will auto-upgrade
 to MariaDB, Percona, or Community variants if it can detect the variant. If it
 cannot detect the variant then the generic will be used.
 
-B<NOTE:> using the correct variant can produce better results. For example
-MariaDB supports 'returning' on inserts, Percona and Community variants do not,
-and thus need a second query to fetch the data post-insert, and using
+B<NOTE:> Using the correct variant can produce better results. For example
+MariaDB supports C<RETURNING> on C<INSERT>s, Percona and Community variants
+do not, and thus need a second query to fetch the data post-C<INSERT>, and using
 C<last_insert_id> to get auto-generated primary keys. DBIx::QuickORM is aware
 of this and will use returning when possible.
 
-=item MySQL::MariaDB
+=item L<MySQL::MariaDB|DBIx::QuickORM::Dialect::MySQL::MariaDB>
 
 For interacting with MariaDB databases.
 
-=item MySQL::Percona
+=item L<MySQL::Percona|DBIx::QuickORM::Dialect::MySQL::Percona>
 
 For interacting with MySQL as distributed by Percona.
 
-=item MySQL::Community
+=item L<MySQL::Community|DBIx::QuickORM::Dialect::MySQL::Community>
 
-For interacting with the community variant of MySQL.
+For interacting with the Community Edition of MySQL.
 
-=item SQLite
+=item L<SQLite|DBIx::QuickORM::Dialect::SQLite>
 
 For interacting with SQLite databases.
 
 =back
 
-=item driver '+DBD::Pg'
+=item C<driver '+DBD::Pg'>
 
-=item driver 'Pg'
+=item C<driver 'Pg'>
 
-=item driver 'mysql';
+=item C<driver 'mysql'>
 
-=item driver 'MariaDB';
+=item C<driver 'MariaDB'>
 
-=item driver 'SQLite';
+=item C<driver 'SQLite'>
 
 Usually you do not need to specify this as your dialect should specify the
 correct one to use. However in cases like MySQL and MariaDB they are more or
-less interchangable and you may want to override the default.
+less interchangeable and you may want to override the default.
 
-Specify what DBI driver should be used. 'DBD::' is prefixed to any string you
-specify unless it starts with '+', in which case the plus is stripped and the
+Specify what DBI driver should be used. C<DBD::> is prefixed to any string you
+specify unless it starts with C<+>, in which case the plus is stripped and the
 rest of the module name is unmodified.
 
 B<NOTE:> DBIx::QuickORM can use either L<DBD::mysql> or L<DBD::MariaDB> to
-connect to any of the mysql variants. It will default to L<DBD::MariaDB> if it
+connect to any of the MySQL variants. It will default to L<DBD::MariaDB> if it
 is installed and you have not requested L<DBD::mysql> directly.
 
-=item attributes \%HASHREF
+=item C<< attributes \%HASHREF >>
 
-=item attributes(attr => val, ...)
+=item C<< attributes(attr => val, ...) >>
 
 Set the attributes of the database connection.
 
-This can take a hashref or key+value pairs.
+This can take a hashref or key-value pairs.
 
 This will override all previous attributes, it does not merge.
 
@@ -1878,25 +1879,25 @@ Or:
         attributes foo => 1;
     };
 
-=item host $HOSTNAME
+=item C<host $HOSTNAME>
 
-=item hostname $HOSTNAME
+=item C<hostname $HOSTNAME>
 
-Provide a hostname or IP address for db connections
+Provide a hostname or IP address for database connections
 
     db mydb => sub {
         host 'mydb.mydomain.com';
     };
 
-=item port $PORT
+=item C<port $PORT>
 
-Provide a port number for db connection.
+Provide a port number for database connection.
 
     db mydb => sub {
         port 1234;
     };
 
-=item socket $SOCKET_PATH
+=item C<socket $SOCKET_PATH>
 
 Provide a socket instead of a host+port
 
@@ -1904,9 +1905,9 @@ Provide a socket instead of a host+port
         socket '/path/to/db.socket';
     };
 
-=item user $USERNAME
+=item C<user $USERNAME>
 
-=item username $USERNAME
+=item C<username $USERNAME>
 
 provide a database username
 
@@ -1914,9 +1915,9 @@ provide a database username
         user 'bob';
     };
 
-=item pass $PASSWORD
+=item C<pass $PASSWORD>
 
-=item password $PASSWORD
+=item C<password $PASSWORD>
 
 provide a database password
 
@@ -1924,21 +1925,21 @@ provide a database password
         pass 'hunter2'; # Do not store any real passwords in plaintext in code!!!!
     };
 
-=item creds sub { return \%CREDS }
+=item C<creds sub { return \%CREDS }>
 
 Allows you to provide a coderef that will return a hashref with all the
-necessary db connection fields.
+necessary database connection fields.
 
-This is mainly useful if you credentials are in an encrypted yaml or json file
+This is mainly useful if you credentials are in an encrypted YAML or JSON file
 and you have a method to decrypt and read it returning it as a hash.
 
     db mydb => sub {
         creds sub { ... };
     };
 
-=item connect sub { ... }
+=item C<connect sub { ... }>
 
-=item connect \&connect
+=item C<connect \&connect>
 
 Instead of providing all the other fields, you may specify a coderef that
 returns a L<DBI> connection.
@@ -1950,7 +1951,7 @@ B<MUST NOT> cache it!
         connect sub { ... };
     };
 
-=item dsn $DSN
+=item C<dsn $DSN>
 
 Specify the DSN used to connect to the database. If not provided then an
 attempt will be made to construct a DSN from other parameters, if they are
@@ -1960,15 +1961,15 @@ available.
         dsn "dbi:Pg:dbname=foo";
     };
 
-=item server $NAME => sub { ... }
+=item C<< server $NAME => sub { ... } >>
 
 Used to define a server with multiple databases. This is a way to avoid
 re-specifying credentials for each database you connect to.
 
-You can use C<< db('server_name.db_name') >> to fetch the db.
+You can use C<< db('server_name.db_name') >> to fetch the database.
 
-Basically this allows you to specify any db fields once in the server, then
-define any number of db's that inherit them.
+Basically this allows you to specify any database fields once in the server, then
+define any number of databases that inherit them.
 
 Example:
 
@@ -1997,17 +1998,17 @@ Example:
         ...;
     };
 
-=item schema $NAME => sub { ... }
+=item C<< schema $NAME => sub { ... } >>
 
-=item $schema = schema($NAME)
+=item C<< $schema = schema($NAME) >>
 
-=item $schema = schema($NAME => sub { ... })
+=item C<< $schema = schema($NAME => sub { ... }) >>
 
 Used to either fetch or define a schema.
 
 When called with only 1 argument it will fetch the schema with the given name.
 
-When used inside an orm builder it will set the schema for the orm (all orm's
+When used inside an ORM builder it will set the schema for the ORM (all ORMs
 have exactly one schema).
 
 When called with 2 arguments it will define the schema using the coderef as a
@@ -2034,11 +2035,11 @@ it adds it to the ORM class.
         db(...);
     };
 
-=item table $NAME => sub { ... }
+=item C<< table $NAME => sub { ... } >>
 
-=item table $CLASS
+=item C<< table $CLASS >>
 
-=item table $CLASS => sub { ... }
+=item C<< table $CLASS => sub { ... } >>
 
 Used to define a table, or load a table class.
 
@@ -2059,12 +2060,12 @@ Used to define a table, or load a table class.
         };
     };
 
-This will assume you are loading a table class if the '::' appears in the name.
-Otherwise it assumes you are defining a new table. This means it is not
-possible to load top-level packages as table classes, which is a feature, not a
-bug.
+This will assume you are loading a table class if the double colon C<::>
+appears in the name.  Otherwise it assumes you are defining a new table.
+This means it is not possible to load top-level packages as table classes,
+which is a feature, not a bug.
 
-=item tables 'Table::Namespace'
+=item C<tables 'Table::Namespace'>
 
 Used to load all tables in the specified namespace:
 
@@ -2073,9 +2074,9 @@ Used to load all tables in the specified namespace:
         tables 'My::Table';
     };
 
-=item row_class '+My::Row::Class'
+=item C<row_class '+My::Row::Class'>
 
-=item row_class 'MyRowClass'
+=item C<row_class 'MyRowClass'>
 
 When fetching a row from a table, this is the class that each row will be
 blessed into.
@@ -2084,8 +2085,8 @@ This can be provided as a default for a schema, or as a specific one to use in
 a table. When using table classes this will set the base class for the table as
 the table class itself will be the row class.
 
-If the class name has a '+' it will be stripped off and the class name will not
-be altered further. If there is no '+' then 'DBIx::QuickORM::Row::' will be
+If the class name has a plus C<+> it will be stripped off and the class name will not
+be altered further. If there is no C<+> then C<DBIx::QuickORM::Row::> will be
 prefixed onto your string, and the resulting class will be loaded.
 
     schema my_schema => sub {
@@ -2107,12 +2108,12 @@ In a table class:
         row_class '+My::Row::Class';
     };
 
-=item db_name $NAME
+=item C<db_name $NAME>
 
-Sometimes you want the orm to use one name for a table or database, but the
-database server actually uses another. For example you may want the orm to use the
-name 'people' for a table, but the db actually uses the name 'populace'. You can
-use db_name to set the in-database name.
+Sometimes you want the ORM to use one name for a table or database, but the
+database server actually uses another. For example you may want the ORM to use the
+name C<people> for a table, but the database actually uses the table name C<populace>.
+You can use C<db_name> to set the in-database name.
 
     table people => sub {
         db_name 'populace';
@@ -2127,13 +2128,13 @@ orm from its actual name on the server:
         db_name 'myapp'    # Actual name on the server;
     };
 
-=item column NAME => sub { ... }
+=item C<< column NAME => sub { ... } >>
 
-=item column NAME => %SPECS
+=item C<< column NAME => %SPECS >>
 
 Define a column with the given name. The name will be used both as the name the
 ORM uses for the column, and the actual name of the column in the database.
-Currently having a column use a different name in the orm vs the table is not
+Currently having a column use a different name in the ORM vs the table is not
 supported.
 
     column foo => sub {
@@ -2152,9 +2153,9 @@ Another simple way to do everything above:
 
     column foo => ('not_null', 'identity', \'BIGINT');
 
-=item omit
+=item C<omit>
 
-When set on a column, the column will be omited from selects by default. When
+When set on a column, the column will be omitted from C<SELECT>s by default. When
 you fetch a row the column will not be fetched until needed. This is useful if
 a table has a column that is usually huge and rarely used.
 
@@ -2162,25 +2163,25 @@ a table has a column that is usually huge and rarely used.
         omit;
     };
 
-In a non-void context it will return the string 'omit' for use in a column
+In a non-void context it will return the string C<omit> for use in a column
 specification without a builder.
 
     column bar => omit();
 
-=item nullable()
+=item C<nullable()>
 
-=item nullable(1)
+=item C<nullable(1)>
 
-=item nullable(0)
+=item C<nullable(0)>
 
-=item not_null()
+=item C<not_null()>
 
-=item not_null(1)
+=item C<not_null(1)>
 
-=item not_null(0)
+=item C<not_null(0)>
 
-Toggle nullability for a column. nullable() defaults to setting the column as
-nullable. not_null() defaults to setting the column as not nullable.
+Toggle nullability for a column. C<nullable()> defaults to setting the column as
+nullable. C<not_null()> defaults to setting the column as I<not> nullable.
 
     column not_nullable => sub {
         not_null();
@@ -2190,25 +2191,25 @@ nullable. not_null() defaults to setting the column as not nullable.
         nullable();
     };
 
-In a non-void context these will return a string, either 'nullable' or
-'not_null'. These can be used in column specifications that do not use a
+In a non-void context these will return a string, either C<nullable> or
+C<not_null>. These can be used in column specifications that do not use a
 builder.
 
     column foo => nullable();
     column bar => not_null();
 
-=item identity()
+=item C<identity()>
 
-=item identity(1)
+=item C<identity(1)>
 
-=item identity(0)
+=item C<identity(0)>
 
 Used to designate a column as an identity column. This is mainly used for
-generating schema SQL. In a sufficient version of postgresql this will generate
+generating schema SQL. In a sufficient version of PostgreSQL this will generate
 an identity column. It will fallback to a column with a sequence, or in
-mysql/sqlite it will use auto-incrementing columns.
+MySQL/SQLite it will use auto-incrementing columns.
 
-In a column builder it will set (default) or unset the 'identity' attribute of
+In a column builder it will set (default) or unset the C<identity> attribute of
 the column.
 
 
@@ -2216,19 +2217,19 @@ the column.
         identity();
     };
 
-In a non-void context it will simply return 'identity' by default or when given
+In a non-void context it will simply return C<identity> by default or when given
 a true value as an argument. It will return an empty list if a false argument
 is provided.
 
     column foo => identity();
 
-=item affinity('string')
+=item C<affinity('string')>
 
-=item affinity('numeric')
+=item C<affinity('numeric')>
 
-=item affinity('binary')
+=item C<affinity('binary')>
 
-=item affinity('boolean')
+=item C<affinity('boolean')>
 
 When used inside a column builder it will set the columns affinity to the one
 specified.
@@ -2243,23 +2244,23 @@ an invalid affinity type.
 
     column foo => affinity('string');
 
-=item type(\$sql)
+=item C<< type(\$sql) >>
 
-=item type("+My::Custom::Type") # The + is stripped off
+=item C<< type("+My::Custom::Type") # The + is stripped off >>
 
-=item type("+My::Custom::Type", @CONSTRUCTION_ARGS)
+=item C<< type("+My::Custom::Type", @CONSTRUCTION_ARGS) >>
 
-=item type("MyType") # Short for "DBIx::QuickORM::Type::MyType"
+=item C<< type("MyType") # Short for "DBIx::QuickORM::Type::MyType" >>
 
-=item type("MyType", @CONSTRUCTION_ARGS)
+=item C<< type("MyType", @CONSTRUCTION_ARGS) >>
 
-=item type(My::Type->new(...))
+=item C<< type(My::Type->new(...)) >>
 
 Used to specify the type for the column. You can provide custom SQL in the form
 of a scalar referernce. You can also provide the class of a type, if you prefix
-the class name with a '+' then it will strip the + off and make no further
-modifications. If you provide a string without a + it will attempt to load
-'DBIx::QuickORM::Type::YOUR_STRING' and use that.
+the class name with a plus C<+> then it will strip the C<+> off and make no further
+modifications. If you provide a string without a C<+> it will attempt to load
+C<DBIx::QuickORM::Type::YOUR_STRING> and use that.
 
 In a column builder this will directly apply the type to the column being
 built.
@@ -2272,37 +2273,37 @@ In scalar context this will return the constructed type object.
 
     column foo => type('MyType');
 
-=item sql($sql)
+=item C<< sql($sql) >>
 
-=item sql(infix => $sql)
+=item C<< sql(infix => $sql) >>
 
-=item sql(prefix => $sql)
+=item C<< sql(prefix => $sql) >>
 
-=item sql(postfix => $sql)
+=item C<< sql(postfix => $sql) >>
 
-This is used when generating sql to define the database.
+This is used when generating SQL to define the database.
 
-This allows you to provide custom SQL to define a table/column, or add sql
+This allows you to provide custom SQL to define a table/column, or add SQL
 before (prefix) and after (postfix).
 
-Infix will prevent the typical sql from being generated, the infix will be used
+Infix will prevent the typical SQL from being generated, the infix will be used
 instead.
 
-If no *fix is specified then 'infix' is assumed.
+If no *fix is specified then C<infix> is assumed.
 
-=item default(\$sql)
+=item C<default(\$sql)>
 
-=item default(sub { ... })
+=item C<default(sub { ... })>
 
-=item %key_val = default(\$sql)
+=item C<%key_val = default(\$sql)>
 
-=item %key_val = default(sub { ... })
+=item C<%key_val = default(sub { ... })>
 
 When given a scalar reference it is treated as SQL to be used when generating
-sql to define the column.
+SQL to define the column.
 
 When given a coderef it will be used as a default value generator for the
-column whenever DBIx::QuickORM inserts a new row.
+column whenever DBIx::QuickORM C<INSERT>s a new row.
 
 In void context it will apply the default to the column being defined, or will
 throw an exception if no column is being built.
@@ -2321,18 +2322,18 @@ In the above cases they return:
     (sql_default => "NOW()")
     (perl_default => sub { 123 })
 
-=item columns(@names)
+=item C<columns(@names)>
 
-=item columns(@names, \%attrs)
+=item C<columns(@names, \%attrs)>
 
-=item columns(@names, sub { ... })
+=item C<columns(@names, sub { ... })>
 
 Define multiple columns at a time. If any attrs hashref or sub builder are
-specified they will be applied to ALL provided column names.
+specified they will be applied to B<all> provided column names.
 
-=item primary_key
+=item C<primary_key>
 
-=item primary_key(@COLS)
+=item C<primary_key(@COLUMNS)>
 
 Used to define a primary key. When used under a table you must provide a
 list of columns. When used under a column builder it designates just that
@@ -2354,9 +2355,9 @@ Or to make a single column the primary key:
         };
     };
 
-=item unique
+=item C<unique>
 
-=item unique(@COLS)
+=item C<unique(@COLUMNS)>
 
 Used to define a unique constraint. When used under a table you must provide a
 list of columns. When used under a column builder it designates just that
@@ -2378,7 +2379,7 @@ Or to make a single column unique:
         };
     };
 
-=item build_class $CLASS
+=item C<build_class $CLASS>
 
 Use this to override the class being built by a builder.
 
@@ -2388,7 +2389,7 @@ Use this to override the class being built by a builder.
         ...
     };
 
-=item my $meta = meta
+=item C<my $meta = meta>
 
 Get the current builder meta hashref
 
@@ -2399,21 +2400,21 @@ Get the current builder meta hashref
         $meta->{name} = 'foo';
     };
 
-=item plugin '+My::Plugin'
+=item C<< plugin '+My::Plugin' >>
 
-=item plugin 'MyPlugin'
+=item C<< plugin 'MyPlugin' >>
 
-=item plugin 'MyPlugin' => @CONSTRUCTION_ARGS
+=item C<< plugin 'MyPlugin' => @CONSTRUCTION_ARGS >>
 
-=item plugin 'MyPlugin' => \%CONSTRUCTION_ARGS
+=item C<< plugin 'MyPlugin' => \%CONSTRUCTION_ARGS >>
 
-=item plugin My::Plugin->new()
+=item C<< plugin My::Plugin->new() >>
 
 Load a plugin and apply it to the current builder (or top level) and all nested
 builders below it.
 
-The '+' prefix can be used to specify a fully qualified plugin package name.
-Without the '+' the namespace 'DBIx::QuickORM::Plugin::' will be prefixed to
+The C<+> prefix can be used to specify a fully qualified plugin package name.
+Without the plus C<+> the namespace C<DBIx::QuickORM::Plugin::> will be prefixed to
 the string.
 
     plugin '+My::Plugin';    # Loads 'My::Plugin'
@@ -2428,9 +2429,9 @@ Or provide construction args:
     plugin '+My::Plugin' => (foo => 1, bar => 2);
     plugin '+MyPlugin'   => {foo => 1, bar => 2};
 
-=item $plugins = plugins()
+=item C<< $plugins = plugins() >>
 
-=item plugins '+My::Plugin', 'MyPlugin' => \%ARGS, My::Plugin->new(...), ...;
+=item C<< plugins '+My::Plugin', 'MyPlugin' => \%ARGS, My::Plugin->new(...), ... >>
 
 Load several plugins at once, if a plugin class is followed by a hashref it is
 used as construction arguments.
@@ -2438,21 +2439,21 @@ used as construction arguments.
 Can also be used with no arguments to return an arrayref of all active plugins
 for the current scope.
 
-=item autofill()
+=item C<< autofill() >>
 
-=item autofill($CLASS)
+=item C<< autofill($CLASS) >>
 
-=item autofill(sub { ... })
+=item C<< autofill(sub { ... }) >>
 
-=item autofill($CLASS, sub { ... })
+=item C<< autofill($CLASS, sub { ... }) >>
 
-=item autofill $CLASS
+=item C<< autofill $CLASS >>
 
-=item autofill sub { ... }
+=item C<< autofill sub { ... } >>
 
-=item autofill $CLASS => sub { ... }
+=item C<< autofill $CLASS => sub { ... } >>
 
-Used inside an C<orm()> builder. This tells the QuickORM to build an
+Used inside an C<orm()> builder. This tells QuickORM to build an
 L<DBIx::QuickORM::Schema> object by asking the database what tables and columns
 it has.
 
@@ -2477,44 +2478,44 @@ a subref and call them:
         autohook HOOK => sub { ... };           # Run behavior at specific hook points
     };
 
-=item autotype $TYPE_CLASS
+=item C<autotype $TYPE_CLASS>
 
-=item autotype 'JSON'
+=item C<autotype 'JSON'>
 
-=item autotype '+DBIx::QuickORM::Type::JSON'
+=item C<autotype '+DBIx::QuickORM::Type::JSON'>
 
-=item autotype 'UUID'
+=item C<autotype 'UUID'>
 
-=item autotype '+DBIx::QuickORM::Type::UUID'
+=item C<autotype '+DBIx::QuickORM::Type::UUID'>
 
 Load custom L<DBIx::QuickORM::Type> subclasses. If a column is found with the
 right type then the type class will be used to inflate/deflate the values
 automatically.
 
-=item autoskip table => qw/table1 table2 .../
+=item C<autoskip table => qw/table1 table2 .../>
 
-=item autoskip column => qw/col1 col2 .../
+=item C<autoskip column => qw/col1 col2 .../>
 
 Skip defining schema entries for the specified tables or columns.
 
-=item autorow 'My::App::Row'
+=item C<autorow 'My::App::Row'>
 
-=item autorow $ROW_BASE_CLASS
+=item C<autorow $ROW_BASE_CLASS>
 
 Generate C<My::App::Row::TABLE> classes for each table autofilled. If you write
-a C<My/App/Row/TABLE.pm> file it will be loaded as well.
+a F<My/App/Row/TABLE.pm> file it will be loaded as well.
 
 If you define a C<My::App::Row> class it will be loaded and all table rows will
 use it as a base class. If no such class is found the new classes will use
 L<DBIx::QuickORM::Row> as a base class.
 
-=item autoname link_accessor => sub { ... }
+=item C<< autoname link_accessor => sub { ... } >>
 
-=item autoname field_accessor => sub { ... }
+=item C<< autoname field_accessor => sub { ... } >>
 
-=item autoname table => sub { ... }
+=item C<< autoname table => sub { ... } >>
 
-=item autoname link => sub { ... }
+=item C<< autoname link => sub { ... } >>
 
 You can name the C<< $row->FIELD >> accessor:
 
@@ -2570,7 +2571,7 @@ You can also set aliases for links before they are constructed:
         return $alias;
     };
 
-=item autohook HOOK => sub { my %params = @_; ... }
+=item C<autohook HOOK => sub { my %params = @_; ... }>
 
 See L<DBIx::QuickORM::Schema::Autofill> for a list of hooks and their params.
 
@@ -2580,28 +2581,28 @@ See L<DBIx::QuickORM::Schema::Autofill> for a list of hooks and their params.
 
 =over 4
 
-=item $orm_meta = orm()
+=item C<< $orm_meta = orm() >>
 
-=item $orm = orm($ORM_NAME)
+=item C<< $orm = orm($ORM_NAME) >>
 
-=item $db = orm(db => $DB_NAME)
+=item C<< $db = orm(db => $DB_NAME) >>
 
-=item $schema = orm(schema => $SCHEMA_NAME)
+=item C<< $schema = orm(schema => $SCHEMA_NAME) >>
 
-=item $orm_variant = orm("${ORM_NAME}:${VARIANT}")
+=item C<< $orm_variant = orm("${ORM_NAME}:${VARIANT}") >>
 
-=item $db_variant = orm(db => "${DB_NAME}:${VARIANT}")
+=item C<< $db_variant = orm(db => "${DB_NAME}:${VARIANT}") >>
 
-=item $schema_variant = orm(schema => "${SCHEMA_NAME}:${VARIANT}")
+=item C<< $schema_variant = orm(schema => "${SCHEMA_NAME}:${VARIANT}") >>
 
-This function is the one-stop shop to access any orm, schema, or db instances
+This function is the one-stop shop to access any ORM, schema, or database instances
 you have defined.
 
 =back
 
 =head2 RENAMING THE EXPORT
 
-You can rename the orm() function at import time by providing an alternate
+You can rename the C<orm()> function at import time by providing an alternate
 name.
 
     use My::ORM qw/renamed_orm/;
