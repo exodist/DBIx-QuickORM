@@ -210,69 +210,97 @@ sub from {
     croak "Unable to resolve '$from' it does not appear to be a table name or an alias";
 }
 
+sub _join_params {
+    my $self = shift;
+
+    return (link => $_[0]) if @_ == 1;
+    return @_;
+}
+
+sub _join {
+    my $self = shift;
+    my %params = @_;
+
+    $self = $self->clone;
+
+    croak "$params{meth}() should not be called in void context" unless defined wantarray;
+
+    my $as   = $params{as};
+    my $link = $params{link};
+    my $from = $params{from};
+    my $type = $params{type};
+
+    until ($as) {
+        my $try = $self->{+JOIN_AS}++;
+        next if $self->{+COMPONENTS}->{$try};
+        $as = $try;
+    }
+
+    croak "A join has already been made using the identifier '$as'" if $self->{+COMPONENTS}->{$as};
+
+    if ($from && !$self->{+COMPONENTS}->{$from}) {
+        my $check = $self->{+LOOKUP}->{$from};
+        croak "'$from' is not defined" unless $check && @$check;
+        croak "'$from' source has multiple aliases: " . join(', ' => @$check) if @$check > 1;
+        ($from) = @$check;
+    }
+
+    unless ($from) {
+        my $lt = $link->local_table;
+        if ($lt eq $self->{+PRIMARY_SOURCE}->name) {
+            $from = $self->{+ORDER}->[0];
+        }
+        elsif (my $n = $self->{+LOOKUP}->{$lt}) {
+            croak "Table '$lt' has been joined multiple times, you must specify which name to use in the join" if @$n > 1;
+            $from = $n->[0];
+        }
+        else {
+            croak "Table '$lt' is not yet in the join";
+        }
+    }
+
+    push @{$self->{+ORDER}} => $as;
+
+    push @{$self->{+LOOKUP}->{$link->other_table}} => $as;
+
+    $self->{+COMPONENTS}->{$as} = {
+        as    => $as,
+        table => $self->schema->table($link->other_table),
+        link  => $link,
+        from  => $from,
+        type  => $type,
+    };
+
+    return $self;
+}
+
+sub left_join {
+    my $self = shift;
+    my %params = $self->_join_params(@_);
+    $params{type} = 'LEFT';
+    return $self->_join(meth => 'left_join', %params);
+}
+
+sub right_join {
+    my $self = shift;
+    my %params = $self->_join_params(@_);
+    $params{type} = 'RIGHT';
+    return $self->_join(meth => 'right_join', %params);
+}
+
+sub inner_join {
+    my $self = shift;
+    my %params = $self->_join_params(@_);
+    $params{type} = 'INNER';
+    return $self->_join(meth => 'inner_join', %params);
+}
+
 {
     no warnings 'once';
     *join = set_subname 'join' => sub {
-        my $self = shift;
-
-        croak "join() should not be called in void context" unless defined wantarray;
-
-        my ($link, $as, $from, $type);
-        if (@_ == 1) {
-            $link = shift;
-        }
-        else {
-            my %params = @_;
-            $as   = $params{as};
-            $link = $params{link};
-            $from = $params{from};
-            $type = $params{type};
-        }
-
-        $self = $self->clone;
-
-        until ($as) {
-            my $try = $self->{+JOIN_AS}++;
-            next if $self->{+COMPONENTS}->{$try};
-            $as = $try;
-        }
-
-        croak "A join has already been made using the identifier '$as'" if $self->{+COMPONENTS}->{$as};
-
-        if ($from && !$self->{+COMPONENTS}->{$from}) {
-            my $check = $self->{+LOOKUP}->{$self->{+PRIMARY_SOURCE}->sqla_db_name};
-            croak "'$from' is not defined" unless @$check;
-            croak "'$from' source has multiple aliases: " . join(', ' => @$check) if @$check > 1;
-            ($from) = @$check;
-        }
-
-        unless($from) {
-            my $lt = $link->local_table;
-            if ($lt eq $self->{+PRIMARY_SOURCE}->name) {
-                $from = $self->{+ORDER}->[0];
-            }
-            elsif (my $n = $self->{+LOOKUP}->{$lt}) {
-                croak "Table '$lt' has been joined multiple times, you must specify which name to use in the join" if @$n > 1;
-                $from = $n->[0];
-            }
-            else {
-                croak "Table '$lt' is not yet in the join";
-            }
-        }
-
-        push @{$self->{+ORDER}} => $as;
-
-        push @{$self->{+LOOKUP}->{$link->other_table}} => $as;
-
-        $self->{+COMPONENTS}->{$as} = {
-            as    => $as,
-            table => $self->schema->table($link->other_table),
-            link  => $link,
-            from  => $from,
-            type  => $type,
-        };
-
-        return $self;
+        my $self   = shift;
+        my %params = $self->_join_params(@_);
+        return $self->_join(meth => 'join', %params);
     };
 }
 
