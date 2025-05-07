@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use feature qw/state/;
 
-our $VERSION = '0.000010';
+our $VERSION = '0.000011';
 
 use Carp qw/confess croak cluck/;
 use List::Util qw/mesh/;
