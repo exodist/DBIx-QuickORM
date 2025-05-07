@@ -34,7 +34,7 @@ sub init {
     my $self = shift;
 
     croak "'connection' is a required attribute" unless $self->{+CONNECTION};
-    croak "'sqla_source' us a required attribute" unless $self->{+SQLA_SOURCE};
+    croak "'sqla_source' is a required attribute" unless $self->{+SQLA_SOURCE};
 
     # Fix this for non dbh/sth ones like aside and forked
     croak "'sth' and 'dbh' are required attributes"

@@ -10,6 +10,10 @@ use List::Util qw/mesh/;
 use Importer 'List::Util' => ('first' => { -as => 'lu_first' });
 use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/load_class debug/;
+use Cpanel::JSON::XS;
+
+use POSIX();
+use Scope::Guard();
 
 use DBIx::QuickORM::Row::Async;
 use DBIx::QuickORM::SQLAbstract;
@@ -19,6 +23,7 @@ use DBIx::QuickORM::Source;
 use DBIx::QuickORM::Connection::Transaction;
 use DBIx::QuickORM::Connection::Async;
 use DBIx::QuickORM::Connection::Aside;
+use DBIx::QuickORM::Connection::Fork;
 use DBIx::QuickORM::Iterator;
 
 use DBIx::QuickORM::Connection::RowData qw{
@@ -55,6 +60,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     +internal_transactions
     <in_async
     <asides
+    <forks
 };
 
 sub clear_async {
@@ -78,6 +84,15 @@ sub clear_aside {
     delete $self->{+ASIDES}->{$aside};
 }
 
+sub clear_fork {
+    my $self = shift;
+    my ($fork) = @_;
+
+    croak "Not currently running that fork query" unless $self->{+FORKS}->{$fork};
+
+    delete $self->{+FORKS}->{$fork};
+}
+
 sub init {
     my $self = shift;
 
@@ -96,6 +111,7 @@ sub init {
     $self->{+INTERNAL_TRANSACTIONS} //= 1;
 
     $self->{+ASIDES} = {};
+    $self->{+FORKS}  = {};
 
     my $txns = $self->{+TRANSACTIONS} //= [];
     my $manager = $self->{+MANAGER} // 'DBIx::QuickORM::RowManager::Cached';
@@ -227,9 +243,16 @@ sub txn {
 
     croak "Cannot start a transaction while there is an active async query" if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
 
-    unless ($params{ignore_aside}) {
-        my $count = grep { $_ && !$_->done } values %{$self->{+ASIDES} // {}};
-        croak "Cannot start a transaction while there is an active aside query (unless you use ignore_aside => 1)" if $count;
+    unless ($params{force}) {
+        unless ($params{ignore_aside}) {
+            my $count = grep { $_ && !$_->done } values %{$self->{+ASIDES} // {}};
+            croak "Cannot start a transaction while there is an active aside query (unless you use ignore_aside => 1, or force => 1)" if $count;
+        }
+
+        unless ($params{ignore_forks}) {
+            my $count = grep { $_ && !$_->done } values %{$self->{+FORKS} // {}};
+            croak "Cannot start a transaction while there is an active forked query (unless you use ignore_forked => 1, or force => 1)" if $count;
+        }
     }
 
     croak "You must provide an 'action' coderef, either as the first argument to txn, or under the 'action' key in a parameterized list"
@@ -258,6 +281,15 @@ sub txn {
         on_success    => $params{on_success},
         on_completion => $params{on_completion},
     );
+
+    my ($root, $parent) = @$txns ? (@{$txns}[0,-1]) : ($txn, $txn);
+
+    $parent->add_fail_callback($params{'on_parent_fail'})             if $params{on_parent_fail};
+    $parent->add_success_callback($params{'on_parent_success'})       if $params{on_parent_success};
+    $parent->add_completion_callback($params{'on_parent_completion'}) if $params{on_parent_completion};
+    $root->add_fail_callback($params{'on_root_fail'})                 if $params{on_root_fail};
+    $root->add_success_callback($params{'on_root_success'})           if $params{on_root_success};
+    $root->add_completion_callback($params{'on_root_completion'})     if $params{on_root_completion};
 
     push @{$txns} => $txn;
 
@@ -473,6 +505,37 @@ sub _make_sth {
         $dbh = $self->{+ORM}->db->new_dbh if $query->{+QUERY_ASIDE};
     }
 
+    my ($pid, $rh, $wh, $guard);
+    if ($query && $query->{+QUERY_FORKED}) {
+        pipe($rh, $wh) or die "Could not create pipe: $!";
+        $pid = fork // die "Could not fork: $!";
+
+        if ($pid) { # Parent
+            close($wh);
+
+            my $fork = DBIx::QuickORM::Connection::Fork->new(
+                connection  => $self,
+                sqla_source => $sqla_source,
+                pid         => $pid,
+                pipe        => $rh,
+            );
+
+            $self->{+FORKS}->{$fork} = $fork;
+            weaken($self->{+FORKS}->{$fork});
+
+            return $fork;
+        }
+
+        # Child
+        $guard = Scope::Guard->new(sub {
+            print STDERR "Escaped Scope in forked query";
+            POSIX::_exit(255);
+        });
+        close($rh);
+
+        $dbh = $self->{+ORM}->db->new_dbh;
+    }
+
     my $sth = $dbh->prepare($stmt, $prepare_args);
     for (my $i = 0; $i < @$bind; $i++) {
         my ($field, $val) = @{$bind->[$i]};
@@ -496,13 +559,26 @@ sub _make_sth {
         $sth->bind_param(1 + $i, $val, @args);
     }
 
-    $sth->execute();
+    my $res = $sth->execute();
 
-    return $sth unless $query && ($query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE});
+    return $sth unless $query && ($query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE} || $query->{+QUERY_FORKED});
 
     my $ready = 0;
 
-    if ($query->{+QUERY_ASYNC}) {
+    if ($query->{+QUERY_FORKED}) {
+        my $json = Cpanel::JSON::XS->new->utf8(1)->convert_blessed(1)->allow_nonref(1);
+        eval {
+            print $wh $json->encode({result => $res}), "\n";
+            while (my $row = $sth->fetchrow_hashref) {
+                print $wh $json->encode($row), "\n";
+            }
+            close($wh);
+            1;
+        } or warn $@;
+        $guard->dismiss();
+        POSIX::_exit(0);
+    }
+    elsif ($query->{+QUERY_ASYNC}) {
         my $async = DBIx::QuickORM::Connection::Async->new(
             connection  => $self,
             sqla_source => $sqla_source,
@@ -976,7 +1052,7 @@ sub iterator {
     my $sth = $self->_execute_select($sqla_source, $query);
 
     my ($next, $ready);
-    if ($sth->isa('DBIx::QuickORM::Connection::Async')) {
+    if ($sth->DOES('DBIx::QuickORM::Role::Async')) {
         $ready = sub { $sth->ready };
         $next  = sub {
             my $fetched = $sth->next or return;
@@ -1004,7 +1080,7 @@ sub any {
 
     my $sth = $self->_execute_select($sqla_source, $query);
 
-    return DBIx::QuickORM::Row::Async->new(async => $sth) if $sth->isa('DBIx::QuickORM::Connection::Async');
+    return DBIx::QuickORM::Row::Async->new(async => $sth) if $sth->DOES('DBIx::QuickORM::Role::Async');
 
     my $fetched = $sth->fetchrow_hashref;
 
@@ -1023,7 +1099,7 @@ sub first {
 
     my $sth = $self->_execute_select($sqla_source, $query);
 
-    return DBIx::QuickORM::Row::Async->new(async => $sth) if $sth->isa('DBIx::QuickORM::Connection::Async');
+    return DBIx::QuickORM::Row::Async->new(async => $sth) if $sth->DOES('DBIx::QuickORM::Role::Async');
 
     my $fetched = $sth->fetchrow_hashref;
 
@@ -1042,7 +1118,7 @@ sub one {
 
     my $sth = $self->_execute_select($sqla_source, $query);
 
-    if ($sth->isa('DBIx::QuickORM::Connection::Async')) {
+    if ($sth->DOES('DBIx::QuickORM::Role::Async')) {
         $sth->set_only_one(1);
         return DBIx::QuickORM::Row::Async->new(async => $sth);
     }

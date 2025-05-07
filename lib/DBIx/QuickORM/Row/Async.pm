@@ -66,11 +66,13 @@ sub new {
 
     Carp::croak("You must specify an 'async'") unless $self->{async};
 
-    Carp::croak("'$self->{async}' is not a valid 'DBIx::QuickORM::Connection::Async' instance")
-        unless $self->{async}->isa('DBIx::QuickORM::Connection::Async');
+    Carp::croak("'$self->{async}' does not implement the 'DBIx::QuickORM::Role::Async' role")
+        unless $self->{async}->DOES('DBIx::QuickORM::Role::Async');
 
     return $self;
 }
+
+sub async { $_[0]->{async} }
 
 sub is_invalid { $_[0]->swapout(@_)->{invalid} ? 1 : 0 }
 sub is_valid   { $_[0]->swapout(@_)->{invalid} ? 0 : 1 }
