@@ -1,5 +1,10 @@
 {{$NEXT}}
 
+    - Still felshing out functionality after the rewrite
+    - Add 'forked' async emulation
+    - Add 'aside' async functionality
+    - Add more txn callbacks
+
 0.000009  2025-05-06 08:17:08-07:00 America/Los_Angeles (TRIAL RELEASE)
 
 0.000008  2025-05-02 01:20:14-07:00 America/Los_Angeles (TRIAL RELEASE)
