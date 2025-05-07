@@ -30,9 +30,9 @@ sub init {
 
     $self->{+RESULT} = undef;
 
-    $self->{+ON_SUCCESS}    = [$self->{+ON_SUCCESS}]    if ref($self->{+ON_SUCCESS}) eq 'CODE';
-    $self->{+ON_FAIL}       = [$self->{+ON_FAIL}]       if ref($self->{+ON_FAIL}) eq 'CODE';
-    $self->{+ON_COMPLETION} = [$self->{+ON_COMPLETION}] if ref($self->{+ON_COMPLETION}) eq 'CODE';
+    $self->{+ON_SUCCESS}    = [$self->{+ON_SUCCESS}]    if 'CODE' eq ref($self->{+ON_SUCCESS});
+    $self->{+ON_FAIL}       = [$self->{+ON_FAIL}]       if 'CODE' eq ref($self->{+ON_FAIL});
+    $self->{+ON_COMPLETION} = [$self->{+ON_COMPLETION}] if 'CODE' eq ref($self->{+ON_COMPLETION});
 }
 
 sub complete { defined $_[0]->{+RESULT} }
