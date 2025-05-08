@@ -16,7 +16,7 @@ use POSIX();
 use Scope::Guard();
 
 use DBIx::QuickORM::Row::Async;
-use DBIx::QuickORM::SQLAbstract;
+use DBIx::QuickORM::SQLBuilder::SQLAbstract;
 use DBIx::QuickORM::Connection::Query;
 use DBIx::QuickORM::Query;
 use DBIx::QuickORM::Source;
@@ -52,7 +52,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <dialect
     <pid
     <schema
-    +sqla
+    +sql_builder
     <transactions
     +_savepoint_counter
     +_txn_counter
@@ -168,16 +168,7 @@ sub async_check {
 
 sub db { $_[0]->{+ORM}->db }
 
-sub sqla {
-    my $self = shift;
-    return $self->{+SQLA}->() if $self->{+SQLA};
-
-    my $sqla = DBIx::QuickORM::SQLAbstract->new(bindtype => 'columns');
-
-    $self->{+SQLA} = sub { $sqla };
-
-    return $sqla;
-}
+sub sql_builder { $_[0]->{+SQL_BUILDER} //= DBIx::QuickORM::SQLBuilder::SQLAbstract->new }
 
 ########################
 # }}} SIMPLE ACCESSORS #
@@ -616,7 +607,7 @@ sub _execute_select {
     my $dbh     = $self->dbh;
     my $dialect = $self->dialect;
 
-    my ($stmt, $bind) = $self->sqla->qorm_select($query_source, $query->{+QUERY_FIELDS}, $query->{+QUERY_WHERE}, $query->{+QUERY_ORDER_BY});
+    my ($stmt, $bind) = $self->sql_builder->qorm_select($query_source, $query->{+QUERY_FIELDS}, $query->{+QUERY_WHERE}, $query->{+QUERY_ORDER_BY});
     if (my $limit = $query->{+QUERY_LIMIT}) {
         $stmt .= " LIMIT ?";
         push @$bind => [undef, $limit];
@@ -640,7 +631,7 @@ sub _get_keys {
 
     my $pk_fields = $query_source->primary_key or croak "No primary key";
 
-    my ($stmt, $bind) = $self->sqla->qorm_select($query_source, $pk_fields, $where);
+    my ($stmt, $bind) = $self->sql_builder->qorm_select($query_source, $pk_fields, $where);
     my $sth = $self->_make_sth($query_source, $stmt, $bind);
     my $keys = $sth->fetchall_arrayref({});
     $where = @$pk_fields > 1 ? {'-or' => $keys} : {$pk_fields->[0] => {'-in' => [map { $_->{$pk_fields->[0]} } @$keys]}};
@@ -718,7 +709,7 @@ sub insert {
 
     my $fetched;
     my $do_it = sub {
-        my ($stmt, $bind) = $self->sqla->qorm_insert($query_source, $data, $ret ? {returning => $query_source->fields_to_fetch} : ());
+        my ($stmt, $bind) = $self->sql_builder->qorm_insert($query_source, $data, $ret ? {returning => $query_source->fields_to_fetch} : ());
         my $sth = $self->_make_sth($query_source, $stmt, $bind);
         $fetched = $sth->fetchrow_hashref if $ret;
     };
@@ -808,7 +799,7 @@ sub update {
 
     # No cache, or not cachable, just do the update
     unless ($do_cache && $pk_fields && @$pk_fields) {
-        my ($stmt, $bind) = $self->sqla->qorm_update($query_source, $changes, $query->{+QUERY_WHERE});
+        my ($stmt, $bind) = $self->sql_builder->qorm_update($query_source, $changes, $query->{+QUERY_WHERE});
         my $sth = $self->_make_sth($query_source, $stmt, $bind, $query);
 
         return $sth->rows;
@@ -818,7 +809,7 @@ sub update {
     my $updated;
     my $do_it = sub {
         my $where = shift // $query->{+QUERY_WHERE};
-        my ($stmt, $bind) = $self->sqla->qorm_update($query_source, $changes, $where, $ret ? {returning => $fields} : ());
+        my ($stmt, $bind) = $self->sql_builder->qorm_update($query_source, $changes, $where, $ret ? {returning => $fields} : ());
         my $sth = $self->_make_sth($query_source, $stmt, $bind, $query);
         $updated = $sth->fetchall_arrayref({}) if $ret;
     };
@@ -837,7 +828,7 @@ sub update {
 
                 $do_it->($where);
 
-                my ($stmt, $bind) = $self->sqla->qorm_select($query_source, $fields, $where);
+                my ($stmt, $bind) = $self->sql_builder->qorm_select($query_source, $fields, $where);
                 my $sth = $self->_make_sth($query_source, $stmt, $bind, $query);
                 $updated = $sth->fetchall_arrayref({});
             });
@@ -886,7 +877,7 @@ sub delete {
     my $deleted_keys;
     my $do_it = sub {
         my $where = shift // $query->{+QUERY_WHERE};
-        my ($stmt, $bind) = $self->sqla->qorm_delete($query_source, $where, $ret ? $pk_fields : ());
+        my ($stmt, $bind) = $self->sql_builder->qorm_delete($query_source, $where, $ret ? $pk_fields : ());
         my $sth = $self->_make_sth($query_source, $stmt, $bind, $query);
         $deleted_keys = $sth->fetchall_arrayref({}) if $ret;
     };
