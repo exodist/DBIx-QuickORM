@@ -97,9 +97,9 @@ sub column {
     return $self->{+COLUMNS}->{$cname} // undef;
 }
 
-# SQLASource role implementation
+# QuerySource role implementation
 {
-    with 'DBIx::QuickORM::Role::SQLASource';
+    with 'DBIx::QuickORM::Role::QuerySource';
 
     use DBIx::QuickORM::Util::HashBase qw{
         +fields_to_fetch
@@ -107,8 +107,8 @@ sub column {
         +fields_list_all
     };
 
-    sub sqla_db_name  { $_[0]->{+DB_NAME} }
-    sub sqla_orm_name { $_[0]->{+NAME} }
+    sub source_db_moniker  { $_[0]->{+DB_NAME} }
+    sub source_orm_name { $_[0]->{+NAME} }
 
     # row_class     # In HashBase at top of file
     # primary_key   # In HashBase at top of file

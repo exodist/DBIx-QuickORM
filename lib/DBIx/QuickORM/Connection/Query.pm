@@ -5,7 +5,7 @@ use warnings;
 use Carp qw/croak/;
 
 use DBIx::QuickORM::Util::HashBase qw{
-    sqla_source
+    query_source
     row
     where
     order_by

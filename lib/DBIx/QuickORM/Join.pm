@@ -8,7 +8,7 @@ use Sub::Util qw/set_subname/;
 use DBIx::QuickORM::Join::Row;
 
 use Role::Tiny::With qw/with/;
-with 'DBIx::QuickORM::Role::SQLASource';
+with 'DBIx::QuickORM::Role::QuerySource';
 with 'DBIx::QuickORM::Role::Linked';
 
 use DBIx::QuickORM::Util::HashBase qw{
@@ -24,7 +24,7 @@ use DBIx::QuickORM::Util::HashBase qw{
 
 sub primary_key     { }
 sub fields_to_omit  { }
-sub sqla_orm_name   { 'JOIN' }
+sub source_orm_name   { 'JOIN' }
 sub fields_list_all { croak "Not Supported" }
 
 sub init {
@@ -40,7 +40,7 @@ sub init {
 
     my $first = $self->{+JOIN_AS}++;
     push @{$self->{+ORDER}}                                            => $first;
-    push @{$self->{+LOOKUP}->{$self->{+PRIMARY_SOURCE}->sqla_db_name}} => $first;
+    push @{$self->{+LOOKUP}->{$self->{+PRIMARY_SOURCE}->source_db_moniker}} => $first;
     $self->{+COMPONENTS}->{$first} = {table => $self->{+PRIMARY_SOURCE}, as => $first};
 
     $self->{+ROW_CLASS} //= 'DBIx::QuickORM::Join::Row';
@@ -61,7 +61,7 @@ sub fracture {
         my $data     = {map { $not_null ||= defined($in->{$_}); m/^\Q$as\E\.(.+)$/; ($1 => $in->{$_}) } grep { m/^\Q$as\E\./ } keys %$in};
 
         next unless $not_null;
-        push @$out => {sqla_source => $table, data => $data, as => $as, link => $link};
+        push @$out => {query_source => $table, data => $data, as => $as, link => $link};
     }
 
     return $out;
@@ -85,7 +85,7 @@ sub clone {
     );
 }
 
-sub sqla_db_name {
+sub source_db_moniker {
     my $self = shift;
 
     my $lookup = $self->{+LOOKUP};
@@ -109,10 +109,10 @@ sub sqla_db_name {
             }
 
             $out .= $type =~ m/join/i ? " $type " : " $type JOIN ";
-            $out .= $table->sqla_db_name . " AS $as ON (" . join(' AND ' => @cols) . ")";
+            $out .= $table->source_db_moniker . " AS $as ON (" . join(' AND ' => @cols) . ")";
         }
         else {
-            $out = $table->sqla_db_name . " AS $as";
+            $out = $table->source_db_moniker . " AS $as";
         }
     }
 

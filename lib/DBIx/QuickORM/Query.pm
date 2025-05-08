@@ -12,7 +12,7 @@ use DBIx::QuickORM::Connection::Query;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <connection
-    <sqla_source
+    <query_source
 
     +where
     +order_by
@@ -37,9 +37,9 @@ sub init {
     confess "Connection '$con' is not an instance of 'DBIx::QuickORM::Connection'"
         unless blessed($con) && $con->isa('DBIx::QuickORM::Connection');
 
-    my $sqla_source = $self->sqla_source or confess "'sqla_source' is a required attribute";
-    confess "Source '$sqla_source' does not implement the role 'DBIx::QuickORM::Role::SQLASource'"
-        unless blessed($sqla_source) && $sqla_source->DOES('DBIx::QuickORM::Role::SQLASource');
+    my $query_source = $self->query_source or confess "'query_source' is a required attribute";
+    confess "Source '$query_source' does not implement the role 'DBIx::QuickORM::Role::QuerySource'"
+        unless blessed($query_source) && $query_source->DOES('DBIx::QuickORM::Role::QuerySource');
 
     $self->normalize_query;
 }
@@ -61,7 +61,7 @@ BEGIN {
     for my $meth (@METHODS) {
         my $name = $meth;
         no strict 'refs';
-        *$name = set_subname $name => sub { my $self = shift; $self->{+CONNECTION}->$name($self->{+SQLA_SOURCE}, $self, @_) };
+        *$name = set_subname $name => sub { my $self = shift; $self->{+CONNECTION}->$name($self->{+QUERY_SOURCE}, $self, @_) };
     }
 }
 
@@ -75,7 +75,7 @@ sub source {
 
     return DBIx::QuickORM::Source->new(
         CONNECTION()  => $self->{+CONNECTION},
-        SQLA_SOURCE() => $self->{+SQLA_SOURCE},
+        QUERY_SOURCE() => $self->{+QUERY_SOURCE},
     );
 }
 
@@ -92,24 +92,24 @@ sub prefetch {
 
     ($params{from}, $link) = ($1, $2) if !ref($link) && $link =~ m/^(.+)\:(.+)$/;
 
-    $link = $self->{+SQLA_SOURCE}->resolve_link($link, %params);
+    $link = $self->{+QUERY_SOURCE}->resolve_link($link, %params);
 
     my $join;
-    my $source = $self->{+SQLA_SOURCE};
+    my $source = $self->{+QUERY_SOURCE};
     if ($source->isa('DBIx::QuickORM::Join')) {
         $join = $source;
     }
     else {
         require DBIx::QuickORM::Join;
         $join = DBIx::QuickORM::Join->new(
-            primary_source => $self->{+SQLA_SOURCE},
+            primary_source => $self->{+QUERY_SOURCE},
             schema         => $self->{+CONNECTION}->schema,
         );
     }
 
     $join = $join->join(%params, link => $link);
 
-    my $x = $self->clone(SQLA_SOURCE() => $join, FIELDS() => $join->fields_to_fetch);
+    my $x = $self->clone(QUERY_SOURCE() => $join, FIELDS() => $join->fields_to_fetch);
 
     return $x;
 }
@@ -171,7 +171,7 @@ sub order_by {
 
 sub all_fields {
     my $self = shift;
-    return $self->clone(FIELDS() => $self->{+SQLA_SOURCE}->fields_list_all);
+    return $self->clone(FIELDS() => $self->{+QUERY_SOURCE}->fields_list_all);
 }
 
 sub fields {
@@ -180,7 +180,7 @@ sub fields {
 
     return $self->clone(FIELDS() => $_[0]) if @_ == 1 && ref($_[0]) eq 'ARRAY';
 
-    my @fields = @{$self->{+FIELDS} // $self->{+SQLA_SOURCE}->fields_to_fetch};
+    my @fields = @{$self->{+FIELDS} // $self->{+QUERY_SOURCE}->fields_to_fetch};
     push @fields => @_;
 
     return $self->clone(FIELDS() => \@fields);

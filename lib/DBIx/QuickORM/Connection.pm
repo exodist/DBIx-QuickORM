@@ -35,7 +35,7 @@ use DBIx::QuickORM::Connection::RowData qw{
 };
 
 use DBIx::QuickORM::Role::Query ':ALL' => {-prefix => 'QUERY_'};
-#    QUERY_SQLA_SOURCE
+#    QUERY_QUERY_SOURCE
 #    QUERY_WHERE
 #    QUERY_ORDER_BY
 #    QUERY_LIMIT
@@ -433,7 +433,7 @@ sub source {
 
     return DBIx::QuickORM::Source->new(
         connection  => $self,
-        sqla_source => $self->schema->table($source),
+        query_source => $self->schema->table($source),
     );
 }
 
@@ -449,25 +449,25 @@ sub _resolve_source_and_query {
 
 sub _resolve_query {
     my $self = shift;
-    my ($query, $sqla_source) = @_;
+    my ($query, $query_source) = @_;
 
-    return DBIx::QuickORM::Connection::Query->new(QUERY_WHERE() => {}, QUERY_SQLA_SOURCE() => $sqla_source)
+    return DBIx::QuickORM::Connection::Query->new(QUERY_WHERE() => {}, QUERY_QUERY_SOURCE() => $query_source)
         unless $query;
 
     if (blessed($query)) {
         return $query if $query->DOES('DBIx::QuickORM::Role::Query');
 
-        return DBIx::QuickORM::Connection::Query->new(QUERY_WHERE() => $query->primary_key_hashref, QUERY_ROW() => $query, QUERY_SQLA_SOURCE() => $sqla_source)
+        return DBIx::QuickORM::Connection::Query->new(QUERY_WHERE() => $query->primary_key_hashref, QUERY_ROW() => $query, QUERY_QUERY_SOURCE() => $query_source)
             if $query->isa('DBIx::QuickORM::Row');
     }
 
     croak "'$query' is not a valid query" unless ref($query) eq 'HASH';
 
     if (lu_first { $query->{$_} } QUERY_WHERE(), QUERY_ORDER_BY(), QUERY_LIMIT(), QUERY_FIELDS(), QUERY_OMIT(), QUERY_ASYNC(), QUERY_ASIDE(), QUERY_FORKED(), QUERY_ROW()) {
-        return DBIx::QuickORM::Connection::Query->new(%$query, QUERY_SQLA_SOURCE() => $sqla_source);
+        return DBIx::QuickORM::Connection::Query->new(%$query, QUERY_QUERY_SOURCE() => $query_source);
     }
 
-    return DBIx::QuickORM::Connection::Query->new(QUERY_WHERE() => $query, QUERY_SQLA_SOURCE() => $sqla_source);
+    return DBIx::QuickORM::Connection::Query->new(QUERY_WHERE() => $query, QUERY_QUERY_SOURCE() => $query_source);
 }
 
 sub _resolve_source {
@@ -477,17 +477,17 @@ sub _resolve_source {
     confess "Source name is required" unless defined $s && length $s;
 
     if (blessed($s)) {
-        return $s if $s->DOES('DBIx::QuickORM::Role::SQLASource');
-        croak "'$s' does not implement the 'DBIx::QuickORM::Role::SQLASource' role";
+        return $s if $s->DOES('DBIx::QuickORM::Role::QuerySource');
+        croak "'$s' does not implement the 'DBIx::QuickORM::Role::QuerySource' role";
     }
 
-    croak "Not sure how to get an sqla_source from '$s'" if ref($s);
+    croak "Not sure how to get an query_source from '$s'" if ref($s);
     return $self->schema->table($s),;
 }
 
 sub _make_sth {
     my $self        = shift;
-    my $sqla_source = $self->_resolve_source(shift);
+    my $query_source = $self->_resolve_source(shift);
     my ($stmt, $bind, $query, $prepare_args) = @_;
 
     $self->pid_check;
@@ -515,7 +515,7 @@ sub _make_sth {
 
             my $fork = DBIx::QuickORM::Connection::Fork->new(
                 connection  => $self,
-                sqla_source => $sqla_source,
+                query_source => $query_source,
                 pid         => $pid,
                 pipe        => $rh,
             );
@@ -542,12 +542,12 @@ sub _make_sth {
 
         my @args;
         if ($field) {
-            my $affinity = $sqla_source->field_affinity($field, $dialect);
+            my $affinity = $query_source->field_affinity($field, $dialect);
 
             if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type')) {
                 $val = $val->qorm_deflate($affinity);
             }
-            elsif (my $type = $sqla_source->field_type($field)) {
+            elsif (my $type = $query_source->field_type($field)) {
                 $val = $type->qorm_deflate($val, $affinity);
             }
 
@@ -581,7 +581,7 @@ sub _make_sth {
     elsif ($query->{+QUERY_ASYNC}) {
         my $async = DBIx::QuickORM::Connection::Async->new(
             connection  => $self,
-            sqla_source => $sqla_source,
+            query_source => $query_source,
             dbh         => $dbh,
             sth         => $sth,
         );
@@ -594,7 +594,7 @@ sub _make_sth {
     elsif ($query->{+QUERY_ASIDE}) {
         my $aside = DBIx::QuickORM::Connection::Aside->new(
             connection  => $self,
-            sqla_source => $sqla_source,
+            query_source => $query_source,
             dbh         => $dbh,
             sth         => $sth,
         );
@@ -610,19 +610,19 @@ sub _make_sth {
 
 sub _execute_select {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     my ($prepare_args) = @extra;
 
     my $dbh     = $self->dbh;
     my $dialect = $self->dialect;
 
-    my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $query->{+QUERY_FIELDS}, $query->{+QUERY_WHERE}, $query->{+QUERY_ORDER_BY});
+    my ($stmt, $bind) = $self->sqla->qorm_select($query_source, $query->{+QUERY_FIELDS}, $query->{+QUERY_WHERE}, $query->{+QUERY_ORDER_BY});
     if (my $limit = $query->{+QUERY_LIMIT}) {
         $stmt .= " LIMIT ?";
         push @$bind => [undef, $limit];
     }
 
-    return $self->_make_sth($sqla_source, $stmt, $bind, $query, $prepare_args);
+    return $self->_make_sth($query_source, $stmt, $bind, $query, $prepare_args);
 }
 
 sub _format_insert_and_update_data {
@@ -636,12 +636,12 @@ sub _format_insert_and_update_data {
 
 sub _get_keys {
     my $self = shift;
-    my ($sqla_source, $where) = @_;
+    my ($query_source, $where) = @_;
 
-    my $pk_fields = $sqla_source->primary_key or croak "No primary key";
+    my $pk_fields = $query_source->primary_key or croak "No primary key";
 
-    my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $pk_fields, $where);
-    my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+    my ($stmt, $bind) = $self->sqla->qorm_select($query_source, $pk_fields, $where);
+    my $sth = $self->_make_sth($query_source, $stmt, $bind);
     my $keys = $sth->fetchall_arrayref({});
     $where = @$pk_fields > 1 ? {'-or' => $keys} : {$pk_fields->[0] => {'-in' => [map { $_->{$pk_fields->[0]} } @$keys]}};
 
@@ -668,12 +668,12 @@ sub forked { shift->query(@_)->forked }
 
 sub vivify {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
+    my $query_source = $self->_resolve_source(shift);
     my ($data) = @_;
     $self->pid_check;
 
     return $self->{+MANAGER}->vivify(
-        sqla_source => $sqla_source,
+        query_source => $query_source,
         connection => $self,
         fetched    => $data,
     );
@@ -681,7 +681,7 @@ sub vivify {
 
 sub insert {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
+    my $query_source = $self->_resolve_source(shift);
     my ($in) = @_;
     $self->pid_check;
     $self->async_check;
@@ -706,7 +706,7 @@ sub insert {
     my $dialect = $self->dialect;
     my $ret     = $dialect->supports_returning_insert;
 
-    for my $col ($sqla_source->columns) {
+    for my $col ($query_source->columns) {
         my $def  = $col->perl_default or next;
         my $name = $col->name;
 
@@ -718,8 +718,8 @@ sub insert {
 
     my $fetched;
     my $do_it = sub {
-        my ($stmt, $bind) = $self->sqla->qorm_insert($sqla_source, $data, $ret ? {returning => $sqla_source->fields_to_fetch} : ());
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind);
+        my ($stmt, $bind) = $self->sqla->qorm_insert($query_source, $data, $ret ? {returning => $query_source->fields_to_fetch} : ());
+        my $sth = $self->_make_sth($query_source, $stmt, $bind);
         $fetched = $sth->fetchrow_hashref if $ret;
     };
 
@@ -727,17 +727,17 @@ sub insert {
         $do_it->();
     }
     else {
-        my $pk_fields = $sqla_source->primary_key;
+        my $pk_fields = $query_source->primary_key;
         if ($pk_fields && @$pk_fields) {
             croak "Auto-generated compound primary keys are not supported for databases that do not support 'returning on insert' functionality" if @$pk_fields > 1;
 
             $self->_internal_txn(sub {
                 $do_it->();
 
-                my $kv = $self->dbh->last_insert_id(undef, undef, $sqla_source->sqla_db_name);
+                my $kv = $self->dbh->last_insert_id(undef, undef, $query_source->source_db_moniker);
                 my $where = {$pk_fields->[0] => $kv};
 
-                my $sth = $self->_execute_select($sqla_source, {where => $where, fields => $sqla_source->fields_to_fetch});
+                my $sth = $self->_execute_select($query_source, {where => $where, fields => $query_source->fields_to_fetch});
                 $fetched = $sth->fetchrow_hashref;
             });
         }
@@ -748,7 +748,7 @@ sub insert {
     }
 
     return $self->{+MANAGER}->insert(
-        sqla_source => $sqla_source,
+        query_source => $query_source,
         connection  => $self,
         fetched     => $fetched,
         row         => $row,
@@ -757,7 +757,7 @@ sub insert {
 
 sub update {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $self->pid_check;
     $self->async_check;
 
@@ -797,7 +797,7 @@ sub update {
     croak "Changes must be a hashref"        unless ref($changes) eq 'HASH';
     croak "Changes hashref may not be empty" unless keys %$changes;
 
-    my $pk_fields         = $sqla_source->primary_key;
+    my $pk_fields         = $query_source->primary_key;
     my $changes_pk_fields = grep { $changes->{$_} } @$pk_fields;
 
     my $dialect  = $self->dialect;
@@ -808,8 +808,8 @@ sub update {
 
     # No cache, or not cachable, just do the update
     unless ($do_cache && $pk_fields && @$pk_fields) {
-        my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $changes, $query->{+QUERY_WHERE});
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind, $query);
+        my ($stmt, $bind) = $self->sqla->qorm_update($query_source, $changes, $query->{+QUERY_WHERE});
+        my $sth = $self->_make_sth($query_source, $stmt, $bind, $query);
 
         return $sth->rows;
     }
@@ -818,8 +818,8 @@ sub update {
     my $updated;
     my $do_it = sub {
         my $where = shift // $query->{+QUERY_WHERE};
-        my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $changes, $where, $ret ? {returning => $fields} : ());
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind, $query);
+        my ($stmt, $bind) = $self->sqla->qorm_update($query_source, $changes, $where, $ret ? {returning => $fields} : ());
+        my $sth = $self->_make_sth($query_source, $stmt, $bind, $query);
         $updated = $sth->fetchall_arrayref({}) if $ret;
     };
 
@@ -833,17 +833,17 @@ sub update {
         }
         else {
             $self->_internal_txn(sub {
-                my ($keys, $where) = $self->_get_keys($sqla_source, $query->{+QUERY_WHERE});
+                my ($keys, $where) = $self->_get_keys($query_source, $query->{+QUERY_WHERE});
 
                 $do_it->($where);
 
-                my ($stmt, $bind) = $self->sqla->qorm_select($sqla_source, $fields, $where);
-                my $sth = $self->_make_sth($sqla_source, $stmt, $bind, $query);
+                my ($stmt, $bind) = $self->sqla->qorm_select($query_source, $fields, $where);
+                my $sth = $self->_make_sth($query_source, $stmt, $bind, $query);
                 $updated = $sth->fetchall_arrayref({});
             });
         }
 
-        $self->{+MANAGER}->update($query->query_pairs, sqla_source => $sqla_source, connection => $self, fetched => $_) for @$updated;
+        $self->{+MANAGER}->update($query->query_pairs, query_source => $query_source, connection => $self, fetched => $_) for @$updated;
 
         return scalar(@$updated);
     }
@@ -854,7 +854,7 @@ sub update {
     # Crap, we are changing pk's, possibly multiple, and no way to associate the before and after...
     my ($keys, $where);
     $self->_internal_txn(sub {
-        ($keys, $where) = $self->_get_keys($sqla_source, $query->{+QUERY_WHERE});
+        ($keys, $where) = $self->_get_keys($query_source, $query->{+QUERY_WHERE});
         $do_it->($where);
     });
 
@@ -865,7 +865,7 @@ sub update {
 
 sub delete {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $query = $query->clone(@extra) if @extra;
     $self->pid_check;
     $self->async_check;
@@ -881,13 +881,13 @@ sub delete {
     my $do_cache = $self->{+MANAGER}->does_cache;
     my $ret      = $do_cache && $dialect->supports_returning_delete;
 
-    my $pk_fields = $sqla_source->primary_key;
+    my $pk_fields = $query_source->primary_key;
 
     my $deleted_keys;
     my $do_it = sub {
         my $where = shift // $query->{+QUERY_WHERE};
-        my ($stmt, $bind) = $self->sqla->qorm_delete($sqla_source, $where, $ret ? $pk_fields : ());
-        my $sth = $self->_make_sth($sqla_source, $stmt, $bind, $query);
+        my ($stmt, $bind) = $self->sqla->qorm_delete($query_source, $where, $ret ? $pk_fields : ());
+        my $sth = $self->_make_sth($query_source, $stmt, $bind, $query);
         $deleted_keys = $sth->fetchall_arrayref({}) if $ret;
     };
 
@@ -900,13 +900,13 @@ sub delete {
     else {
         $self->_internal_txn(sub {
             my $where;
-            ($deleted_keys, $where) = $self->_get_keys($sqla_source, $query->{+QUERY_WHERE});
+            ($deleted_keys, $where) = $self->_get_keys($query_source, $query->{+QUERY_WHERE});
             $do_it->($where);
         });
     }
 
     if ($do_cache && $deleted_keys && @$deleted_keys) {
-        $self->{+MANAGER}->delete($query->query_pairs, sqla_source => $sqla_source, connection => $self, old_primary_key => $_) for @$deleted_keys;
+        $self->{+MANAGER}->delete($query->query_pairs, query_source => $query_source, connection => $self, old_primary_key => $_) for @$deleted_keys;
     }
 
     return;
@@ -918,7 +918,7 @@ sub delete {
 }
 sub select {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
+    my $query_source = $self->_resolve_source(shift);
     $self->pid_check;
     $self->async_check;
 
@@ -936,12 +936,12 @@ sub select {
         }
     }
 
-    return DBIx::QuickORM::Query->new(%params, connection => $self, sqla_source => $sqla_source);
+    return DBIx::QuickORM::Query->new(%params, connection => $self, query_source => $query_source);
 }
 
 sub count {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $query = $query->clone(@extra) if @extra;
     $self->pid_check;
 
@@ -949,36 +949,36 @@ sub count {
 
     $query = $query->clone(QUERY_FIELDS() => 'COUNT(*) AS cnt');
 
-    my $sth  = $self->_execute_select($sqla_source, $query);
+    my $sth  = $self->_execute_select($query_source, $query);
     my $data = $sth->fetchrow_hashref or return 0;
     return $data->{cnt};
 }
 
 sub by_id {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
+    my $query_source = $self->_resolve_source(shift);
     my $id = shift;
     my %query = @_;
 
     my $where;
     my $ref = ref($id);
     #<<<
-    if    ($ref eq 'HASH')  { $where = $id; $id = [ map { $where->{$_} } @{$sqla_source->primary_key} ] }
-    elsif ($ref eq 'ARRAY') { $where = +{ mesh($sqla_source->primary_key, $id) } }
-    elsif (!$ref)           { $id = [ $id ]; $where = +{ mesh($sqla_source->primary_key, $id) } }
+    if    ($ref eq 'HASH')  { $where = $id; $id = [ map { $where->{$_} } @{$query_source->primary_key} ] }
+    elsif ($ref eq 'ARRAY') { $where = +{ mesh($query_source->primary_key, $id) } }
+    elsif (!$ref)           { $id = [ $id ]; $where = +{ mesh($query_source->primary_key, $id) } }
     #>>>
 
     croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';
 
-    my $row = $self->{+MANAGER}->do_cache_lookup($sqla_source, undef, undef, $id);
+    my $row = $self->{+MANAGER}->do_cache_lookup($query_source, undef, undef, $id);
 
     $query{+QUERY_WHERE} = $where;
-    return $row //= $self->one($sqla_source, \%query);
+    return $row //= $self->one($query_source, \%query);
 }
 
 sub by_ids {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
+    my $query_source = $self->_resolve_source(shift);
 
     my @ids = @_;
     my (@out, %query);
@@ -988,7 +988,7 @@ sub by_ids {
             next;
         }
 
-        push @out => $self->by_id($sqla_source, $id, %query);
+        push @out => $self->by_id($query_source, $id, %query);
     }
 
     return \@out;
@@ -996,13 +996,13 @@ sub by_ids {
 
 sub all {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $query = $query->clone(@extra) if @extra;
 
     croak "all() cannot be used asynchronously, use iterate() to get an async iterator instead"
         if $query->{+QUERY_ASYNC} || $query->{+QUERY_ASIDE} || $query->{+QUERY_FORKED};
 
-    my $sth = $self->_execute_select($sqla_source, $query);
+    my $sth = $self->_execute_select($query_source, $query);
 
     $self->pid_check;
     $self->async_check;
@@ -1011,7 +1011,7 @@ sub all {
 
     my @out;
     while (my $fetched = $sth->fetchrow_hashref) {
-        push @out => $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+        push @out => $self->{+MANAGER}->select(query_source => $query_source, connection => $self, fetched => $fetched);
     }
 
     return @out;
@@ -1019,7 +1019,7 @@ sub all {
 
 sub iterate {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     my $cb = pop @extra;
 
     $query = $query->clone(@extra) if @extra;
@@ -1029,7 +1029,7 @@ sub iterate {
     $self->pid_check;
     $self->async_check;
 
-    my $sth = $self->_execute_select($sqla_source, $query);
+    my $sth = $self->_execute_select($query_source, $query);
 
     while (my $fetched = $sth->fetchrow_hashref) {
         my $arg;
@@ -1037,7 +1037,7 @@ sub iterate {
             $arg = $fetched
         }
         else {
-            $arg = $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+            $arg = $self->{+MANAGER}->select(query_source => $query_source, connection => $self, fetched => $fetched);
         }
         $cb->($arg);
     }
@@ -1047,13 +1047,13 @@ sub iterate {
 
 sub iterator {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $query = $query->clone(@extra) if @extra;
 
     $self->pid_check;
     $self->async_check;
 
-    my $sth = $self->_execute_select($sqla_source, $query);
+    my $sth = $self->_execute_select($query_source, $query);
 
     my ($next, $ready);
     if ($sth->DOES('DBIx::QuickORM::Role::Async')) {
@@ -1061,14 +1061,14 @@ sub iterator {
         $next  = sub {
             my $fetched = $sth->next or return;
             return $fetched if $query->{+QUERY_DATA_ONLY};
-            return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+            return $self->{+MANAGER}->select(query_source => $query_source, connection => $self, fetched => $fetched);
         };
     }
     else {
         $next = sub {
             my $fetched = $sth->fetchrow_hashref or return;
             return $fetched if $query->{+QUERY_DATA_ONLY};
-            return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+            return $self->{+MANAGER}->select(query_source => $query_source, connection => $self, fetched => $fetched);
         };
     }
 
@@ -1077,12 +1077,12 @@ sub iterator {
 
 sub any {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $query = $query->clone(@extra, QUERY_ORDER_BY() => undef, QUERY_LIMIT() => 1);
 
     $self->pid_check;
 
-    my $sth = $self->_execute_select($sqla_source, $query);
+    my $sth = $self->_execute_select($query_source, $query);
 
     return DBIx::QuickORM::Row::Async->new(async => $sth) if $sth->DOES('DBIx::QuickORM::Role::Async');
 
@@ -1090,18 +1090,18 @@ sub any {
 
     return unless $fetched;
     return $fetched if $query->{+QUERY_DATA_ONLY};
-    return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+    return $self->{+MANAGER}->select(query_source => $query_source, connection => $self, fetched => $fetched);
 }
 
 sub first {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $query = $query->clone(@extra, QUERY_LIMIT() => 1);
 
     $self->pid_check;
     $self->async_check;
 
-    my $sth = $self->_execute_select($sqla_source, $query);
+    my $sth = $self->_execute_select($query_source, $query);
 
     return DBIx::QuickORM::Row::Async->new(async => $sth) if $sth->DOES('DBIx::QuickORM::Role::Async');
 
@@ -1109,18 +1109,18 @@ sub first {
 
     return unless $fetched;
     return $fetched if $query->{+QUERY_DATA_ONLY};
-    return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+    return $self->{+MANAGER}->select(query_source => $query_source, connection => $self, fetched => $fetched);
 }
 
 sub one {
     my $self = shift;
-    my ($sqla_source, $query, @extra) = $self->_resolve_source_and_query(@_);
+    my ($query_source, $query, @extra) = $self->_resolve_source_and_query(@_);
     $query = $query->clone(@extra) if @extra;
 
     $self->pid_check;
     $self->async_check;
 
-    my $sth = $self->_execute_select($sqla_source, $query);
+    my $sth = $self->_execute_select($query_source, $query);
 
     if ($sth->DOES('DBIx::QuickORM::Role::Async')) {
         $sth->set_only_one(1);
@@ -1132,12 +1132,12 @@ sub one {
 
     return unless $fetched;
     return $fetched if $query->{+QUERY_DATA_ONLY};
-    return $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+    return $self->{+MANAGER}->select(query_source => $query_source, connection => $self, fetched => $fetched);
 }
 
 sub find_or_insert {
     my $self = shift;
-    my $sqla_source = $self->_resolve_source(shift);
+    my $query_source = $self->_resolve_source(shift);
     my ($data) = @_;
     $self->pid_check;
     $self->async_check;
@@ -1145,14 +1145,14 @@ sub find_or_insert {
     my $row;
 
     $self->_internal_txn(sub {
-        my $sth = $self->_execute_select($sqla_source, {QUERY_WHERE() => $data, QUERY_LIMIT() => 2});
+        my $sth = $self->_execute_select($query_source, {QUERY_WHERE() => $data, QUERY_LIMIT() => 2});
 
         if (my $fetched = $sth->fetchrow_hashref) {
             croak "Multiple existing rows match the specification passed to find_or_insert" if $sth->fetchrow_hashref;
-            $row = $self->{+MANAGER}->select(sqla_source => $sqla_source, connection => $self, fetched => $fetched);
+            $row = $self->{+MANAGER}->select(query_source => $query_source, connection => $self, fetched => $fetched);
         }
         else {
-            $row = $self->insert($sqla_source, $data);
+            $row = $self->insert($query_source, $data);
         }
     });
 

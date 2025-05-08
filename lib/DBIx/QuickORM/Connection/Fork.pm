@@ -13,7 +13,7 @@ use IO::Select;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <connection
-    <sqla_source
+    <query_source
 
     only_one
 
@@ -37,7 +37,7 @@ sub init {
     croak "'pid' is a required attribute"         unless $self->{+PID};
     croak "'pipe' is a required attribute"        unless $self->{+PIPE};
     croak "'connection' is a required attribute"  unless $self->{+CONNECTION};
-    croak "'sqla_source' is a required attribute" unless $self->{+SQLA_SOURCE};
+    croak "'query_source' is a required attribute" unless $self->{+QUERY_SOURCE};
 }
 
 sub ready {

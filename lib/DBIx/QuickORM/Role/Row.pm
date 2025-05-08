@@ -9,7 +9,7 @@ use Scalar::Util qw/blessed/;
 use Role::Tiny;
 
 requires qw{
-    sqla_source
+    query_source
     connection
     is_invalid
     is_valid
@@ -22,11 +22,11 @@ sub track_desync { 0 }
 sub is_stored    { $_[0]->in_storage }
 sub dialect      { $_[0]->connection->dialect }
 
-sub has_field      { $_[0]->sqla_source->has_field($_[1] // croak "Must specify a field name") }
-sub field_affinity { $_[0]->sqla_source->field_affinity($_[1], $_[0]->dialect) }
+sub has_field      { $_[0]->query_source->has_field($_[1] // croak "Must specify a field name") }
+sub field_affinity { $_[0]->query_source->field_affinity($_[1], $_[0]->dialect) }
 
 #<<<
-sub primary_key_field_list { @{$_[0]->sqla_source->primary_key // []} }
+sub primary_key_field_list { @{$_[0]->query_source->primary_key // []} }
 sub primary_key_value_list { map { $_[0]->raw_stored_field($_) // undef } $_[0]->check_pk->primary_key_field_list }
 sub primary_key_hash       { map { $_ => $_[0]->raw_stored_field($_) // undef } $_[0]->check_pk->primary_key_field_list }
 sub primary_key_hashref    { +{ $_[0]->primary_key_hash } }
@@ -37,7 +37,7 @@ sub source {
 
     require DBIx::QuickORM::Source;
     return DBIx::QuickORM::Source->new(
-        sqla_source => $self->sqla_source,
+        query_source => $self->query_source,
         connection  => $self->connection,
     );
 }
@@ -51,7 +51,7 @@ requires qw{
 };
 
 sub check_pk {
-    return $_[0] if $_[0]->sqla_source->primary_key;
+    return $_[0] if $_[0]->query_source->primary_key;
 
     croak "Operation not allowed: the table this row is from does not have a primary key";
 }
@@ -84,7 +84,7 @@ sub insert {
     croak "This row is already in the database" if $self->is_stored;
     croak "This row has no data to write" unless $self->has_pending;
 
-    $self->connection->insert($self->sqla_source, $self);
+    $self->connection->insert($self->query_source, $self);
 
     return $self;
 }
@@ -98,11 +98,11 @@ sub save {
 
     croak "This row is not in the database yet" unless $self->is_stored;
 
-    my $pk = $self->sqla_source->primary_key or croak "Cannot use 'save()' on a row with a source that has no primary key";
+    my $pk = $self->query_source->primary_key or croak "Cannot use 'save()' on a row with a source that has no primary key";
 
     return $self unless $self->has_pending;
 
-    $self->connection->update($self->sqla_source, $self);
+    $self->connection->update($self->query_source, $self);
 
     return $self;
 }
@@ -112,7 +112,7 @@ sub delete {
 
     $self->check_pk;
 
-    $self->connection->delete($self->sqla_source, $self);
+    $self->connection->delete($self->query_source, $self);
 }
 
 ############################
@@ -152,7 +152,7 @@ sub follow {
     my $self = shift;
     my ($link) = @_;
 
-    $link = $self->sqla_source->resolve_link($link);
+    $link = $self->query_source->resolve_link($link);
 
     my $where = {};
     for my $set (zip($link->local_columns, $link->other_columns)) {
@@ -167,7 +167,7 @@ sub obtain {
     my $self = shift;
     my ($link) = @_;
 
-    $link = $self->sqla_source->resolve_link($link);
+    $link = $self->query_source->resolve_link($link);
     croak "The specified link does not point to a unique row" unless $link->unique;
 
     $self->follow($link)->one;
@@ -177,7 +177,7 @@ sub insert_related {
     my $self = shift;
     my ($link, $row_data) = @_;
 
-    $link = $self->sqla_source->resolve_link($link);
+    $link = $self->query_source->resolve_link($link);
 
     for my $set (zip($link->local_columns, $link->other_columns)) {
         my ($local, $other) = @$set;
@@ -199,7 +199,7 @@ sub siblings { # This includes the original
         $fields = $link_or_fields;
     }
     else {
-        my $link = $self->sqla_source->resolve_link($link_or_fields);
+        my $link = $self->query_source->resolve_link($link_or_fields);
         $fields = $link->local_columns;
     }
 

@@ -42,19 +42,19 @@ sub cache_lookup {
 
 sub do_cache_lookup {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = @_;
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = @_;
     return undef;
 }
 
 sub invalidate {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
 
     # Remove from passed in row if we got one
     $row->{+ROW_DATA}->invalidate if $row;
 
     # Now check cache for row, might be same, might not
-    $row = $self->uncache($sqla_source, $row, $old_pk, $new_pk);
+    $row = $self->uncache($query_source, $row, $old_pk, $new_pk);
     $row->{+ROW_DATA}->invalidate if $row;
 
     return;
@@ -71,57 +71,57 @@ sub _state {
 
 sub _vivify {
     my $self = shift;
-    my ($sqla_source, $state) = @_;
+    my ($query_source, $state) = @_;
     my $connection = $self->{+CONNECTION};
-    my $row_class = load_class($sqla_source->row_class // $connection->schema->row_class // 'DBIx::QuickORM::Row') or die $@;
-    my $row_data = DBIx::QuickORM::Connection::RowData->new(stack => [$state], connection => $connection, sqla_source => $sqla_source);
+    my $row_class = load_class($query_source->row_class // $connection->schema->row_class // 'DBIx::QuickORM::Row') or die $@;
+    my $row_data = DBIx::QuickORM::Connection::RowData->new(stack => [$state], connection => $connection, query_source => $query_source);
     return $row_class->new(ROW_DATA() => $row_data);
 }
 
 sub vivify {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
-    $row //= $self->_vivify($sqla_source, $self->_state(pending => $fetched));
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
+    $row //= $self->_vivify($query_source, $self->_state(pending => $fetched));
 
     return $row;
 }
 
 sub insert {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
 
-    $row = $self->do_insert($sqla_source, $fetched, $old_pk, $new_pk, $row);
-    $self->cache($sqla_source, $row, $old_pk, $new_pk);
+    $row = $self->do_insert($query_source, $fetched, $old_pk, $new_pk, $row);
+    $self->cache($query_source, $row, $old_pk, $new_pk);
 
     return $row;
 }
 
 sub do_insert {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = @_;
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = @_;
 
     my $state = $self->_state(stored => $fetched, pending => undef);
 
     $row->{+ROW_DATA}->change_state($state) if $row;
 
-    $row //= $self->_vivify($sqla_source, $state);
+    $row //= $self->_vivify($query_source, $state);
 
     return $row;
 }
 
 sub update {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
 
-    $row = $self->do_update($sqla_source, $fetched, $old_pk, $new_pk, $row);
-    $self->cache($sqla_source, $row, $old_pk, $new_pk);
+    $row = $self->do_update($query_source, $fetched, $old_pk, $new_pk, $row);
+    $self->cache($query_source, $row, $old_pk, $new_pk);
 
     return $row;
 }
 
 sub do_update {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = @_;
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = @_;
 
     my $state = $self->_state(stored => $fetched, pending => undef, desync => undef);
 
@@ -129,7 +129,7 @@ sub do_update {
         $row->{+ROW_DATA}->change_state($state);
     }
     else {
-        $row = $self->_vivify($sqla_source, $state)
+        $row = $self->_vivify($query_source, $state)
     }
 
     return $row;
@@ -137,17 +137,17 @@ sub do_update {
 
 sub delete {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
 
-    $row = $self->do_delete($sqla_source, $fetched, $old_pk, $new_pk, $row);
-    $self->uncache($sqla_source, $row, $old_pk, $new_pk);
+    $row = $self->do_delete($query_source, $fetched, $old_pk, $new_pk, $row);
+    $self->uncache($query_source, $row, $old_pk, $new_pk);
 
     return $row;
 }
 
 sub do_delete {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = @_;
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = @_;
 
     $row->{+ROW_DATA}->change_state($self->_state(stored => undef));
 
@@ -156,22 +156,22 @@ sub do_delete {
 
 sub select {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
 
-    $row = $self->do_select($sqla_source, $fetched, $old_pk, $new_pk, $row);
-    $self->cache($sqla_source, $row, $old_pk, $new_pk);
+    $row = $self->do_select($query_source, $fetched, $old_pk, $new_pk, $row);
+    $self->cache($query_source, $row, $old_pk, $new_pk);
 
     return $row;
 }
 
 sub do_select {
     my $self = shift;
-    my ($sqla_source, $fetched, $old_pk, $new_pk, $row) = @_;
+    my ($query_source, $fetched, $old_pk, $new_pk, $row) = @_;
 
     my $state = $self->_state(stored => $fetched);
 
     # No existing row, make a new one
-    return $self->_vivify($sqla_source, $state)
+    return $self->_vivify($query_source, $state)
         unless $row;
 
     $row->{+ROW_DATA}->change_state($state);
@@ -183,8 +183,8 @@ sub parse_params {
     my $self = shift;
     my ($params, %skip) = @_;
 
-    my $sqla_source = $params->{sqla_source} or confess "'sqla_source' is a required parameter";
-    confess "'$sqla_source' is not a valid SQLA Source" unless $sqla_source->DOES('DBIx::QuickORM::Role::SQLASource');
+    my $query_source = $params->{query_source} or confess "'query_source' is a required parameter";
+    confess "'$query_source' is not a valid query source" unless $query_source->DOES('DBIx::QuickORM::Role::QuerySource');
 
     my $new_pk = $params->{new_primary_key};
 
@@ -193,7 +193,7 @@ sub parse_params {
         my @pk_vals;
         confess "'fetched' is a required parameter" unless $fetched;
         confess "'$fetched' is not a valid fetched data set" unless ref($fetched) eq 'HASH';
-        if (my $pk_fields = $sqla_source->primary_key) {
+        if (my $pk_fields = $query_source->primary_key) {
             my @bad;
             for my $field (@$pk_fields) {
                 if (exists $fetched->{$field}) {
@@ -216,18 +216,18 @@ sub parse_params {
     unless ($skip{row}) {
         if ($row = $params->{row}) {
             confess "'$row' is not a valid row"     unless $row->isa('DBIx::QuickORM::Row');
-            confess "Row has incorrect sqla_source" unless $row->sqla_source == $sqla_source;
+            confess "Row has incorrect query_source" unless $row->query_source == $query_source;
             confess "Row has incorrect connection"  unless $row->connection == $self->{+CONNECTION};
             $old_pk //= [$row->primary_key_value_list] if $row->in_storage;
         }
 
-        my $cached = $self->do_cache_lookup($sqla_source, $fetched, $old_pk, $new_pk, $row);
+        my $cached = $self->do_cache_lookup($query_source, $fetched, $old_pk, $new_pk, $row);
 
         confess "Cached row does not match operating row" if $cached && $row && $cached != $row;
         $row //= $cached;
     }
 
-    return ($sqla_source, $fetched, $old_pk, $new_pk, $row);
+    return ($query_source, $fetched, $old_pk, $new_pk, $row);
 }
 
 1;

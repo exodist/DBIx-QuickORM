@@ -46,7 +46,7 @@ sub resolve_link {
     }
 
     return DBIx::QuickORM::Link->parse(
-        sqla_source => $self,
+        query_source => $self,
         link        => $spec,
         connection  => $params{connection} // $self->connection,
     ) if ref $spec;
@@ -180,11 +180,11 @@ sub parse_link {
 
     my $ref = ref($link);
 
-    return $self->sqla_source->links_by_alias->{$link} // croak "'$link' is not a valid link alias for table '" . $self->sqla_source->name . "'"
+    return $self->query_source->links_by_alias->{$link} // croak "'$link' is not a valid link alias for table '" . $self->query_source->name . "'"
         unless $ref;
 
     return DBIx::QuickORM::Link->parse(
-        sqla_source => $self->sqla_source,
+        query_source => $self->query_source,
         connection  => $self->connection,
         link        => $link,
     );
@@ -201,8 +201,8 @@ sub _parse_link {
     my $found;
 
     unless ($ref) {
-        my $source = $self->{+SQLA_SOURCE};
-        $source = $self->{+SQLA_SOURCE}->from($params{from}) if $params{from} && $source->can('from');
+        my $source = $self->{+QUERY_SOURCE};
+        $source = $self->{+QUERY_SOURCE}->from($params{from}) if $params{from} && $source->can('from');
 
         $found //= $source->links_by_alias->{$link} if $source->can('links_by_alias');
 
@@ -222,7 +222,7 @@ sub _parse_link {
     }
 
     return DBIx::QuickORM::Link->parse(
-        sqla_source => $self->{+SQLA_SOURCE},
+        query_source => $self->{+QUERY_SOURCE},
         connection  => $self->{+CONNECTION},
         link        => $found // $link,
     );

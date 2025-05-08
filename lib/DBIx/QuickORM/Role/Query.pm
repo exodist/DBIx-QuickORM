@@ -5,7 +5,7 @@ use warnings;
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 
-sub SQLA_SOURCE() { 'sqla_source' }
+sub QUERY_SOURCE() { 'query_source' }
 sub ROW()         { 'row' }
 sub WHERE ()      { 'where' }
 sub ORDER_BY ()   { 'order_by' }
@@ -20,7 +20,7 @@ sub DATA_ONLY ()  { 'data_only' }
 use Importer Importer => 'import';
 
 our @EXPORT_OK = qw{
-    SQLA_SOURCE
+    QUERY_SOURCE
     WHERE
     ORDER_BY
     LIMIT
@@ -36,7 +36,7 @@ our @EXPORT_OK = qw{
 use Role::Tiny;
 
 requires qw{
-    SQLA_SOURCE
+    QUERY_SOURCE
     WHERE
     ORDER_BY
     LIMIT
@@ -52,20 +52,20 @@ sub normalize_query {
     my $self = shift;
     croak "async, aside, and forked are exclusive options, only one may be selected" if 1 < grep { $_ } @{$self}{ASYNC(), ASIDE(), FORKED()};
 
-    my $sqla_source = $self->{+SQLA_SOURCE} or croak "No sqla_source provided";
+    my $query_source = $self->{+QUERY_SOURCE} or croak "No query_source provided";
 
     my $row = $self->{+ROW};
     croak "Invalid row: $row" if $row && !$row->isa('DBIx::QuickORM::Row');
 
     my $where  = $self->{+WHERE}  //= $row ? $row->primary_key_hashref : {};
 
-    my $fields = $self->{+FIELDS} //= $sqla_source->fields_to_fetch;
+    my $fields = $self->{+FIELDS} //= $query_source->fields_to_fetch;
 
     my $omit = $self->{+OMIT} or return;
 
     croak "Cannot mix 'omit' and a non-arrayref field specification ('$fields')" if ref($fields) ne 'ARRAY';
 
-    my $pk_fields = $sqla_source->primary_key;
+    my $pk_fields = $query_source->primary_key;
     $omit = $self->_normalize_omit($self->{+OMIT}, $pk_fields) or return;
 
     if ($pk_fields || $omit) {
@@ -93,7 +93,7 @@ sub _normalize_omit {
     else                  { croak "$omit is not a valid 'omit' value" } # oops
     #>>>
 
-    $pk_fields //= $self->{+SQLA_SOURCE}->primary_key or return $omit;
+    $pk_fields //= $self->{+QUERY_SOURCE}->primary_key or return $omit;
 
     for my $field (@$pk_fields) {
         next unless $omit->{$field};
@@ -116,7 +116,7 @@ sub query_pairs {
     my $self = shift;
 
     return (
-        SQLA_SOURCE() => $self->{+SQLA_SOURCE},
+        QUERY_SOURCE() => $self->{+QUERY_SOURCE},
         WHERE()       => $self->{+WHERE},
         ORDER_BY()    => $self->{+ORDER_BY},
         LIMIT()       => $self->{+LIMIT},
