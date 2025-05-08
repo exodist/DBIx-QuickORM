@@ -160,7 +160,7 @@ sub follow {
         $where->{$other} = $self->field($local);
     }
 
-    return $self->connection->select($link->other_table, $where);
+    return $self->connection->query($link->other_table, $where);
 }
 
 sub obtain {
@@ -204,7 +204,7 @@ sub siblings { # This includes the original
     }
 
     my $where = +{ map { $_ => $self->field($_) } @$fields };
-    return $self->source->select($where);
+    return $self->source->query($where);
 }
 
 ####################
