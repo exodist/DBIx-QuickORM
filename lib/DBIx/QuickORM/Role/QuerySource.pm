@@ -1,4 +1,4 @@
-package DBIx::QuickORM::Role::SQLASource;
+package DBIx::QuickORM::Role::QuerySource;
 use strict;
 use warnings;
 
@@ -7,8 +7,8 @@ use Carp qw/croak confess/;
 use Role::Tiny;
 
 requires qw{
-    sqla_db_name
-    sqla_orm_name
+    source_db_moniker
+    source_orm_name
 
     row_class
     primary_key
@@ -25,9 +25,7 @@ requires qw{
 
 sub prefetch { }
 
-sub cachable { $_[0]->{sqlas_cachable} //= $_[0]->_cachable }
-
-sub _cachable {
+sub cachable {
     my $pk = $_[0]->primary_key or return 0;
     return 1 if @$pk;
     return 0;

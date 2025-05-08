@@ -9,7 +9,7 @@ use Scalar::Util qw/blessed/;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <connection
-    <sqla_source
+    <query_source
 };
 
 sub init {
@@ -19,9 +19,9 @@ sub init {
     confess "Connection '$con' is not an instance of 'DBIx::QuickORM::Connection'"
         unless blessed($con) && $con->isa('DBIx::QuickORM::Connection');
 
-    my $sqla_source = $self->sqla_source or confess "'sqla_source' is a required attribute";
-    confess "Source '$sqla_source' does not implement the role 'DBIx::QuickORM::Role::SQLASource'"
-        unless blessed($sqla_source) && $sqla_source->DOES('DBIx::QuickORM::Role::SQLASource');
+    my $query_source = $self->query_source or confess "'query_source' is a required attribute";
+    confess "Source '$query_source' does not implement the role 'DBIx::QuickORM::Role::QuerySource'"
+        unless blessed($query_source) && $query_source->DOES('DBIx::QuickORM::Role::QuerySource');
 }
 
 BEGIN {
@@ -54,7 +54,7 @@ BEGIN {
     for my $meth (@METHODS) {
         my $name = $meth;
         no strict 'refs';
-        *$name = set_subname $name => sub { my $self = shift; $self->{+CONNECTION}->$name($self->{+SQLA_SOURCE}, @_) };
+        *$name = set_subname $name => sub { my $self = shift; $self->{+CONNECTION}->$name($self->{+QUERY_SOURCE}, @_) };
     }
 }
 

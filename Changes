@@ -1,6 +1,8 @@
 {{$NEXT}}
 
     - Rename select to query
+    - Rename sqla-source to query-source
+    - Work on eliminating the assumption that SQLAbstract will always do the work
 
 0.000010  2025-05-07 06:36:38-07:00 America/Los_Angeles (TRIAL RELEASE)
 

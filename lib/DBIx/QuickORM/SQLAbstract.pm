@@ -15,7 +15,7 @@ for my $meth (qw/insert update select delete/) {
 
         my ($stmt, @bind);
         if (blessed($source)) {
-            my $source_name = $source->sqla_db_name;
+            my $source_name = $source->source_db_moniker;
             ($stmt, @bind) = $self->$meth($source_name, @args);
         }
         else {
@@ -43,7 +43,7 @@ for my $meth (qw/insert update select delete/) {
 #    my (undef, $ident) = @_;
 #
 #    unless ($IN_TARGET) {
-#        if (my $s = $self->{sqla_source}) {
+#        if (my $s = $self->{query_source}) {
 #            if (my $db_name = $s->field_db_name($ident->[0])) {
 #                $ident->[0] = $db_name;
 #            }
@@ -59,7 +59,7 @@ for my $meth (qw/insert update select delete/) {
 #
 #    my $k = $SQL::Abstract::Cur_Col_Meta;
 #
-#    if (my $s = $self->{sqla_source}) {
+#    if (my $s = $self->{query_source}) {
 #        my $r = ref($v);
 #        if ($r eq 'HASH' || $r eq 'ARRAY') {
 #            if (my $type = $s->field_type($k)) {

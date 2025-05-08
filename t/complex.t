@@ -118,15 +118,15 @@ do_for_all_dbs {
         }
 
         {
-            local $s->connection->manager->{cache}->{$s->sqla_source->sqla_orm_name}->{2}; # Remove from cache
+            local $s->connection->manager->{cache}->{$s->query_source->source_orm_name}->{2}; # Remove from cache
             ok($a_row2 = $s->by_id(2), "Fetched row");
             ref_is_not($a_row2, $a_row, "Not the previously cached copy, newly fetched (single id)");
 
-            delete $s->connection->manager->{cache}->{$s->sqla_source->sqla_orm_name}->{2}; # Remove from cache
+            delete $s->connection->manager->{cache}->{$s->query_source->source_orm_name}->{2}; # Remove from cache
             ok($a_row2 = $s->by_id([2]), "Fetched row");
             ref_is_not($a_row2, $a_row, "Not the previously cached copy, newly fetched (array id)");
 
-            delete $s->connection->manager->{cache}->{$s->sqla_source->sqla_orm_name}->{2}; # Remove from cache
+            delete $s->connection->manager->{cache}->{$s->query_source->source_orm_name}->{2}; # Remove from cache
             ok($a_row2 = $s->by_id({id => 2}), "Fetched row");
             ref_is_not($a_row2, $a_row, "Not the previously cached copy, newly fetched (hash id)");
         }

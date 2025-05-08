@@ -107,7 +107,7 @@ sub row {
     my %args = %$self;
     delete $args{async};
 
-    return $self->{row} = $async->connection->manager->select(sqla_source => $async->sqla_source, fetched => $data);
+    return $self->{row} = $async->connection->manager->select(query_source => $async->query_source, fetched => $data);
 }
 
 sub swapout {

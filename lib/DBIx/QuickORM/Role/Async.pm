@@ -6,7 +6,7 @@ use Time::HiRes qw/sleep/;
 use Role::Tiny;
 
 requires qw{
-    sqla_source
+    query_source
     only_one
     dialect
     ready

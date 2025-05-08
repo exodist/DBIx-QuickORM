@@ -12,7 +12,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <connection
     <dbh
     <sth
-    <sqla_source
+    <query_source
 
     only_one
 
@@ -34,7 +34,7 @@ sub init {
     my $self = shift;
 
     croak "'connection' is a required attribute" unless $self->{+CONNECTION};
-    croak "'sqla_source' is a required attribute" unless $self->{+SQLA_SOURCE};
+    croak "'query_source' is a required attribute" unless $self->{+QUERY_SOURCE};
 
     # Fix this for non dbh/sth ones like aside and forked
     croak "'sth' and 'dbh' are required attributes"

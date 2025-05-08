@@ -24,9 +24,9 @@ sub init {
     confess "Connection '$con' is not an instance of 'DBIx::QuickORM::Connection'"
         unless blessed($con) && $con->isa('DBIx::QuickORM::Connection');
 
-    my $sqla_source = $self->sqla_source or confess "'sqla_source' is a required attribute";
-    confess "Source '$sqla_source' does not implement the role 'DBIx::QuickORM::Role::SQLASource'"
-        unless blessed($sqla_source) && $sqla_source->DOES('DBIx::QuickORM::Role::SQLASource');
+    my $query_source = $self->query_source or confess "'query_source' is a required attribute";
+    confess "Source '$query_source' does not implement the role 'DBIx::QuickORM::Role::QuerySource'"
+        unless blessed($query_source) && $query_source->DOES('DBIx::QuickORM::Role::QuerySource');
 }
 
 sub build_row {
@@ -36,7 +36,7 @@ sub build_row {
     $self->connection->build_row(
         %params,
         row_class   => $self->row_class,
-        sqla_source => $self->sqla_source,
+        query_source => $self->query_source,
         row_data    => $data,
         row         => $row,
     );
@@ -44,12 +44,12 @@ sub build_row {
 
 sub row_class {
     my $self = shift;
-    return $self->sqla_source->row_class // $self->schema->row_class;
+    return $self->query_source->row_class // $self->schema->row_class;
 }
 
 requires qw{
     connection
-    sqla_source
+    query_source
     all
     iterator
     iterate
