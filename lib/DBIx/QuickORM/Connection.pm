@@ -17,8 +17,8 @@ use Scope::Guard();
 
 use DBIx::QuickORM::Row::Async;
 use DBIx::QuickORM::SQLAbstract;
+use DBIx::QuickORM::Connection::Query;
 use DBIx::QuickORM::Query;
-use DBIx::QuickORM::Select;
 use DBIx::QuickORM::Source;
 use DBIx::QuickORM::Connection::Transaction;
 use DBIx::QuickORM::Connection::Async;
@@ -451,23 +451,23 @@ sub _resolve_query {
     my $self = shift;
     my ($query, $sqla_source) = @_;
 
-    return DBIx::QuickORM::Query->new(QUERY_WHERE() => {}, QUERY_SQLA_SOURCE() => $sqla_source)
+    return DBIx::QuickORM::Connection::Query->new(QUERY_WHERE() => {}, QUERY_SQLA_SOURCE() => $sqla_source)
         unless $query;
 
     if (blessed($query)) {
         return $query if $query->DOES('DBIx::QuickORM::Role::Query');
 
-        return DBIx::QuickORM::Query->new(QUERY_WHERE() => $query->primary_key_hashref, QUERY_ROW() => $query, QUERY_SQLA_SOURCE() => $sqla_source)
+        return DBIx::QuickORM::Connection::Query->new(QUERY_WHERE() => $query->primary_key_hashref, QUERY_ROW() => $query, QUERY_SQLA_SOURCE() => $sqla_source)
             if $query->isa('DBIx::QuickORM::Row');
     }
 
     croak "'$query' is not a valid query" unless ref($query) eq 'HASH';
 
     if (lu_first { $query->{$_} } QUERY_WHERE(), QUERY_ORDER_BY(), QUERY_LIMIT(), QUERY_FIELDS(), QUERY_OMIT(), QUERY_ASYNC(), QUERY_ASIDE(), QUERY_FORKED(), QUERY_ROW()) {
-        return DBIx::QuickORM::Query->new(%$query, QUERY_SQLA_SOURCE() => $sqla_source);
+        return DBIx::QuickORM::Connection::Query->new(%$query, QUERY_SQLA_SOURCE() => $sqla_source);
     }
 
-    return DBIx::QuickORM::Query->new(QUERY_WHERE() => $query, QUERY_SQLA_SOURCE() => $sqla_source);
+    return DBIx::QuickORM::Connection::Query->new(QUERY_WHERE() => $query, QUERY_SQLA_SOURCE() => $sqla_source);
 }
 
 sub _resolve_source {
@@ -662,9 +662,9 @@ sub _get_keys {
     *sync   = \&select;
 }
 
-sub async  { shift->select(@_)->async }
-sub aside  { shift->select(@_)->aside }
-sub forked { shift->select(@_)->forked }
+sub async  { shift->query(@_)->async }
+sub aside  { shift->query(@_)->aside }
+sub forked { shift->query(@_)->forked }
 
 sub vivify {
     my $self = shift;
@@ -912,6 +912,10 @@ sub delete {
     return;
 }
 
+{
+    no warnings 'once';
+    *query = \&select;
+}
 sub select {
     my $self = shift;
     my $sqla_source = $self->_resolve_source(shift);
@@ -932,7 +936,7 @@ sub select {
         }
     }
 
-    return DBIx::QuickORM::Select->new(%params, connection => $self, sqla_source => $sqla_source);
+    return DBIx::QuickORM::Query->new(%params, connection => $self, sqla_source => $sqla_source);
 }
 
 sub count {

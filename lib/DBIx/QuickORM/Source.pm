@@ -45,6 +45,7 @@ BEGIN {
         update_or_insert
 
         select
+        query
         async
         aside
         forked

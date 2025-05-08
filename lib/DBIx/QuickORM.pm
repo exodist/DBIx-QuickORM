@@ -1435,19 +1435,19 @@ The ORM class
     my $schema = $orm->schema;
 
     my $source = $orm->source('people');
-    my $select = $orm->select('people', {surname => 'smith'});
-    for my $person ($select->all) {
+    my $query = $orm->query('people', {surname => 'smith'});
+    for my $person ($query->all) {
         print $person->field('first_name') . "\n"
     }
 
-    my $new_select = $select->limit(5)->order_by('surname')->omit(@large_fields);
-    my $iterator = $new_select->iterator; # Query is actually sent to DB here.
+    my $new_query = $query->limit(5)->order_by('surname')->omit(@large_fields);
+    my $iterator = $new_query->iterator; # Query is actually sent to DB here.
     while (my $row = $iterator->next) {
         ...
     }
 
     # Start an async query
-    my $async = $select->async->iterator;
+    my $async = $query->async->iterator;
 
     while (!$async->ready) {
         do_something_else();
@@ -2543,7 +2543,7 @@ You can also name the C<< $row->LINK >> accessor
         return "obtain_" . $linked_table if $link->unique;
 
         # If the foreign key points to non-unique rows, then the accessor will
-        # return a DBIx::QuickORM::Select object:
+        # return a DBIx::QuickORM::Query object:
         return "select_" . $linked_table . "s";
     };
 

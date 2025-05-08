@@ -73,13 +73,15 @@ do_for_all_dbs {
     ok(!$iter->next, "Got all rows");
 
     $sel = $orm->select('foo')->left_join('bar')->left_join('bar:get_baz')->left_join('foo:get_baz')->order_by(qw/a.foo_id b.bar_id c.baz_id d.baz_id/);
-    debug($sel->data_only->all);
+    ok(lives { $sel->data_only->all }, "Should come back and finish this");
 
-} qw/system_postgresql/;
+};
 
 done_testing;
 
 __END__
+
+These need to be refactored:
 
     my $link = bless({}, 'DBIx::QuickORM::Link');
     ref_is($foo_a->parse_link($link), $link, "If it is already a link just return it");
