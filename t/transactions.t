@@ -33,7 +33,7 @@ do_for_all_dbs {
         $dbh->begin_work;
         ok($con->in_txn, "In transaction");
         is($con->in_txn, 1, "Not a txn object");
-        ok(!$con->current_txn, "No current transaction oject to fetch");
+        ok(!$con->current_txn, "No current transaction object to fetch");
         $dbh->commit;
         ok(!$con->in_txn, "Not in a transaction");
     };
@@ -225,7 +225,7 @@ do_for_all_dbs {
             });
         };
 
-        like($exception, qr{oops I did it again}, "Propogated exception");
+        like($exception, qr{oops I did it again}, "Propagated exception");
         like($txn->errors, [qr{oops I did it again}], "Stored error");
 
         ok(!$row_e->is_valid,  "Row is not valid anymore");
@@ -245,7 +245,7 @@ do_for_all_dbs {
             });
         };
 
-        like($exception, qr{oops I did it again}, "Propogated exception");
+        like($exception, qr{oops I did it again}, "Propagated exception");
         like($txn->errors, [qr{oops I did it again}], "Stored error");
     };
 

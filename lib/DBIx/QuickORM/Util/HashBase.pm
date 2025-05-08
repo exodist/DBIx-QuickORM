@@ -366,9 +366,9 @@ Add pre_init and post-init:
 B<Note:> These are not provided if you define your own new() method (via a stub
 at the top).
 
-B<Note:> Single inheritence should work with child classes doing the pre/post
+B<Note:> Single inheritance should work with child classes doing the pre/post
 init subs during construction, so long as all classes in the chain use a
-generated new(). This will probably explode badly in multiple-inheritence.
+generated new(). This will probably explode badly in multiple-inheritance.
 
     package My::Class;
     use strict;

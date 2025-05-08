@@ -806,7 +806,7 @@ sub update {
 
     $changes = $self->_format_insert_and_update_data($changes);
 
-    # No cache, or not cachable, just do the update
+    # No cache, or not cacheable, just do the update
     unless ($do_cache && $pk_fields && @$pk_fields) {
         my ($stmt, $bind) = $self->sqla->qorm_update($sqla_source, $changes, $query->{+QUERY_WHERE});
         my $sth = $self->_make_sth($sqla_source, $stmt, $bind, $query);

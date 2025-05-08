@@ -25,9 +25,9 @@ requires qw{
 
 sub prefetch { }
 
-sub cachable { $_[0]->{sqlas_cachable} //= $_[0]->_cachable }
+sub cacheable { $_[0]->{sqlas_cacheable} //= $_[0]->_cacheable }
 
-sub _cachable {
+sub _cacheable {
     my $pk = $_[0]->primary_key or return 0;
     return 1 if @$pk;
     return 0;
