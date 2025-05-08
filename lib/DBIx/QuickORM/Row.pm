@@ -84,7 +84,7 @@ place when the pending changes were set.
 
 To fix such conditions you need to either use row->discard() to clear the
 pending changes, or you need to call ->force_sync() to clear the desync flags
-allowing you to save the row despite the discrepency.
+allowing you to save the row despite the discrepancy.
 
 In addition it would be a good idea to call ->refresh() to have the most up to
 date data.

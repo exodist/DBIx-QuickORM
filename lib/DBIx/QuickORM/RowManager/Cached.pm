@@ -58,7 +58,7 @@ sub uncache {
         $pk = $row->primary_key_hashref;
     }
 
-    # No pk, not a cachable row
+    # No pk, not a cacheable row
     return unless $pk && @$pk;
 
     my $scache = $self->{+CACHE}->{$sqla_source->sqla_orm_name} or return;

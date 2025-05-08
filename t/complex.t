@@ -145,7 +145,7 @@ do_for_all_dbs {
         },
         "Got stored data with correct (orm) field names, and in uninflated forms"
     );
-    is($b_row->field('uuid'), $b_uuid, "uuid conversion from binary occured");
+    is($b_row->field('uuid'), $b_uuid, "uuid conversion from binary occurred");
 
     like(
         dies { $s->insert({name => 'x', uuid => "NOT A UUID", data => {name => 'bx'}}) },

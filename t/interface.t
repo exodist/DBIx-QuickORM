@@ -90,7 +90,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     ref_is(
         $bld->top,
         $bld->{stack}->[-1],
-        "Cann access top build"
+        "Can access top build"
     );
 
     ok(!$bld->top->{building}, "Top level is not building anything");
