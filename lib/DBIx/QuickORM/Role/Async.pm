@@ -5,8 +5,10 @@ use warnings;
 use Time::HiRes qw/sleep/;
 use Role::Tiny;
 
+with 'DBIx::QuickORM::Role::STH';
+
 requires qw{
-    query_source
+    source
     only_one
     dialect
     ready

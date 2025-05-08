@@ -89,7 +89,7 @@ sub clone {
 
 sub parse {
     my $class = shift;
-    my ($schema, $connection, $query_source, $link);
+    my ($schema, $connection, $source, $link);
 
     while (my $r = ref($_[0])) {
         my $item = shift @_;
@@ -98,7 +98,7 @@ sub parse {
             if    ($item->isa(__PACKAGE__))                         { return $item }
             elsif ($item->isa('DBIx::QuickORM::Schema'))            { $schema = $item; next }
             elsif ($item->isa('DBIx::QuickORM::Connection'))        { $connection = $item; next }
-            elsif ($item->DOES('DBIx::QuickORM::Role::QuerySource')) { $query_source = $item; next }
+            elsif ($item->DOES('DBIx::QuickORM::Role::Source')) { $source = $item; next }
         }
         else {
             if ($r eq 'HASH') { $link = $item; next }
@@ -113,12 +113,12 @@ sub parse {
     $link        //= delete $params{link};
     $schema      //= delete $params{schema};
     $connection  //= delete $params{connection};
-    $query_source //= delete $params{query_source};
+    $source //= delete $params{source};
     $schema      //= $connection->schema if $connection;
 
     if (ref($link) eq 'SCALAR') {
-        croak "Cannot use a table name (scalar ref: \\$$link) to lookup a link without an query_source" unless $query_source;
-        my ($out, @extra) = $query_source->links($$link);
+        croak "Cannot use a table name (scalar ref: \\$$link) to lookup a link without an source" unless $source;
+        my ($out, @extra) = $source->links($$link);
         croak "There are multiple links to table '$$link'" if @extra;
         return $out // croak "No link to table '$$link' found";
     }
@@ -156,7 +156,7 @@ sub parse {
         }
     }
 
-    $local_table //= $query_source ? $query_source->name : croak "No local_table or query_source provided";
+    $local_table //= $source ? $source->name : croak "No local_table or source provided";
     croak "no other_table provided" unless $other_table;
 
     my ($local, $other);

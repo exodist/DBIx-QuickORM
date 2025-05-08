@@ -10,7 +10,7 @@ use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Row';
 
 use DBIx::QuickORM::Util::HashBase qw{
-    +query_source
+    +source
     +connection
     +by_alias
     +by_source
@@ -27,15 +27,15 @@ sub init {
     my $self = shift;
 
     my $row_data = delete $self->{+ROW_DATA} or croak "No row data";
-    $self->{+QUERY_SOURCE} = $row_data->{+QUERY_SOURCE};
+    $self->{+SOURCE} = $row_data->{+SOURCE};
     $self->{+CONNECTION}  = $row_data->{+CONNECTION};
 
-    my $join = $self->query_source;
+    my $join = $self->source;
     my $con  = $self->connection;
 
     for my $item (@{$join->fracture($row_data->active->{+STORED})}) {
-        my $source = $item->{+QUERY_SOURCE};
-        my $row    = $con->manager->select(query_source => $source, fetched => $item->{data});
+        my $source = $item->{+SOURCE};
+        my $row    = $con->manager->select(source => $source, fetched => $item->{data});
         $self->{+BY_ALIAS}->{$item->{as}} = $row;
         push @{$self->{+BY_SOURCE}->{$source->source_orm_name} //= []} => $row;
     }
@@ -43,7 +43,7 @@ sub init {
     return;
 }
 
-sub query_source { $_[0]->{+QUERY_SOURCE}->() }
+sub source { $_[0]->{+SOURCE}->() }
 sub connection  { $_[0]->{+CONNECTION}->() }
 sub row_data    { croak "Not Implemented" }
 
@@ -51,7 +51,7 @@ sub by_alias {
     my $self = shift;
     my ($as) = @_;
 
-    croak "No subrows with alias '$as'" unless $self->query_source->components->{$as};
+    croak "No subrows with alias '$as'" unless $self->source->components->{$as};
 
     return $self->{+BY_ALIAS}->{$as};
 }
@@ -60,7 +60,7 @@ sub by_source {
     my $self = shift;
     my ($name) = @_;
 
-    croak "No subrows for source '$name'" unless $self->query_source->lookup->{$name};
+    croak "No subrows for source '$name'" unless $self->source->lookup->{$name};
 
     @{$self->{+BY_SOURCE}->{$name} // []};
 }

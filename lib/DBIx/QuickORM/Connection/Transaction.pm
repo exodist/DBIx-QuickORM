@@ -2,7 +2,7 @@ package DBIx::QuickORM::Connection::Transaction;
 use strict;
 use warnings;
 
-use Carp qw/croak/;
+use Carp qw/croak confess/;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <id
@@ -16,9 +16,13 @@ use DBIx::QuickORM::Util::HashBase qw{
 
     <result
     <errors
+    <trace
 
     <rolled_back
     <committed
+
+    <in_destroy
+    +finalize
 };
 
 sub is_savepoint { $_[0]->{+SAVEPOINT} ? 1 : 0 }
@@ -139,6 +143,39 @@ sub add_completion_callback {
     my $self = shift;
     my ($cb) = @_;
     push @{$self->{+ON_COMPLETION} //= []} => $cb;
+}
+
+sub throw {
+    my $self = shift;
+    my ($err) = @_;
+
+    my $trace = $self->{+TRACE} // [qw/unknown unknown unknown/];
+    $err = "Transaction error in transaction started in $trace->[1] line $trace->[2]: $err";
+    $err = "[In DESTROY] $err" if $self->{+IN_DESTROY};
+
+    confess $err;
+}
+
+sub set_finalize {
+    my $self = shift;
+    my ($cb) = @_;
+
+    $self->{+FINALIZE} = $cb;
+}
+
+sub finalize {
+    my $self = shift;
+    my ($ok, $err) = @_;
+    my $cb = delete $self->{+FINALIZE} or croak "Nothing to finalize!";
+    $cb->($ok, $err);
+    return $ok;
+}
+
+sub DESTROY {
+    my $self = shift;
+    my $finalize = $self->{+FINALIZE} or return;
+    $self->{+IN_DESTROY} = 1;
+    $finalize->(0, "Transaction ended without a call to finalize!");
 }
 
 1;

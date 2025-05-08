@@ -28,16 +28,16 @@ sub supports_returning_delete { 1 }
 sub async_supported        { 1 }
 sub async_cancel_supported { 1 }
 sub async_prepare_args     { pg_async => DBD::Pg::PG_ASYNC() }
-sub async_ready            { $_[1]->dbh->pg_ready() }
-sub async_result           { $_[1]->sth->pg_result() }
-sub async_cancel           { $_[1]->dbh->pg_cancel() }
+sub async_result           { my ($s, %p) = @_; $p{sth}->pg_result() }
+sub async_ready            { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->pg_ready() }
+sub async_cancel           { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->pg_cancel() }
 
-sub start_txn          { $_[0]->dbh->begin_work }
-sub commit_txn         { $_[0]->dbh->commit }
-sub rollback_txn       { $_[0]->dbh->rollback }
-sub create_savepoint   { $_[0]->dbh->pg_savepoint($_[1]) }
-sub commit_savepoint   { $_[0]->dbh->pg_release($_[1]) }
-sub rollback_savepoint { $_[0]->dbh->pg_rollback_to($_[1]) }
+sub start_txn          { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->begin_work }
+sub commit_txn         { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->commit }
+sub rollback_txn       { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->rollback }
+sub create_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->dbh->pg_savepoint($p{savepoint}) }
+sub commit_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->dbh->pg_release($p{savepoint}) }
+sub rollback_savepoint { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->dbh->pg_rollback_to($p{savepoint}) }
 
 my %TYPES = (
     uuid => 'UUID',

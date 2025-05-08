@@ -2,7 +2,7 @@ package DBIx::QuickORM::Connection::RowData;
 use strict;
 use warnings;
 
-use Carp qw/confess croak/;
+use Carp qw/confess croak carp/;
 use List::Util qw/first/;
 use Scalar::Util qw/reftype blessed/;
 
@@ -23,16 +23,39 @@ our @EXPORT_OK = qw{
 
 use DBIx::QuickORM::Util::HashBase qw{
     +connection
-    +query_source
+    +source
     +stack
+    +invalid
 };
 
 sub valid      { $_[0]->active(no_fatal => 1) ? 1 : 0 }
-sub invalid    { $_[0]->active(no_fatal => 1) ? 0 : 1 }
-sub invalidate { $_[0]->{+STACK} = [] }
+sub invalid    { $_[0]->active(no_fatal => 1) ? 0 : ($_[0]->{+INVALID} //= 'Unknown') }
 
-sub query_source { $_[0]->{+QUERY_SOURCE}->() }
-sub connection  { $_[0]->{+CONNECTION}->() }
+sub invalidate {
+    my $self = shift;
+    my %params = @_;
+
+    my $reason = $params{reason};
+    unless ($reason) {
+        my @caller = caller;
+        $reason = "unkown at $caller[1] line $caller[2]";
+    }
+
+    $self->{+INVALID} = $reason;
+
+    my @old_stack = @{$self->{+STACK}};
+
+    my $active = $self->active(no_fatal => 1) // @old_stack ? $old_stack[-1] : undef;
+
+    my $pending = $active ? $active->{+PENDING} : undef;
+
+    carp "Row invalidated with pending data" if $pending && keys %$pending;
+
+    $self->{+STACK} = [];
+}
+
+sub source     { $_[0]->{+SOURCE}->() }
+sub connection { $_[0]->{+CONNECTION}->() }
 
 sub stored_data  { $_[0]->active->{+STORED} }
 sub pending_data { $_[0]->active->{+PENDING} }
@@ -42,7 +65,7 @@ sub transaction  { $_[0]->active->{+TRANSACTION} }
 sub init {
     my $self = shift;
 
-    my $src = $self->{+QUERY_SOURCE} or confess "'query_source' is required";
+    my $src = $self->{+SOURCE} or confess "'source' is required";
     my $con = $self->{+CONNECTION}  or confess "'connection' is required";
 
     my ($src_sub, $src_obj);
@@ -55,8 +78,8 @@ sub init {
         $src_sub = sub { $src_obj };
     }
 
-    croak "'query_source' must be either a blessed object that consumes the role 'DBIx::QuickORM::Role::QuerySource', or a coderef that returns such an object"
-        unless $src_obj && blessed($src_obj) && $src_obj->DOES('DBIx::QuickORM::Role::QuerySource');
+    croak "'source' must be either a blessed object that consumes the role 'DBIx::QuickORM::Role::Source', or a coderef that returns such an object"
+        unless $src_obj && blessed($src_obj) && $src_obj->DOES('DBIx::QuickORM::Role::Source');
 
     my ($con_sub, $con_obj);
     if ((reftype($con) // '') eq 'CODE') {
@@ -72,7 +95,7 @@ sub init {
         unless $con_obj && blessed($con_obj) && $con_obj->isa('DBIx::QuickORM::Connection');
 
     $self->{+CONNECTION}  = $con_sub;
-    $self->{+QUERY_SOURCE} = $src_sub;
+    $self->{+SOURCE} = $src_sub;
     $self->{+STACK} //= [];
 }
 
@@ -101,8 +124,10 @@ sub active {
 
     return $stack->[0] if @$stack;
 
+    $self->{+INVALID} //= "Likely inserted during a transaction that was rolled back";
+
     return if $params{no_fatal};
-    confess "This row is invalid (Likely inserted during a transaction that was rolled back)";
+    confess "This row is invalid (Reason: $self->{+INVALID})";
 }
 
 sub change_state {
@@ -146,18 +171,18 @@ sub _up_state {
 
 sub _merge_state {
     my $self = shift;
-    my ($merge, $query_source, $connection) = @_;
+    my ($merge, $source, $connection) = @_;
 
     my $into = $self->active;
 
     if (my $stored = $merge->{+STORED}) {
         if (my $pending = $into->{+PENDING}) {
             for my $field (keys %{$merge->{+STORED}}) {
-                $query_source //= $self->query_source;
+                $source //= $self->source;
                 $connection  //= $self->connection;
 
                 # No change
-                next if $self->compare_field($field, $into->{+STORED}, $stored, $query_source, $connection);
+                next if $self->compare_field($field, $into->{+STORED}, $stored, $source, $connection);
 
                 $into->{+STORED}->{$field} = $stored->{$field};
                 $into->{+DESYNC}->{$field} = 1 if $pending->{$field};
@@ -194,13 +219,13 @@ sub _merge_state {
 
 sub compare_field {
     my $self = shift;
-    my ($field, $ah, $bh, $query_source, $connection) = @_;
+    my ($field, $ah, $bh, $source, $connection) = @_;
 
-    $query_source //= $self->query_source;
+    $source //= $self->source;
     $connection  //= $self->connection;
 
-    my $affinity = $query_source->field_affinity($field, $connection->dialect);
-    my $type     = $query_source->field_type($field);
+    my $affinity = $source->field_affinity($field, $connection->dialect);
+    my $type     = $source->field_type($field);
 
     my $ae = exists $ah->{$field};
     my $be = exists $bh->{$field};

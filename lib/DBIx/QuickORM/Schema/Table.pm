@@ -99,7 +99,7 @@ sub column {
 
 # QuerySource role implementation
 {
-    with 'DBIx::QuickORM::Role::QuerySource';
+    with 'DBIx::QuickORM::Role::Source';
 
     use DBIx::QuickORM::Util::HashBase qw{
         +fields_to_fetch

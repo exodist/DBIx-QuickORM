@@ -1,8 +1,9 @@
-package DBIx::QuickORM::Connection::Fork;
+package DBIx::QuickORM::STH::Fork;
 use strict;
 use warnings;
 
 use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::STH';
 with 'DBIx::QuickORM::Role::Async';
 
 use Carp qw/croak/;
@@ -13,7 +14,7 @@ use IO::Select;
 
 use DBIx::QuickORM::Util::HashBase qw{
     <connection
-    <query_source
+    <source
 
     only_one
 
@@ -37,7 +38,7 @@ sub init {
     croak "'pid' is a required attribute"         unless $self->{+PID};
     croak "'pipe' is a required attribute"        unless $self->{+PIPE};
     croak "'connection' is a required attribute"  unless $self->{+CONNECTION};
-    croak "'query_source' is a required attribute" unless $self->{+QUERY_SOURCE};
+    croak "'source' is a required attribute" unless $self->{+SOURCE};
 }
 
 sub ready {

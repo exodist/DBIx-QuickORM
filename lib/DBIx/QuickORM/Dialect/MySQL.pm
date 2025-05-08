@@ -23,17 +23,17 @@ use DBIx::QuickORM::Util::HashBase qw{
 
 sub async_supported        { 1 }
 sub async_cancel_supported { 0 }
-sub async_prepare_args     { $_[0]->dbi_driver eq 'DBD::mysql' ? (async => 1)                     : (mariadb_async => 1) }
-sub async_ready            { $_[0]->dbi_driver eq 'DBD::mysql' ? $_[1]->sth->mysql_async_ready()  : $_[1]->sth->mariadb_async_ready() }
-sub async_result           { $_[0]->dbi_driver eq 'DBD::mysql' ? $_[1]->sth->mysql_async_result() : $_[1]->sth->mariadb_async_result() }
+sub async_prepare_args     { my ($s, %p) = @_; $s->dbi_driver eq 'DBD::mysql' ? (async => 1) : (mariadb_async => 1) }
+sub async_ready            { my ($s, %p) = @_; $s->dbi_driver eq 'DBD::mysql' ? $p{sth}->mysql_async_ready() : $p{sth}->mariadb_async_ready() }
+sub async_result           { my ($s, %p) = @_; $s->dbi_driver eq 'DBD::mysql' ? $p{sth}->mysql_async_result() : $p{sth}->mariadb_async_result() }
 sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does not support canceling async queries" }
 
-sub start_txn          { $_[0]->dbh->begin_work }
-sub commit_txn         { $_[0]->dbh->commit }
-sub rollback_txn       { $_[0]->dbh->rollback }
-sub create_savepoint   { $_[0]->dbh->do("SAVEPOINT $_[1]") }
-sub commit_savepoint   { $_[0]->dbh->do("RELEASE SAVEPOINT $_[1]") }
-sub rollback_savepoint { $_[0]->dbh->do("ROLLBACK TO SAVEPOINT $_[1]") }
+sub start_txn          { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->begin_work }
+sub commit_txn         { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->commit }
+sub rollback_txn       { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->rollback }
+sub create_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->do("SAVEPOINT $p{savepoint}") }
+sub commit_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->do("RELEASE SAVEPOINT $p{savepoint}") }
+sub rollback_savepoint { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->do("ROLLBACK TO SAVEPOINT $p{savepoint}") }
 
 BEGIN {
     my $mariadb = eval { require DBD::MariaDB; 1 };

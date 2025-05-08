@@ -97,8 +97,16 @@ sub do_for_all_dbs(&;@) {
 
                     my $lc_dial = lc($set->{dialect});
                     $lc_dial =~ s/::/_/g;
-                    my $prefix = $file;
-                    $prefix =~ s{\.t$}{}g;
+
+                    my $prefix;
+                    if ($pkg->can('SCHEMA_DIR')) {
+                        $prefix = $pkg->SCHEMA_DIR;
+                    }
+                    else {
+                        $prefix = $file;
+                        $prefix =~ s{\.t$}{}g;
+                    }
+
                     my $sql_file = "${prefix}/$lc_dial";
                     my @check = ( "${sql_file}$set->{ver}.sql", "${sql_file}.sql" );
                     push @check => "${prefix}/mariadb.sql" if $sql_file =~ m/mariadb/;

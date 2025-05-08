@@ -35,12 +35,12 @@ sub async_ready            { croak "Dialect '" . $_[0]->dialect_name . "' does n
 sub async_result           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 
-sub start_txn          { $_[0]->dbh->begin_work }
-sub commit_txn         { $_[0]->dbh->commit }
-sub rollback_txn       { $_[0]->dbh->rollback }
-sub create_savepoint   { $_[0]->dbh->do("SAVEPOINT $_[1]") }
-sub commit_savepoint   { $_[0]->dbh->do("RELEASE SAVEPOINT $_[1]") }
-sub rollback_savepoint { $_[0]->dbh->do("ROLLBACK TO SAVEPOINT $_[1]") }
+sub start_txn          { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->begin_work }
+sub commit_txn         { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->commit }
+sub rollback_txn       { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->rollback }
+sub create_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->do("SAVEPOINT $p{savepoint}") }
+sub commit_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->do("RELEASE SAVEPOINT $p{savepoint}") }
+sub rollback_savepoint { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->do("ROLLBACK TO SAVEPOINT $p{savepoint}") }
 
 sub version_search { 0 }
 

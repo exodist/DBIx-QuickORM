@@ -29,17 +29,18 @@ with 'DBIx::QuickORM::Role::Row';
 
 sub track_desync { 1 }
 
-sub query_source { $_[0]->{+ROW_DATA}->query_source }
+sub source { $_[0]->{+ROW_DATA}->source }
 sub connection  { $_[0]->{+ROW_DATA}->connection }
 
+sub row_data_obj { $_[0]->{+ROW_DATA} }
 sub row_data { $_[0]->{+ROW_DATA}->active }
 
 sub stored_data   { $_[0]->row_data->{+STORED} }
 sub pending_data  { $_[0]->row_data->{+PENDING} }
 sub desynced_data { $_[0]->row_data->{+DESYNC} }
 
-sub is_invalid { $_[0]->{+ROW_DATA}->invalid ? 1 : 0 }
-sub is_valid   { $_[0]->{+ROW_DATA}->valid   ? 1 : 0 }
+sub is_invalid { $_[0]->{+ROW_DATA}->invalid // 0 }
+sub is_valid   { $_[0]->{+ROW_DATA}->valid ? 1 : 0 }
 
 sub in_storage  { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
 sub is_stored   { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
@@ -124,8 +125,7 @@ sub refresh {
     $self->check_pk;
 
     croak "This row is not in the database yet" unless $self->is_stored;
-
-    return $self->connection->first($self->query_source, {where => $self->primary_key_hashref, fields => [keys %{$self->stored_data}], row => $self});
+    return $self->connection->handle($self)->one;
 }
 
 # Remove pending changes (and clear desync)
@@ -138,9 +138,25 @@ sub discard {
     return $self;
 }
 
+sub delete {
+    my $self = shift;
+
+    $self->check_pk;
+
+    croak "This row is not in the database yet" unless $self->is_stored;
+    return $self->connection->handle($self)->delete;
+}
+
 sub update {
     my $self = shift;
-    my ($changes, %params) = @_;
+
+    my $changes;
+    if (@_ == 1) {
+        ($changes) = @_;
+    }
+    else {
+        $changes = {@_};
+    }
 
     $self->check_pk;
 
@@ -150,7 +166,7 @@ sub update {
         delete $row_data->{+DESYNC}->{$field} if $row_data->{+DESYNC};
     }
 
-    $self->save(%params);
+    $self->save();
     return $self;
 }
 
@@ -207,7 +223,7 @@ sub _field {
 
     if (my $st = $row_data->{+STORED}) {
         unless (exists $st->{$field}) {
-            my $data = $self->connection->one($self->query_source, {data_only => 1, where => $self->primary_key_hashref, fields => [$field]});
+            my $data = $self->connection->one($self->source, {data_only => 1, where => $self->primary_key_hashref, fields => [$field]});
             $st->{$field} = $data->{$field};
         }
 
@@ -246,7 +262,7 @@ sub _inflated_field {
 
     return $val if ref($val);    # Inflated already
 
-    if (my $type = $self->query_source->field_type($field)) {
+    if (my $type = $self->source->field_type($field)) {
         return $from->{$field} = $type->qorm_inflate($val);
     }
 
@@ -266,7 +282,7 @@ sub _raw_field {
     return $val->qorm_deflate($self->field_affinity($field))
         if blessed($val) && $val->can('qorm_deflate');
 
-    if (my $type = $self->query_source->field_type($field)) {
+    if (my $type = $self->source->field_type($field)) {
         return $type->qorm_deflate($val, $self->field_affinity($field));
     }
 
