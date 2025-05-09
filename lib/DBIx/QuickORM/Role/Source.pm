@@ -1,4 +1,4 @@
-package DBIx::QuickORM::Role::QuerySource;
+package DBIx::QuickORM::Role::Source;
 use strict;
 use warnings;
 
@@ -22,8 +22,6 @@ requires qw{
     fields_to_omit
     fields_list_all
 };
-
-sub prefetch { }
 
 sub cachable {
     my $pk = $_[0]->primary_key or return 0;

@@ -8,7 +8,7 @@ use Sub::Util qw/set_subname/;
 use DBIx::QuickORM::Join::Row;
 
 use Role::Tiny::With qw/with/;
-with 'DBIx::QuickORM::Role::QuerySource';
+with 'DBIx::QuickORM::Role::Source';
 with 'DBIx::QuickORM::Role::Linked';
 
 use DBIx::QuickORM::Util::HashBase qw{

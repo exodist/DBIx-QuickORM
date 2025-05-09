@@ -8,9 +8,13 @@ requires qw{
     qorm_select
     qorm_insert
     qorm_update
-    qorm_select
     qorm_delete
     qorm_where
+
+    qorm_and
+    qorm_or
+
+    qorm_where_for_row
 };
 
 1;

@@ -57,14 +57,9 @@ sub connection {
     return $self->{+CONNECTION} //= $self->connect;
 }
 
-sub query {
+sub handle {
     my $self = shift;
     return $self->connection->query(@_);
-}
-
-sub source {
-    my $self = shift;
-    return $self->connection->source(@_);
 }
 
 1;

@@ -1434,7 +1434,6 @@ The ORM class
     my $db = $orm->db;
     my $schema = $orm->schema;
 
-    my $source = $orm->source('people');
     my $query = $orm->query('people', {surname => 'smith'});
     for my $person ($query->all) {
         print $person->field('first_name') . "\n"

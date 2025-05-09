@@ -98,7 +98,7 @@ sub parse {
             if    ($item->isa(__PACKAGE__))                         { return $item }
             elsif ($item->isa('DBIx::QuickORM::Schema'))            { $schema = $item; next }
             elsif ($item->isa('DBIx::QuickORM::Connection'))        { $connection = $item; next }
-            elsif ($item->DOES('DBIx::QuickORM::Role::QuerySource')) { $query_source = $item; next }
+            elsif ($item->DOES('DBIx::QuickORM::Role::Source')) { $query_source = $item; next }
         }
         else {
             if ($r eq 'HASH') { $link = $item; next }

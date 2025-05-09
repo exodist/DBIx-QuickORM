@@ -16,7 +16,6 @@ use POSIX();
 use Scope::Guard();
 
 use DBIx::QuickORM::Row::Async;
-use DBIx::QuickORM::SQLBuilder::SQLAbstract;
 use DBIx::QuickORM::Connection::Query;
 use DBIx::QuickORM::Query;
 use DBIx::QuickORM::Source;
@@ -52,7 +51,6 @@ use DBIx::QuickORM::Util::HashBase qw{
     <dialect
     <pid
     <schema
-    +sql_builder
     <transactions
     +_savepoint_counter
     +_txn_counter
@@ -167,8 +165,6 @@ sub async_check {
 ########################
 
 sub db { $_[0]->{+ORM}->db }
-
-sub sql_builder { $_[0]->{+SQL_BUILDER} //= DBIx::QuickORM::SQLBuilder::SQLAbstract->new }
 
 ########################
 # }}} SIMPLE ACCESSORS #
@@ -412,7 +408,7 @@ sub auto_retry {
     return $out;
 }
 
-sub source {
+sub handle {
     my $self = shift;
     $self->pid_check;
     croak "Not enough arguments" unless @_;
@@ -468,8 +464,8 @@ sub _resolve_source {
     confess "Source name is required" unless defined $s && length $s;
 
     if (blessed($s)) {
-        return $s if $s->DOES('DBIx::QuickORM::Role::QuerySource');
-        croak "'$s' does not implement the 'DBIx::QuickORM::Role::QuerySource' role";
+        return $s if $s->DOES('DBIx::QuickORM::Role::Source');
+        croak "'$s' does not implement the 'DBIx::QuickORM::Role::Source' role";
     }
 
     croak "Not sure how to get an query_source from '$s'" if ref($s);
@@ -649,10 +645,65 @@ sub _get_keys {
 
 {
     no warnings 'once';
-    *search = \&select;
-    *sync   = \&select;
+    *search = \&query;
+    *sync   = \&query;
+    *select = \&query;
 }
 
+sub query {
+    my $self = shift;
+    my $query_source = $self->_resolve_source(shift);
+    $self->pid_check;
+    $self->async_check;
+
+    my %params;
+
+    if (@_) {
+        if (ref($_[0]) eq 'HASH') {
+            $params{where}    = shift;
+            $params{order_by} = shift;
+            $params{limit}    = shift;
+
+            croak "Too many parameters" if @_;
+        }
+        else {
+            %params = @_;
+        }
+    }
+
+    return DBIx::QuickORM::Query->new(%params, connection => $self, query_source => $query_source);
+}
+
+sub parse_query_args {
+    my $self = shift;
+
+    my %params;
+
+    while (my $arg = shift @_) {
+        if (my $ref = ref($arg)) {
+            if (my $class = blessed($arg)) {
+                $params{query}       = $arg and next if $arg->DOES('DBIx::QuickORM::Role::Query');
+                $params{source}      = $arg and next if $arg->DOES('DBIx::QuickORM::Role::Source');
+                $params{sql_builder} = $arg and next if $arg->DOES('DBIx::QuickORM::Role::SQLBuilder');
+                $params{connection}  = $arg and next if $arg->isa(__PACKAGE__);
+
+                croak "Not sure what to do with '$arg'";
+            }
+
+            $params{where}    = $arg and next if $ref eq 'HASH';
+            $params{order_by} = $arg and next if $ref eq 'ARRAY';
+            croak "Not sure what to do with '$arg'";
+        }
+
+        $params{limit} = $arg and next if $arg =~ m/^\d+$/;
+
+        $params{$arg} = shift @_;
+    }
+
+    return \%params;
+}
+
+sub sync   { shift->query(@_)->sync }
 sub async  { shift->query(@_)->async }
 sub aside  { shift->query(@_)->aside }
 sub forked { shift->query(@_)->forked }
@@ -901,33 +952,6 @@ sub delete {
     }
 
     return;
-}
-
-{
-    no warnings 'once';
-    *query = \&select;
-}
-sub select {
-    my $self = shift;
-    my $query_source = $self->_resolve_source(shift);
-    $self->pid_check;
-    $self->async_check;
-
-    my %params;
-    if (@_) {
-        if (ref($_[0]) eq 'HASH') {
-            $params{where}    = shift;
-            $params{order_by} = shift;
-            $params{limit}    = shift;
-
-            croak "Too many parameters" if @_;
-        }
-        else {
-            %params = @_;
-        }
-    }
-
-    return DBIx::QuickORM::Query->new(%params, connection => $self, query_source => $query_source);
 }
 
 sub count {

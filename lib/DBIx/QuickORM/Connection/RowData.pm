@@ -55,8 +55,8 @@ sub init {
         $src_sub = sub { $src_obj };
     }
 
-    croak "'query_source' must be either a blessed object that consumes the role 'DBIx::QuickORM::Role::QuerySource', or a coderef that returns such an object"
-        unless $src_obj && blessed($src_obj) && $src_obj->DOES('DBIx::QuickORM::Role::QuerySource');
+    croak "'query_source' must be either a blessed object that consumes the role 'DBIx::QuickORM::Role::Source', or a coderef that returns such an object"
+        unless $src_obj && blessed($src_obj) && $src_obj->DOES('DBIx::QuickORM::Role::Source');
 
     my ($con_sub, $con_obj);
     if ((reftype($con) // '') eq 'CODE') {

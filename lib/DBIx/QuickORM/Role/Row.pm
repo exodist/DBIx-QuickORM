@@ -9,7 +9,7 @@ use Scalar::Util qw/blessed/;
 use Role::Tiny;
 
 requires qw{
-    query_source
+    source
     connection
     is_invalid
     is_valid
@@ -22,24 +22,19 @@ sub track_desync { 0 }
 sub is_stored    { $_[0]->in_storage }
 sub dialect      { $_[0]->connection->dialect }
 
-sub has_field      { $_[0]->query_source->has_field($_[1] // croak "Must specify a field name") }
-sub field_affinity { $_[0]->query_source->field_affinity($_[1], $_[0]->dialect) }
+sub has_field      { $_[0]->source->has_field($_[1] // croak "Must specify a field name") }
+sub field_affinity { $_[0]->source->field_affinity($_[1], $_[0]->dialect) }
 
 #<<<
-sub primary_key_field_list { @{$_[0]->query_source->primary_key // []} }
+sub primary_key_field_list { @{$_[0]->source->primary_key // []} }
 sub primary_key_value_list { map { $_[0]->raw_stored_field($_) // undef } $_[0]->check_pk->primary_key_field_list }
 sub primary_key_hash       { map { $_ => $_[0]->raw_stored_field($_) // undef } $_[0]->check_pk->primary_key_field_list }
 sub primary_key_hashref    { +{ $_[0]->primary_key_hash } }
 #>>>
 
-sub source {
+sub handle {
     my $self = shift;
-
-    require DBIx::QuickORM::Source;
-    return DBIx::QuickORM::Source->new(
-        query_source => $self->query_source,
-        connection  => $self->connection,
-    );
+    return $self->connection->handle(source => $self->source, @_);
 }
 
 #####################
@@ -51,7 +46,7 @@ requires qw{
 };
 
 sub check_pk {
-    return $_[0] if $_[0]->query_source->primary_key;
+    return $_[0] if $_[0]->source->primary_key;
 
     croak "Operation not allowed: the table this row is from does not have a primary key";
 }
@@ -84,7 +79,7 @@ sub insert {
     croak "This row is already in the database" if $self->is_stored;
     croak "This row has no data to write" unless $self->has_pending;
 
-    $self->connection->insert($self->query_source, $self);
+    $self->connection->insert($self->source, $self);
 
     return $self;
 }
@@ -98,11 +93,11 @@ sub save {
 
     croak "This row is not in the database yet" unless $self->is_stored;
 
-    my $pk = $self->query_source->primary_key or croak "Cannot use 'save()' on a row with a source that has no primary key";
+    my $pk = $self->source->primary_key or croak "Cannot use 'save()' on a row with a source that has no primary key";
 
     return $self unless $self->has_pending;
 
-    $self->connection->update($self->query_source, $self);
+    $self->connection->update($self->source, $self);
 
     return $self;
 }
@@ -112,7 +107,7 @@ sub delete {
 
     $self->check_pk;
 
-    $self->connection->delete($self->query_source, $self);
+    $self->connection->delete($self->source, $self);
 }
 
 ############################
@@ -152,7 +147,7 @@ sub follow {
     my $self = shift;
     my ($link) = @_;
 
-    $link = $self->query_source->resolve_link($link);
+    $link = $self->source->resolve_link($link);
 
     my $where = {};
     for my $set (zip($link->local_columns, $link->other_columns)) {
@@ -160,14 +155,14 @@ sub follow {
         $where->{$other} = $self->field($local);
     }
 
-    return $self->connection->query($link->other_table, $where);
+    return $self->connection->handle($link->other_table, where => $where);
 }
 
 sub obtain {
     my $self = shift;
     my ($link) = @_;
 
-    $link = $self->query_source->resolve_link($link);
+    $link = $self->source->resolve_link($link);
     croak "The specified link does not point to a unique row" unless $link->unique;
 
     $self->follow($link)->one;
@@ -177,7 +172,7 @@ sub insert_related {
     my $self = shift;
     my ($link, $row_data) = @_;
 
-    $link = $self->query_source->resolve_link($link);
+    $link = $self->source->resolve_link($link);
 
     for my $set (zip($link->local_columns, $link->other_columns)) {
         my ($local, $other) = @$set;
@@ -199,12 +194,12 @@ sub siblings { # This includes the original
         $fields = $link_or_fields;
     }
     else {
-        my $link = $self->query_source->resolve_link($link_or_fields);
+        my $link = $self->source->resolve_link($link_or_fields);
         $fields = $link->local_columns;
     }
 
     my $where = +{ map { $_ => $self->field($_) } @$fields };
-    return $self->source->query($where);
+    return $self->handle(where => $where);
 }
 
 ####################

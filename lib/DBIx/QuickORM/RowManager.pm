@@ -184,7 +184,7 @@ sub parse_params {
     my ($params, %skip) = @_;
 
     my $query_source = $params->{query_source} or confess "'query_source' is a required parameter";
-    confess "'$query_source' is not a valid query source" unless $query_source->DOES('DBIx::QuickORM::Role::QuerySource');
+    confess "'$query_source' is not a valid query source" unless $query_source->DOES('DBIx::QuickORM::Role::Source');
 
     my $new_pk = $params->{new_primary_key};
 
