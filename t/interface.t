@@ -83,6 +83,13 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         import
     });
 
+    use DBIx::QuickORM(
+        only => ['password'],
+        rename => {pass => 'password'},
+    );
+
+    imported_ok(qw/password/);
+
     my $bld = __PACKAGE__->builder;
     isa_ok($bld, ['DBIx::QuickORM'], "Got an instance");
     ref_is(builder(), $bld, "Can be called as a method or a function");
@@ -615,9 +622,6 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         );
     };
 
-    use DBIx::QuickORM::Util qw/debug/;
-    debug(schema('deeptest')->{tables}->{foo}->{links});
-
     like(
         schema('deeptest'),
         {
@@ -780,7 +784,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         package Test::ORM::Table::ABC;
         $INC{'Test/ORM/Table/ABC.pm'} = __FILE__;
 
-        use DBIx::QuickORM 'table';
+        use DBIx::QuickORM type => 'table';
 
         table abc => sub {
             column abc => sub {
@@ -791,7 +795,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         package Test::ORM::Table::XYZ;
         $INC{'Test/ORM/Table/XYZ.pm'} = __FILE__;
 
-        use DBIx::QuickORM 'table';
+        use DBIx::QuickORM type => 'table';
         use Test2::V0 qw/is isa_ok ref_is_not like/;
 
         table xyz => sub {

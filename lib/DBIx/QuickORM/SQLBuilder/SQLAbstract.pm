@@ -4,7 +4,7 @@ use warnings;
 
 our $VERSION = '0.000011';
 
-use Carp qw/croak/;
+use Carp qw/croak confess/;
 use Sub::Util qw/set_subname/;
 use Scalar::Util qw/blessed/;
 use parent 'SQL::Abstract';
@@ -56,16 +56,62 @@ BEGIN {
     }
 }
 
-sub _insert_args { ($_[1]->{values} // croak "'values' is required", $_[1]->{options}) }
-sub _update_args { ($_[1]->{values} // croak "'values' is required", $_[1]->{where} // undef, $_[1]->{options}) }
-sub _select_args { ($_[1]->{fields} // croak "'fields' is required", $_[1]->{where} // croak "'where' is required", $_[1]->{order}) }
-sub _delete_args { ($_[1]->{where}  // undef, $_[1]->{options}) }
-sub _where_args  { ($_[1]->{where}  // croak "'where' is required", $_[1]->{order}) }
-
-sub qorm_where_for_row {
+sub _insert_args {
     my $self = shift;
-    my ($row) = @_;
-    return $row->primary_key_hashref;
+    my ($params) = @_;
+
+    my $values = $params->{insert} // croak "'insert' is required";
+    my $returning = $params->{returning};
+
+    $values = $self->_format_insert_and_update_data($values);
+
+    return ($values, $returning ? {returning => $returning} : ());
+}
+
+sub _delete_args {
+    my $self = shift;
+    my ($params) = @_;
+
+    my $where = $params->{where} // undef;
+    my $returning = $params->{returning};
+
+    confess "delete() with a 'limit' clause is not currently supported"     if $params->{limit};
+    confess "delete() with an 'order_by' clause is not currently supported" if $params->{order_by};
+
+    return ($where, $returning ? {returning => $returning} : ());
+}
+
+sub _update_args {
+    my $self = shift;
+    my ($params) = @_;
+
+    my $values    = $params->{update} or croak "'update' is required";
+    my $returning = $params->{returning};
+
+    $values = $self->_format_insert_and_update_data($values);
+
+    return ($values, $params->{where}, $returning ? {returning => $returning} : ());
+}
+
+sub _select_args {
+    my $self = shift;
+    my ($params) = @_;
+
+    my $fields = $params->{fields} or croak "'fields' is required";
+    my $where  = $params->{where};
+    my $order  = $params->{order_by};
+
+    return ($fields, $where, $order);
+}
+
+sub _where_args {
+    my $self = shift;
+    my ($params) = @_;
+
+    my $where = $params->{where};
+    my $order = $params->{order_by};
+
+    return ($where, $order);
 }
 
 sub qorm_and {
@@ -78,6 +124,15 @@ sub qorm_or {
     my $self = shift;
     my ($a, $b) = @_;
     return +{'-or' => [$a, $b]}
+}
+
+sub _format_insert_and_update_data {
+    my $self = shift;
+    my ($data) = @_;
+
+    $data = { map { $_ => {'-value' => $data->{$_}} } keys %$data };
+
+    return $data;
 }
 
 1;
@@ -98,7 +153,7 @@ sub _render_ident {
     my (undef, $ident) = @_;
 
     unless ($IN_TARGET) {
-        if (my $s = $self->{query_source}) {
+        if (my $s = $self->{source}) {
             if (my $db_name = $s->field_db_name($ident->[0])) {
                 $ident->[0] = $db_name;
             }
@@ -114,7 +169,7 @@ sub _expand_insert_value {
 
     my $k = $SQL::Abstract::Cur_Col_Meta;
 
-    if (my $s = $self->{query_source}) {
+    if (my $s = $self->{source}) {
         my $r = ref($v);
         if ($r eq 'HASH' || $r eq 'ARRAY') {
             if (my $type = $s->field_type($k)) {

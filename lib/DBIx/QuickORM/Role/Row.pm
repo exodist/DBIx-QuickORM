@@ -37,6 +37,12 @@ sub handle {
     return $self->connection->handle(source => $self->source, @_);
 }
 
+sub display {
+    my $self = shift;
+    my $source = $self->source;
+    return $source->source_orm_name . "(" . join(', ' => $self->primary_key_value_list) . ")";
+}
+
 #####################
 # {{{ Sanity Checks #
 #####################

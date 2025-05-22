@@ -22,10 +22,10 @@ sub init {
 
 sub do_cache_lookup {
     my $self = shift;
-    my ($query_source, $fetched, $old_pk, $new_pk, $row) = @_;
+    my ($source, $fetched, $old_pk, $new_pk, $row) = @_;
 
     my $pk = $new_pk // $old_pk // return;
-    my $scache = $self->{+CACHE}->{$query_source->source_orm_name} or return;
+    my $scache = $self->{+CACHE}->{$source->source_orm_name} or return;
 
     my $cache_key = $self->cache_key($pk);
 
@@ -34,13 +34,13 @@ sub do_cache_lookup {
 
 sub cache {
     my $self = shift;
-    my ($query_source, $row, $old_pk, $new_pk) = @_;
+    my ($source, $row, $old_pk, $new_pk) = @_;
 
-    my $scache = $self->{+CACHE}->{$query_source->source_orm_name} //= {};
+    my $scache = $self->{+CACHE}->{$source->source_orm_name} //= {};
 
     delete $scache->{$self->cache_key($old_pk)} if $old_pk;
 
-    return unless $query_source->primary_key;
+    return unless $source->primary_key;
 
     $new_pk //= [$row->primary_key_value_list];
     my $new_key = $self->cache_key($new_pk);
@@ -51,7 +51,7 @@ sub cache {
 
 sub uncache {
     my $self = shift;
-    my ($query_source, $row, $old_pk, $new_pk) = @_;
+    my ($source, $row, $old_pk, $new_pk) = @_;
 
     my $pk = $old_pk // $new_pk;
     if ($row && !$pk && $row->primary_key) {
@@ -61,7 +61,7 @@ sub uncache {
     # No pk, not a cachable row
     return unless $pk && @$pk;
 
-    my $scache = $self->{+CACHE}->{$query_source->source_orm_name} or return;
+    my $scache = $self->{+CACHE}->{$source->source_orm_name} or return;
 
     my $row_key = $self->cache_key($pk);
     return delete $scache->{$row_key};

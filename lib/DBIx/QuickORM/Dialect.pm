@@ -20,7 +20,6 @@ sub dsn_socket_field { 'host' }
 sub dbi_driver { confess "Not Implemented" }
 sub db_version { confess "Not Implemented" }
 
-sub in_txn             { $_[0]->dbh->{BegunWork} ? 1 : $_[0]->dbh->{AutoCommit} ? 0 : 1 }
 sub start_txn          { croak "$_[0]->start_txn() is not implemented" }
 sub commit_txn         { croak "$_[0]->commit_txn() is not implemented" }
 sub rollback_txn       { croak "$_[0]->rollback_txn() is not implemented" }
@@ -33,6 +32,16 @@ sub supports_returning_update { 0 }
 sub supports_returning_insert { 0 }
 sub supports_returning_delete { 0 }
 sub supports_type { }
+
+sub in_txn {
+    my $self = shift;
+    my %params = @_;
+    my $dbh = $params{dbh} // $self->dbh;
+
+    return 1 if $dbh->{BegunWork};
+    return 0 if $dbh->{AutoCommit};
+    return 1;
+}
 
 sub dialect_name {
     my $self_or_class = shift;

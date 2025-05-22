@@ -69,10 +69,14 @@ sub new {
     Carp::croak("'$self->{async}' does not implement the 'DBIx::QuickORM::Role::Async' role")
         unless $self->{async}->DOES('DBIx::QuickORM::Role::Async');
 
+    $self->{state_method} //= 'state_select_row';
+    $self->{state_args} //= [];
+
     return $self;
 }
 
 sub async { $_[0]->{async} }
+sub auto_refresh { $_[0]->{auto_refresh} }
 
 sub is_invalid { $_[0]->swapout(@_)->{invalid} ? 1 : 0 }
 sub is_valid   { $_[0]->swapout(@_)->{invalid} ? 0 : 1 }
@@ -106,8 +110,14 @@ sub row {
 
     my %args = %$self;
     delete $args{async};
+    my $auto_refresh = delete $args{auto_refresh};
 
-    return $self->{row} = $async->connection->manager->select(query_source => $async->query_source, fetched => $data);
+    my $meth = $self->{state_method};
+    my $row = $self->{row} = $async->connection->$meth(@{$self->{state_args}}, source => $async->source, fetched => $data);
+
+    $row->refresh if $auto_refresh;
+
+    return $row;
 }
 
 sub swapout {

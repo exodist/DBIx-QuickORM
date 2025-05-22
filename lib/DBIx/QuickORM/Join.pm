@@ -61,7 +61,7 @@ sub fracture {
         my $data     = {map { $not_null ||= defined($in->{$_}); m/^\Q$as\E\.(.+)$/; ($1 => $in->{$_}) } grep { m/^\Q$as\E\./ } keys %$in};
 
         next unless $not_null;
-        push @$out => {query_source => $table, data => $data, as => $as, link => $link};
+        push @$out => {source => $table, data => $data, as => $as, link => $link};
     }
 
     return $out;

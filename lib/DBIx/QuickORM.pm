@@ -79,9 +79,14 @@ my @EXPORT = qw{
 
 sub import {
     my $class = shift;
-    my ($type) = @_;
+    my %params = @_;
 
-    $type //= 'orm';
+    my $type   = $params{type}   // 'orm';
+    my $rename = $params{rename} // {};
+    my $skip   = $params{skip}   // {};
+    my $only   = $params{only};
+
+    $only = {map {($_ => 1)} @$only} if $only;
 
     my $caller = caller;
 
@@ -89,8 +94,11 @@ sub import {
 
     my %export = (
         builder => set_subname("${caller}::builder" => sub { $builder }),
-        import  => set_subname("${caller}::import" => sub { shift; $builder->import_into(scalar(caller), @_) }),
     );
+
+    if ($type eq 'orm') {
+        $export{import} = set_subname("${caller}::import" => sub { shift; $builder->import_into(scalar(caller), @_) }),
+    }
 
     for my $name (@EXPORT) {
         my $meth = $name;
@@ -98,8 +106,11 @@ sub import {
     }
 
     for my $sym (keys %export) {
+        my $name = $rename->{$sym} // $sym;
+        next if $skip->{$name} || $skip->{$sym};
+        next if $only && !($only->{$name} || $only->{$sym});
         no strict 'refs';
-        *{"${caller}\::${sym}"} = $export{$sym};
+        *{"${caller}\::${name}"} = $export{$sym};
     }
 }
 
@@ -1494,6 +1505,26 @@ must specify it.
 
 =head1 RECIPES
 
+=head2 RENAMING EXPORTS
+
+When importing L<DBIx::QuickORM> you can provide
+C<< rename => { name => new_name } >> mapping to rename exports.
+
+    package My::ORM;
+    use DBIx::QuickORM rename => {
+        pass  => 'password',
+        user  => 'username',
+        table => 'build_table',
+    };
+
+B<Note> If you do not want to bring in the C<import()> method that normally
+gets produced, you can also add C<< type => 'porcelain' >>.
+
+    use DBIx::QuickORM type => 'porcelain';
+
+Really any 'type' other than 'orm' and undef (which becomes 'orm' by default)
+will work to prevent C<import()> from being exported to your namespace.
+
 =head2 DEFINE TABLES IN THEIR OWN PACKAGES/FILES
 
 If you have many tables, or want each to have a custom row class (custom
@@ -1510,7 +1541,7 @@ querying this table.
 First create F<My/ORM/Table/Foo.pm>:
 
     package My::ORM::Table::Foo;
-    use DBIx::QuickORM 'table';
+    use DBIx::QuickORM type => 'table';
 
     # Calling this will define the table. It will also:
     #  * Remove all functions imported from DBIx::QuickORM
@@ -2100,7 +2131,7 @@ prefixed onto your string, and the resulting class will be loaded.
 In a table class:
 
     package My::ORM::Table::Foo;
-    use DBIx::QuickORM 'table';
+    use DBIx::QuickORM type => 'table';
 
     table foo => sub {
         # Sets the base class (@ISA) for this table class to 'My::Row::Class'

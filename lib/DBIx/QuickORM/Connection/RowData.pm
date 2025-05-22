@@ -23,7 +23,7 @@ our @EXPORT_OK = qw{
 
 use DBIx::QuickORM::Util::HashBase qw{
     +connection
-    +query_source
+    +source
     +stack
 };
 
@@ -31,7 +31,7 @@ sub valid      { $_[0]->active(no_fatal => 1) ? 1 : 0 }
 sub invalid    { $_[0]->active(no_fatal => 1) ? 0 : 1 }
 sub invalidate { $_[0]->{+STACK} = [] }
 
-sub query_source { $_[0]->{+QUERY_SOURCE}->() }
+sub source { $_[0]->{+SOURCE}->() }
 sub connection  { $_[0]->{+CONNECTION}->() }
 
 sub stored_data  { $_[0]->active->{+STORED} }
@@ -42,7 +42,7 @@ sub transaction  { $_[0]->active->{+TRANSACTION} }
 sub init {
     my $self = shift;
 
-    my $src = $self->{+QUERY_SOURCE} or confess "'query_source' is required";
+    my $src = $self->{+SOURCE} or confess "'source' is required";
     my $con = $self->{+CONNECTION}  or confess "'connection' is required";
 
     my ($src_sub, $src_obj);
@@ -55,7 +55,7 @@ sub init {
         $src_sub = sub { $src_obj };
     }
 
-    croak "'query_source' must be either a blessed object that consumes the role 'DBIx::QuickORM::Role::Source', or a coderef that returns such an object"
+    croak "'source' must be either a blessed object that consumes the role 'DBIx::QuickORM::Role::Source', or a coderef that returns such an object"
         unless $src_obj && blessed($src_obj) && $src_obj->DOES('DBIx::QuickORM::Role::Source');
 
     my ($con_sub, $con_obj);
@@ -72,7 +72,7 @@ sub init {
         unless $con_obj && blessed($con_obj) && $con_obj->isa('DBIx::QuickORM::Connection');
 
     $self->{+CONNECTION}  = $con_sub;
-    $self->{+QUERY_SOURCE} = $src_sub;
+    $self->{+SOURCE} = $src_sub;
     $self->{+STACK} //= [];
 }
 
@@ -146,18 +146,18 @@ sub _up_state {
 
 sub _merge_state {
     my $self = shift;
-    my ($merge, $query_source, $connection) = @_;
+    my ($merge, $source, $connection) = @_;
 
     my $into = $self->active;
 
     if (my $stored = $merge->{+STORED}) {
         if (my $pending = $into->{+PENDING}) {
             for my $field (keys %{$merge->{+STORED}}) {
-                $query_source //= $self->query_source;
+                $source //= $self->source;
                 $connection  //= $self->connection;
 
                 # No change
-                next if $self->compare_field($field, $into->{+STORED}, $stored, $query_source, $connection);
+                next if $self->compare_field($field, $into->{+STORED}, $stored, $source, $connection);
 
                 $into->{+STORED}->{$field} = $stored->{$field};
                 $into->{+DESYNC}->{$field} = 1 if $pending->{$field};
@@ -194,13 +194,13 @@ sub _merge_state {
 
 sub compare_field {
     my $self = shift;
-    my ($field, $ah, $bh, $query_source, $connection) = @_;
+    my ($field, $ah, $bh, $source, $connection) = @_;
 
-    $query_source //= $self->query_source;
+    $source //= $self->source;
     $connection  //= $self->connection;
 
-    my $affinity = $query_source->field_affinity($field, $connection->dialect);
-    my $type     = $query_source->field_type($field);
+    my $affinity = $source->field_affinity($field, $connection->dialect);
+    my $type     = $source->field_type($field);
 
     my $ae = exists $ah->{$field};
     my $be = exists $bh->{$field};

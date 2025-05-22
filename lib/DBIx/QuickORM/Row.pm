@@ -29,9 +29,10 @@ with 'DBIx::QuickORM::Role::Row';
 
 sub track_desync { 1 }
 
-sub query_source { $_[0]->{+ROW_DATA}->query_source }
+sub source { $_[0]->{+ROW_DATA}->source }
 sub connection  { $_[0]->{+ROW_DATA}->connection }
 
+sub row_data_obj { $_[0]->{+ROW_DATA} }
 sub row_data { $_[0]->{+ROW_DATA}->active }
 
 sub stored_data   { $_[0]->row_data->{+STORED} }
@@ -124,8 +125,7 @@ sub refresh {
     $self->check_pk;
 
     croak "This row is not in the database yet" unless $self->is_stored;
-
-    return $self->connection->first($self->query_source, {where => $self->primary_key_hashref, fields => [keys %{$self->stored_data}], row => $self});
+    return $self->connection->handle($self)->first;
 }
 
 # Remove pending changes (and clear desync)
@@ -207,7 +207,7 @@ sub _field {
 
     if (my $st = $row_data->{+STORED}) {
         unless (exists $st->{$field}) {
-            my $data = $self->connection->one($self->query_source, {data_only => 1, where => $self->primary_key_hashref, fields => [$field]});
+            my $data = $self->connection->one($self->source, {data_only => 1, where => $self->primary_key_hashref, fields => [$field]});
             $st->{$field} = $data->{$field};
         }
 
@@ -246,7 +246,7 @@ sub _inflated_field {
 
     return $val if ref($val);    # Inflated already
 
-    if (my $type = $self->query_source->field_type($field)) {
+    if (my $type = $self->source->field_type($field)) {
         return $from->{$field} = $type->qorm_inflate($val);
     }
 
@@ -266,7 +266,7 @@ sub _raw_field {
     return $val->qorm_deflate($self->field_affinity($field))
         if blessed($val) && $val->can('qorm_deflate');
 
-    if (my $type = $self->query_source->field_type($field)) {
+    if (my $type = $self->source->field_type($field)) {
         return $type->qorm_deflate($val, $self->field_affinity($field));
     }
 
