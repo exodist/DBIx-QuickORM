@@ -39,8 +39,8 @@ sub stored_data   { $_[0]->row_data->{+STORED} }
 sub pending_data  { $_[0]->row_data->{+PENDING} }
 sub desynced_data { $_[0]->row_data->{+DESYNC} }
 
-sub is_invalid { $_[0]->{+ROW_DATA}->invalid ? 1 : 0 }
-sub is_valid   { $_[0]->{+ROW_DATA}->valid   ? 1 : 0 }
+sub is_invalid { $_[0]->{+ROW_DATA}->invalid // 0 }
+sub is_valid   { $_[0]->{+ROW_DATA}->valid ? 1 : 0 }
 
 sub in_storage  { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
 sub is_stored   { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
@@ -125,7 +125,7 @@ sub refresh {
     $self->check_pk;
 
     croak "This row is not in the database yet" unless $self->is_stored;
-    return $self->connection->handle($self)->first;
+    return $self->connection->handle($self)->one;
 }
 
 # Remove pending changes (and clear desync)
@@ -138,9 +138,25 @@ sub discard {
     return $self;
 }
 
+sub delete {
+    my $self = shift;
+
+    $self->check_pk;
+
+    croak "This row is not in the database yet" unless $self->is_stored;
+    return $self->connection->handle($self)->delete;
+}
+
 sub update {
     my $self = shift;
-    my ($changes, %params) = @_;
+
+    my $changes;
+    if (@_ == 1) {
+        ($changes) = @_;
+    }
+    else {
+        $changes = {@_};
+    }
 
     $self->check_pk;
 
@@ -150,7 +166,7 @@ sub update {
         delete $row_data->{+DESYNC}->{$field} if $row_data->{+DESYNC};
     }
 
-    $self->save(%params);
+    $self->save();
     return $self;
 }
 

@@ -31,6 +31,12 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     $INC{'DBIx/QuickORM/Plugin/My/Plugin.pm'} = __FILE__;
     our @ISA = ('DBIx::QuickORM::Plugin');
     use DBIx::QuickORM::Util::HashBase;
+
+    package DBIx::QuickORM::Handle::TestHandle;
+    $INC{'DBIx/QuickORM/Handle/TestHandle.pm'} = __FILE__;
+    use Role::Tiny::With qw/with/;
+    use parent 'DBIx::QuickORM::Handle';
+    with 'DBIx::QuickORM::Role::Handle';
 }
 
 {
@@ -45,6 +51,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         plugins
         meta
         orm
+
+        handle_class
 
         build_class
 
@@ -1331,6 +1339,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         };
 
         autofill;
+        handle_class 'DBIx::QuickORM::Handle';
 
         schema orm_test_schema => sub {
         };
@@ -1353,6 +1362,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                 compiled => T(),
                 created  => T(),
             },
+            default_handle_class => 'DBIx::QuickORM::Handle',
         },
         "Got the orm with schema and db",
     );
@@ -1360,6 +1370,8 @@ use Test2::V0 -target => 'DBIx::QuickORM';
     orm orm_test_b => sub {
         db 'variable.db_one';
         schema 'xyz_a';
+
+        handle_class 'DBIx::QuickORM::Handle::TestHandle';
 
         like(
             $bld->{stack}->[-1],
@@ -1377,6 +1389,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                         name     => 'xyz_a',
                         building => 'SCHEMA',
                     },
+                    default_handle_class => 'DBIx::QuickORM::Handle::TestHandle',
                 },
             },
             "Added db and schema to the orm, not compiled"
@@ -1399,6 +1412,7 @@ use Test2::V0 -target => 'DBIx::QuickORM';
                     xyz         => T(),
                 }
             },
+            default_handle_class => 'DBIx::QuickORM::Handle::TestHandle',
         },
         "Got vanilla db in orm"
     );

@@ -31,6 +31,7 @@ my @EXPORT = qw{
     plugins
     meta
     orm
+     handle_class
     autofill
      autotype
      autohook
@@ -348,6 +349,17 @@ sub db {
     }
 
     return $self->_build('DB', into => $into, frame => $frame, args => \@_, force_build => $force_build);
+}
+
+sub handle_class {
+    my $self = shift;
+    my ($proto) = @_;
+
+    my $top = $self->_in_builder(qw{orm});
+
+    $top->{meta}->{default_handle_class} = load_class($proto, 'DBIx::QuickORM::Handle') or croak "Could not load handle class '$proto': $@";
+
+    return;
 }
 
 sub autofill {

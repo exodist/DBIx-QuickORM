@@ -92,7 +92,6 @@ sub insert {
 
 sub save {
     my $self = shift;
-    my %params = @_;
 
     $self->check_pk;
     $self->check_sync;

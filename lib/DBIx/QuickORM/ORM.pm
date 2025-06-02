@@ -17,6 +17,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <created
     <compiled
     cache_class
+    <default_handle_class
 
     +connection
 };
@@ -37,6 +38,8 @@ sub connect {
 
     my %params = (orm => $self);
     $params{cache} = $self->{+CACHE_CLASS}->new() if $self->{+CACHE_CLASS};
+
+    $params{+DEFAULT_HANDLE_CLASS} = $self->{+DEFAULT_HANDLE_CLASS};
 
     return DBIx::QuickORM::Connection->new(%params);
 }
@@ -59,7 +62,7 @@ sub connection {
 
 sub handle {
     my $self = shift;
-    return $self->connection->query(@_);
+    return $self->connection->handle(@_);
 }
 
 1;

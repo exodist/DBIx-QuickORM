@@ -24,7 +24,7 @@ sub do_cache_lookup {
     my $self = shift;
     my ($source, $fetched, $old_pk, $new_pk, $row) = @_;
 
-    my $pk = $new_pk // $old_pk // return;
+    my $pk = $old_pk // $new_pk // return;
     my $scache = $self->{+CACHE}->{$source->source_orm_name} or return;
 
     my $cache_key = $self->cache_key($pk);

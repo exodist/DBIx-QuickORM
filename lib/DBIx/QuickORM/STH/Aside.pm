@@ -1,4 +1,4 @@
-package DBIx::QuickORM::Connection::Aside;
+package DBIx::QuickORM::STH::Aside;
 use strict;
 use warnings;
 

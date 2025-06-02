@@ -10,23 +10,24 @@ use overload (
 );
 
 sub isa {
-    my ($this, $check) = shift;
+    my ($this, $check) = @_;
+
+    return 1 if $check eq __PACKAGE__;
+    return 1 if $check eq 'DBIx::QuickORM::Row';
+    return 1 if DBIx::QuickORM::Row->isa($check);
 
     if (my $class = Scalar::Util::blessed($this)) {
+
         if ($this->ready) {
             my $a = $_[0];
             $_[0] = $this->swapout;
-            return $_[0]->isa($check) unless $a == $_[0];
+            return $_[0]->isa($check) unless Scalar::Util::refaddr($a) eq Scalar::Util::refaddr($_[0]);
         }
 
         return 1 if $check eq $class;
         return 1 if $check eq $this->{row_class};
         return 1 if $this->{row_class}->isa($check);
     }
-
-    return 1 if $check eq __PACKAGE__;
-    return 1 if $check eq 'DBIx::QuickORM::Row';
-    return 1 if DBIx::QuickORM::Row->isa($check);
 
     return 0;
 }

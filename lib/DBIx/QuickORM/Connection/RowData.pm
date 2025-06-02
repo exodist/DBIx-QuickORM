@@ -2,7 +2,7 @@ package DBIx::QuickORM::Connection::RowData;
 use strict;
 use warnings;
 
-use Carp qw/confess croak/;
+use Carp qw/confess croak carp/;
 use List::Util qw/first/;
 use Scalar::Util qw/reftype blessed/;
 
@@ -25,14 +25,37 @@ use DBIx::QuickORM::Util::HashBase qw{
     +connection
     +source
     +stack
+    +invalid
 };
 
 sub valid      { $_[0]->active(no_fatal => 1) ? 1 : 0 }
-sub invalid    { $_[0]->active(no_fatal => 1) ? 0 : 1 }
-sub invalidate { $_[0]->{+STACK} = [] }
+sub invalid    { $_[0]->active(no_fatal => 1) ? 0 : ($_[0]->{+INVALID} //= 'Unknown') }
 
-sub source { $_[0]->{+SOURCE}->() }
-sub connection  { $_[0]->{+CONNECTION}->() }
+sub invalidate {
+    my $self = shift;
+    my %params = @_;
+
+    my $reason = $params{reason};
+    unless ($reason) {
+        my @caller = caller;
+        $reason = "unkown at $caller[1] line $caller[2]";
+    }
+
+    $self->{+INVALID} = $reason;
+
+    my @old_stack = @{$self->{+STACK}};
+
+    my $active = $self->active(no_fatal => 1) // @old_stack ? $old_stack[-1] : undef;
+
+    my $pending = $active ? $active->{+PENDING} : undef;
+
+    carp "Row invalidated with pending data" if $pending && keys %$pending;
+
+    $self->{+STACK} = [];
+}
+
+sub source     { $_[0]->{+SOURCE}->() }
+sub connection { $_[0]->{+CONNECTION}->() }
 
 sub stored_data  { $_[0]->active->{+STORED} }
 sub pending_data { $_[0]->active->{+PENDING} }
@@ -101,8 +124,10 @@ sub active {
 
     return $stack->[0] if @$stack;
 
+    $self->{+INVALID} //= "Likely inserted during a transaction that was rolled back";
+
     return if $params{no_fatal};
-    confess "This row is invalid (Likely inserted during a transaction that was rolled back)";
+    confess "This row is invalid (Reason: $self->{+INVALID})";
 }
 
 sub change_state {

@@ -48,14 +48,20 @@ sub do_cache_lookup {
 
 sub invalidate {
     my $self = shift;
-    my ($source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_});
+    my ($source, $fetched, $old_pk, $new_pk, $row, $params) = $self->parse_params({@_});
+
+    my $reason = $params->{reason};
+    unless ($reason) {
+        my @caller = caller;
+        $reason = "$caller[1] line $caller[2]";
+    }
 
     # Remove from passed in row if we got one
-    $row->{+ROW_DATA}->invalidate if $row;
+    $row->{+ROW_DATA}->invalidate(reason => $reason) if $row;
 
     # Now check cache for row, might be same, might not
     $row = $self->uncache($source, $row, $old_pk, $new_pk);
-    $row->{+ROW_DATA}->invalidate if $row;
+    $row->{+ROW_DATA}->invalidate(reason => $reason) if $row;
 
     return;
 }
@@ -139,6 +145,7 @@ sub delete {
     my $self = shift;
     my ($source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
 
+    return unless $row;
     $row = $self->do_delete($source, $fetched, $old_pk, $new_pk, $row);
     $self->uncache($source, $row, $old_pk, $new_pk);
 
@@ -189,7 +196,7 @@ sub parse_params {
     my $new_pk = $params->{new_primary_key};
 
     my $fetched = $params->{fetched};
-    unless ($skip{fetched}) {
+    if ($fetched || !$skip{fetched}) {
         my @pk_vals;
         confess "'fetched' is a required parameter" unless $fetched;
         confess "'$fetched' is not a valid fetched data set" unless ref($fetched) eq 'HASH';
@@ -227,7 +234,7 @@ sub parse_params {
         $row //= $cached;
     }
 
-    return ($source, $fetched, $old_pk, $new_pk, $row);
+    return ($source, $fetched, $old_pk, $new_pk, $row, $params);
 }
 
 1;

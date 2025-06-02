@@ -16,13 +16,14 @@ use DBIx::QuickORM::Util::HashBase qw{
     <source
 
     only_one
+    no_rows
 
     +dialect
     +ready
     <result
     <done
 
-    <on_ready
+    on_ready
     +fetch_cb
 };
 
@@ -32,6 +33,8 @@ sub got_result { 1 }
 
 sub dialect { $_[0]->{+DIALECT} //= $_[0]->{+CONNECTION}->dialect }
 
+sub deferred_result { 0 }
+
 sub init {
     my $self = shift;
 
@@ -39,7 +42,7 @@ sub init {
     croak "'source' is a required attribute"     unless $self->{+SOURCE};
     croak "'sth' is a required attribute"        unless $self->{+STH};
     croak "'dbh' is a required attribute"        unless $self->{+DBH};
-    croak "'result' is a required attribute"     unless exists $self->{+RESULT};
+    croak "'result' is a required attribute"     unless exists($self->{+RESULT}) || $self->deferred_result;
 }
 
 sub next {
@@ -54,20 +57,32 @@ sub next {
     return $row_hr;
 }
 
+sub _fetch {
+    my $self = shift;
+    return $self->{+FETCH_CB} if exists $self->{+FETCH_CB};
+
+    if (my $on_ready = $self->{+ON_READY}) {
+        return $self->{+FETCH_CB} = $on_ready->($self->{+DBH}, $self->{+STH}, $self->result, $self->{+SQL});
+    }
+
+    $self->result;
+    $self->{+FETCH_CB} = undef;
+    return;
+}
+
 sub _next {
     my $self = shift;
 
     return if $self->{+DONE};
 
-    my $fetch = $self->{+FETCH_CB} //= $self->{+ON_READY}->($self->{+DBH}, $self->{+STH}, $self->result, $self->{+SQL});
-
-    my $row_hr = $fetch->();
-
-    return $row_hr if $row_hr;
+    if (my $fetch = $self->_fetch) {
+        my $row_hr = $fetch->();
+        return $row_hr if $row_hr;
+    }
 
     $self->set_done;
 
-    return;
+    return undef;
 }
 
 sub set_done {
@@ -75,6 +90,8 @@ sub set_done {
 
     return if $self->{+DONE};
 
+    # Do this to make sure on_ready runs if it has not already.
+    $self->_fetch;
     $self->clear;
 
     $self->{+DONE} = 1;

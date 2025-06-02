@@ -27,6 +27,7 @@ use DBIx::QuickORM::Util::HashBase qw{
     <forks
     <default_sql_builder
     <default_internal_txn
+    <default_handle_class
 };
 
 sub init {
@@ -48,6 +49,8 @@ sub init {
 
     $self->{+ASIDES} = {};
     $self->{+FORKS}  = {};
+
+    $self->{+DEFAULT_HANDLE_CLASS} //= $orm->default_handle_class // 'DBIx::QuickORM::Handle';
 
     $self->{+DEFAULT_SQL_BUILDER} //= do {
         require DBIx::QuickORM::SQLBuilder::SQLAbstract;
@@ -458,15 +461,15 @@ sub source {
 
 sub handle {
     my $self = shift;
+    my ($in, @args) = @_;
 
     my $handle;
-    if (blessed($_[0]) && $_[0]->isa('DBIx::QuickORM::Handle')) {
-        $handle = shift;
-        return $handle unless @_;
-        return $handle->clone(@_);
+    if ((blessed($in) || !ref($in)) && ($in->isa('DBIx::QuickORM::Handle') || $in->DOES('DBIx::QuickORM::Role::Handle'))) {
+        return $in unless @args;
+        return $in->handle(@args);
     }
 
-    return DBIx::QuickORM::Handle->handle(connection => $self, @_);
+    return $self->{+DEFAULT_HANDLE_CLASS}->handle(connection => $self, @_);
 }
 
 sub all      { shift->handle(@_)->all }

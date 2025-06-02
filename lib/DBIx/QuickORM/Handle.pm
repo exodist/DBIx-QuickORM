@@ -7,12 +7,16 @@ use Carp qw/confess croak carp/;
 use Sub::Util qw/set_subname/;
 use List::Util qw/mesh/;
 use Scalar::Util qw/blessed/;
+use DBIx::QuickORM::Util qw{debug};
 
 use DBIx::QuickORM::STH();
 use DBIx::QuickORM::STH::Fork();
 use DBIx::QuickORM::STH::Aside();
 use DBIx::QuickORM::STH::Async();
 use DBIx::QuickORM::Row::Async();
+
+use Role::Tiny::With qw/with/;
+with 'DBIx::QuickORM::Role::Handle';
 
 use DBIx::QuickORM::Util::HashBase qw{
     +connection
@@ -203,6 +207,8 @@ sub handle {
     }
 
     my $clone = { $self ? %$self : () };
+
+    delete $clone->{+WHERE} if $clone->{+ROW};
 
     my %flags;
     $flags{unknown_object} = sub { croak "Not sure what to do with '$_[1]'" };
@@ -515,6 +521,13 @@ sub where {
     return $self->clone(WHERE() => $_[0], ROW() => undef);
 }
 
+sub target {
+    my $self = shift;
+    croak "Must not be called in void context" unless defined wantarray;
+    return $self->{+TARGET} unless @_;
+    return $self->clone(TARGET() => $_[0]);
+}
+
 sub order_by {
     my $self = shift;
     croak "Must not be called in void context" unless defined wantarray;
@@ -553,12 +566,15 @@ sub _has_pk {
 
 sub make_sth {
     my $self = shift;
+    my ($sql, %params) = @_;
+
+    croak "'on_ready' or 'no_rows' is required" unless $params{on_ready} || $params{no_rows};
 
     $self->{+CONNECTION}->pid_and_async_check;
 
-    return $self->_make_async_sth(@_)  if $self->{+ASYNC} || $self->{+ASIDE};
-    return $self->_make_forked_sth(@_) if $self->{+FORKED};
-    return $self->_make_sync_sth(@_);
+    return $self->_make_async_sth($sql, %params)  if $self->{+ASYNC} || $self->{+ASIDE};
+    return $self->_make_forked_sth($sql, %params) if $self->{+FORKED};
+    return $self->_make_sync_sth($sql, %params);
 }
 
 sub _execute {
@@ -608,8 +624,6 @@ sub _make_sync_sth {
     my $self = shift;
     my ($sql, %params) = @_;
 
-    croak "'on_ready' is required" unless $params{on_ready};
-
     my $con = $self->{+CONNECTION};
     my $dbh = $con->dbh;
     my ($sth, $res) = $self->_execute($dbh, $sql);
@@ -629,8 +643,6 @@ sub _make_async_sth {
     my $self = shift;
     my ($sql, %params) = @_;
 
-    croak "'on_ready' is required" unless $params{on_ready};
-
     my $dialect = $self->dialect;
     croak "Dialect '" . $dialect->dialect_name . "' does not support async" unless $dialect->async_supported;
 
@@ -648,7 +660,7 @@ sub _make_async_sth {
         $class = 'DBIx::QuickORM::STH::Async';
     }
 
-    my ($sth, $res) = $self->_execute($dbh, $sql, $dialect->async_prepare_args);
+    my ($sth, $res) = $self->_execute($dbh, $sql, {$dialect->async_prepare_args});
 
     my $out = $class->new(
         %params,
@@ -667,8 +679,6 @@ sub _make_async_sth {
 sub _make_forked_sth {
     my $self = shift;
     my ($sql, %params) = @_;
-
-    my $on_ready = delete $params{on_ready} or croak "'on_ready' is required";
 
     my $con = $self->{+CONNECTION};
 
@@ -706,29 +716,21 @@ sub _make_forked_sth {
 
     my ($sth, $res) = $self->_execute($dbh, $sql);
     print $wh $json->encode({result => $res}), "\n";
-    my $fetch = $on_ready->($dbh, $sth, $res, $sql);
 
     eval {
-        while (my $row = $fetch->()) {
-            print $wh $json->encode($row), "\n";
+        if (my $on_ready = $params{on_ready}) {
+            if (my $fetch = $on_ready->($dbh, $sth, $res, $sql)) {
+                while (my $row = $fetch->()) {
+                    print $wh $json->encode($row), "\n";
+                }
+            }
         }
+
         close($wh);
         1;
     } or warn $@;
     $guard->dismiss();
     POSIX::_exit(0);
-}
-
-sub _get_keys {
-    my $self = shift;
-    my ($source, $where) = @_;
-
-    my $pk_fields = $source->primary_key or croak "No primary key";
-
-    my $sql = $self->sql_builder->qorm_select(source => $source, fields => $pk_fields, where => $where);
-    my $sth = $self->_make_sth($sql);
-    my $keys = $sth->fetchall_arrayref({});
-    return $keys;
 }
 
 ####################
@@ -845,15 +847,34 @@ sub _builder_args {
     };
 }
 
-sub insert {
-    my $self = shift->handle(-unknown_ref => \&_fixture_arg, -hash => \&_fixture_arg, @_);
+sub _row_or_hashref {
+    my $self = shift;
+    my $meth = shift;
 
+    return $self unless @_;
+
+    if (@_ == 1) {
+        my $item = shift @_;
+
+        if (my $r = ref($item)) {
+            return $self->row($item) if blessed($item) && $item->DOES('DBIx::QuickORM::Role::Row');
+            return $self->$meth($item) if $r eq 'HASH';
+        }
+
+        croak "'$item' is not a row or hashref";
+    }
+
+    return $self->$meth({ @_ });
+}
+
+sub insert {
+    my $self = shift->_row_or_hashref(TARGET() => @_);
     return $self->_insert_and_refresh() if $self->{+AUTO_REFRESH};
     return $self->_insert();
 }
 
 sub insert_and_refresh {
-    my $self = shift->handle(-unknown_ref => \&_fixture_arg, -hash => \&_fixture_arg, @_);
+    my $self = shift->_row_or_hashref(TARGET() => @_);
     return $self->_insert_and_refresh();
 }
 
@@ -971,407 +992,311 @@ sub _insert {
     );
 }
 
-#sub delete {
-#sub update {
-#sub all      { shift->handle(@_)->all }
-#sub iterator { shift->handle(@_)->iterator }
-#sub any      { shift->handle(@_)->any }
-#sub first    { shift->handle(@_)->first }
-#sub one      { shift->handle(@_)->one }
-#sub count    { shift->handle(@_)->count }
-#sub iterate  { }
-#sub update_or_insert { my $arg = pop; shift->handle(@_)->update_or_insert($arg) }
-#sub find_or_insert   { my $arg = pop; shift->handle(@_)->update_or_insert($arg) }
+sub delete {
+    my $self = shift->_row_or_hashref(WHERE() => @_);
 
-1;
+    croak "Cannot delete rows using a handle with data_only set" if $self->{+DATA_ONLY};
 
-__END__
+    my $con = $self->{+CONNECTION};
+    $con->pid_and_async_check;
 
+    my $sync         = $self->is_sync;
+    my $source       = $self->{+SOURCE};
+    my $dialect      = $self->dialect;
+    my $row          = $self->{+ROW};
+    my $has_pk       = $self->_has_pk;
+    my $builder_args = $self->_builder_args;
+    my $do_cache     = $con->state_does_cache;
+    my $has_ret      = $dialect->supports_returning_delete;
 
-    if ($has_pk ) {
-        my $pk_fields = $self->{+SOURCE}->primary_key;
+    $builder_args->{returning} = $has_pk if $do_cache && $has_ret && $has_pk;
 
-        if (@$pk_fields > 1) {
-            croak "Database-Auto-Generated compound primary keys are not supported for databases that do not support 'returning on insert' functionality"
-                if grep { !$data->{$_} } @$pk_fields;
+    my $sql = $self->sql_builder->qorm_delete(%$builder_args);
+
+    # No cache, just do the delete
+    unless ($do_cache) {
+        my $sth = $self->make_sth($sql, no_rows => 1);
+        $con->state_delete_row(source => $source, row => $row) if $row;
+        return $sync ? () : $sth;
+    }
+
+    my $done = 0;
+    my $rows;
+    my $finish = sub {
+        return if $done++;
+
+        my ($dbh, $sth) = @_;
+        my $source = $self->{+SOURCE};
+
+        if ($rows) {
+            $con->state_delete_row(source => $source, fetched => $_) for @$rows;
+            return;
         }
 
-        $stage2 = sub {
-            my ($dbh, $sth) = @_;
-
-            my $kv    = $dbh->last_insert_id(undef, undef, $self->{+SOURCE}->source_db_moniker);
-            my $where = {$pk_fields->[0] => $kv};
-
-            my $sql  = $self->sql_builder->qorm_select(source => $source, where => $where, fields => $fields);
-            my $sth2 = $self->make_sth($sql);
-            $sth2->set_only_one(1);
-            return ($sth2, $res);
-        };
-    }
-
-sub _make_sth {
-    my $self = shift;
-    my ($sql) = @_;
-
-    my $dbh = $self->dbh;
-    my $sth = $dbh->prepare($sql->{statement});
-    $self->_do_binds($sth, $sql);
-    my $res = $sth->execute();
-    return $sth;
-}
-
-sub _stage1 {
-    my $self = shift;
-    my ($dbh, @prepare_args) = @_;
-    my $sth = $dbh->prepare($sql->{statement}, @prepare_args);
-    $self->_do_binds($sth, $sql);
-    my $res = $sth->execute();
-    return ($sth, $res);
-}
-
-
-#        $stage2 = sub {
-#            my ($dbh, $sth, $res) = @_;
-#
-#            my $kv    = $dbh->last_insert_id(undef, undef, $self->{+SOURCE}->source_db_moniker);
-#            my $where = {$pk_fields->[0] => $kv};
-#
-#            my $sql  = $self->sql_builder->qorm_select(source => $source, where => $where, fields => $fields);
-#            my $sth2 = $self->make_sth($sql);
-#            $sth2->set_only_one(1);
-#            return ($sth2, $res);
-#        };
-
-
-sub insert {
-    my $self = shift->handle(-unknown_ref => \&_fixture_arg, @_);
-
-    croak "Cannot insert rows using a handle with a limit set"     if defined $self->{+LIMIT};
-    croak "Cannot insert rows using a handle with an order_by set" if defined $self->{+ORDER_BY};
-
-    my $data;
-    if (my $in = $self->{+TARGET}) {
-        $data = $in if ref($in) eq 'HASH';
-        croak "Not sure how to insert '$in'" unless $data;
-    }
-
-    if (my $row = $self->{+ROW}) {
-        croak "Cannot provide both a row and data to insert()" if $data;
-        $data = $row->row_data_obj->pending_data or croak "Row has no pending data to insert";
-    }
-
-    croak "No data provided to insert" unless $data;
-    croak "Refusing to insert an empty row" unless keys %$data;
-
-    my $source = $self->{+SOURCE};
-    my $fields = $self->fields;
-
-    for my $col ($source->columns) {
-        my $def  = $col->perl_default or next;
-        my $name = $col->name;
-
-        $data->{$name} = $def->() unless exists $data->{$name};
-    }
-
-    my $has_pk = $self->_has_pk;
-
-    my $stage2;
-    if ($has_pk) {
-        my $pk_fields = $self->{+SOURCE}->primary_key;
-
-        if (@$pk_fields > 1) {
-            croak "Database-Auto-Generated compound primary keys are not supported for databases that do not support 'returning on insert' functionality"
-                if grep { !$data->{$_} } @$pk_fields;
+        if ($row) {
+            $con->state_delete_row(source => $source, row => $row);
+            return;
         }
 
-        $stage2 = sub {
-            my ($dbh, $sth) = @_;
+        if ($has_ret) {
+            while (my $r = $sth->fetchrow_hashref) {
+                $con->state_delete_row(source => $source, fetched => $r);
+            }
 
-            my $kv    = $dbh->last_insert_id(undef, undef, $self->{+SOURCE}->source_db_moniker);
-            my $where = {$pk_fields->[0] => $kv};
+            return;
+        }
 
-            my $sql  = $self->sql_builder->qorm_select(source => $source, where => $where, fields => $fields);
-            my $sth2 = $self->make_sth($sql);
-            $sth2->set_only_one(1);
-            return ($sth2, $res);
-        };
+        confess "This error should be unreachable, please report it along with this dump:\n==== start ====\n" . debug($self) . "\n==== stop ====\n";
+    };
+
+    my $sth;
+    if ($has_ret || $row) {
+        $sth = $self->make_sth($sql, on_ready => $finish, no_rows => 1);
+    }
+    else {
+        croak "Cannot do an async delete without a specific row to delete on a database that does not support 'returning on delete'" unless $sync;
+
+        $self->_internal_txn(
+            sub {
+                my $row_sql = $self->sql_builder->qorm_select(%$builder_args, fields => $has_pk);
+                my ($row_sth, $row_res) = $self->_execute($self->{+CONNECTION}->dbh, $row_sql);
+                $rows = $row_sth->fetchall_arrayref({});
+                $sth = $self->make_sth($sql, on_ready => $finish, no_rows => 1);
+            },
+            die => "Cannot delete without a specific row on a database that does not support 'returning on delete' when internal transactions are disabled",
+        );
     }
 
-    my $sth = $self->_do_query(
-        builder_meth => 'qorm_insert',
-        builder_args => [insert => $data],
-        return_meth  => 'supports_returning_insert',
-        fields       => $fields,
-        has_pk       => $has_pk,
+    return $sth unless $sync;
 
-        no_returning_stage2 => $stage2,
-        no_pk_return        => $data,
+    $finish->($sth->dbh, $sth->sth);
+
+    return undef;
+}
+
+sub update {
+    my $changes;
+    my $self = shift->_row_or_hashref(sub {$changes = pop; $_[0]}, @_);
+
+    my $con = $self->{+CONNECTION};
+    $con->pid_and_async_check;
+
+    croak "update() with data_only set is not currently supported"        if $self->{+DATA_ONLY};
+    croak "update() with a 'limit' clause is not currently supported"     if $self->{+LIMIT};
+    croak "update() with an 'order_by' clause is not currently supported" if $self->{+ORDER_BY};
+
+    my $row = $self->{+ROW};
+    if ($changes) {
+        if ($row) {
+            if (my $pending = $row->pending_data) {
+                croak "Attempt to update row with pending changes and additional changes"
+                    if $changes && $pending && keys(%$changes) && keys(%$pending);
+            }
+        }
+    }
+    elsif ($row) {
+        $changes = $row->pending_data;
+    }
+
+    croak "No changes for update"                    unless $changes;
+    croak "Changes must be a hashref (got $changes)" unless ref($changes) eq 'HASH';
+    croak "Changes may not be empty"                 unless keys %$changes;
+
+    my $sync              = $self->is_sync;
+    my $dialect           = $self->dialect;
+    my $pk_fields         = $self->_has_pk;
+    my $builder_args      = $self->_builder_args;
+    my $source            = $self->{+SOURCE};
+    my $do_cache          = $pk_fields && @$pk_fields && $con->state_does_cache;
+    my $changes_pk_fields = $pk_fields ? (grep { $changes->{$_} } @$pk_fields) : ();
+
+    my $sql = $self->sql_builder->qorm_update(%$builder_args, update => $changes);
+
+    # No cache, or not cachable, just do the update
+    unless ($do_cache) {
+        my $sth = $self->make_sth($sql, no_rows => 1);
+        return $sth unless $sync;
+        return;
+    }
+
+    my $handle_row = sub {
+        my ($row) = @_;
+
+        my ($old_pk, $new_pk, $fetched);
+        if (blessed($row)) {
+            $old_pk = $changes_pk_fields ? [ $row->primary_key_value_list ] : undef;
+            $fetched = { %{$row->stored_data}, %$changes};
+        }
+        else {
+            $old_pk = $changes_pk_fields ? [ map { $row->{$_} } @$pk_fields ] : undef;
+            $fetched = { %$row, %$changes };
+        }
+
+        $new_pk = $changes_pk_fields ? [ map { $fetched->{$_} } @$pk_fields ] : undef;
+
+        $con->state_update_row(old_primary_key => $old_pk, new_primary_key => $new_pk, fetched => $fetched, source => $source);
+    };
+
+    my $done = 0;
+    my $rows;
+    my $finish = sub {
+        return if $done++;
+
+        my ($dbh, $sth) = @_;
+        my $source = $self->{+SOURCE};
+
+        if ($rows) {
+            $handle_row->($_) for @$rows;
+            return;
+        }
+
+        if ($row) {
+            $handle_row->($row);
+            return;
+        }
+
+        confess "This error should be unreachable, please report it along with this dump:\n==== start ====\n" . debug($self) . "\n==== stop ====\n";
+    };
+
+    my $sth;
+    if ($row) {
+        $sth = $self->make_sth($sql, on_ready => $finish, no_rows => 1);
+    }
+    else {
+        croak "Cannot do an async update without a specific row to update" unless $sync;
+
+        $self->_internal_txn(
+            sub {
+                my $row_sql = $self->sql_builder->qorm_select(%$builder_args, fields => $pk_fields);
+                my ($row_sth, $row_res) = $self->_execute($self->{+CONNECTION}->dbh, $row_sql);
+                $rows = $row_sth->fetchall_arrayref({});
+                $sth = $self->make_sth($sql, on_ready => $finish, no_rows => 1);
+            },
+            die => "Cannot update without a specific row on a when internal transactions are disabled",
+        );
+    }
+
+    return $sth unless $sync;
+
+    $finish->($sth->dbh, $sth->sth);
+
+    return undef;
+}
+
+sub _do_select {
+    my $self = shift;
+
+    my $con = $self->{+CONNECTION};
+    $con->pid_and_async_check;
+
+    my $sync         = $self->is_sync;
+    my $source       = $self->{+SOURCE};
+    my $dialect      = $self->dialect;
+    my $row          = $self->{+ROW};
+    my $builder_args = $self->_builder_args;
+
+    my $sql = $self->sql_builder->qorm_select(%$builder_args);
+    return $self->make_sth(
+        $sql,
+        on_ready => sub {
+            my ($dbh, $sth) = @_;
+            return sub { $sth->fetchrow_hashref };
+        },
+        @_,
     );
+}
 
-    $sth->set_only_one(1);
+sub one {
+    my $self = shift->_row_or_hashref(WHERE() => @_);
+
+    croak "Cannot return 'data_only' for one() with async/aside/forked" if $self->{+DATA_ONLY} && !$self->is_sync;
+
+    my $sth = $self->_do_select(only_one => 1);
 
     if ($sth->DOES('DBIx::QuickORM::Role::Async')) {
         return DBIx::QuickORM::Row::Async->new(
             async        => $sth,
-            state_method => 'state_insert_row',
+            state_method => 'state_select_row',
             state_args   => [row => $self->{+ROW}],
         );
     }
 
-    return $self->{+CONNECTION}->state_insert_row(
-        source  => $source,
-        fetched => $sth->next,
+    my $fetched = $sth->next or return undef;
+
+    return $fetched if $self->{+DATA_ONLY};
+
+    return $self->{+CONNECTION}->state_select_row(
+        source  => $self->{+SOURCE},
+        fetched => $fetched,
         row     => $self->{+ROW},
     );
 }
 
-1;
+sub first {
+    my $self = shift->_row_or_hashref(WHERE() => @_);
 
-__END__
-    my $do_it = sub {
-        my $sql = $self->sql_builder->qorm_insert(source => $source, insert => $data, $ret ? (returning => $fields) : ());
-        my $sth = $self->make_sth($sql, @_);
-        $sth->set_only_one(1);
-        return $sth;
-    };
+    croak "Cannot return 'data_only' for first() with async/aside/forked" if $self->{+DATA_ONLY} && !$self->is_sync;
 
-    # 'returning' in sql makes things so much easier!
-    if ($ret) {
-        my $sth = $do_it->();
+    my $sth = $self->_do_select();
 
-        # Super easy!
-        if ($sync) {
-            my $fetched = $sth->next;
-
-            return $con->state_insert_row(
-                source  => $source,
-                fetched => $fetched,
-                row     => $self->{+ROW},
-            );
-        }
-
-        # Still not hard
+    if ($sth->DOES('DBIx::QuickORM::Role::Async')) {
         return DBIx::QuickORM::Row::Async->new(
             async        => $sth,
-            state_method => 'state_insert_row',
+            state_method => 'state_select_row',
             state_args   => [row => $self->{+ROW}],
         );
     }
 
+    my $fetched = $sth->next or return undef;
 
-    if (!$has_pk) {
-        if ($sync) {
-            $do_it->();
-            $fetched = $data;
+    return $fetched if $self->{+DATA_ONLY};
 
-            return $con->state_insert_row(
-                source  => $source,
-                fetched => $fetched,
-                row     => $self->{+ROW},
-            );
-        }
+    return $self->{+CONNECTION}->state_select_row(
+        source  => $self->{+SOURCE},
+        fetched => $fetched,
+        row     => $self->{+ROW},
+    );
+}
 
-        my $sth = $do_it->(fetch_cb => sub { $data });
-        return DBIx::QuickORM::Row::Async->new(
-            async        => $sth,
-            state_method => 'state_insert_row',
-            state_args   => [row => $self->{+ROW}],
-        );
-    }
+sub all {
+    my $self = shift->_row_or_hashref(WHERE() => @_);
 
-    croak "Auto-generated compound primary keys are not supported for databases that do not support 'returning on insert' functionality" if @$pk_fields > 1;
+    croak "all() cannot be used asynchronously, use iterate() to get an async iterator instead"
+        unless $self->is_sync;
 
-    if ($sync) {
-        $self->_internal_txn(sub {
-            my $sth = $do_it->();
-            my $dbh = $sth->dbh;
+    my $sth = $self->_do_select();
 
-            my $kv = $dbh->last_insert_id(undef, undef, $source->source_db_moniker);
-            my $where = {$pk_fields->[0] => $kv};
+    return @{$sth->sth->fetchall_arrayref({})} if $self->{+DATA_ONLY};
 
-            my $sql = $self->sql_builder->qorm_select(source => $source, where => $where, fields => $fields);
-            my $sth2 = $self->make_sth($sql);
-            $sth2->set_only_one(1);
-            $fetched = $sth->next;
-        });
-
-        return $con->state_insert_row(
-            source  => $source,
+    my @out;
+    while (my $fetched = $sth->next) {
+        push @out => $self->{+CONNECTION}->state_select_row(
+            source  => $self->{+SOURCE},
             fetched => $fetched,
             row     => $self->{+ROW},
         );
     }
+
+    return @out;
 }
 
-__END__
-sub delete {
-    my $self = shift->handle(@_);
-
-    my $con = $self->{+CONNECTION};
-    $con->pid_and_async_check;
-
-    croak "No row or where clause provided to the handle, nothing to delete"
-        unless $self->{+WHERE} || $self->{+ROW};
-
-    my $row      = $self->{+ROW};
-    my $source   = $self->{+SOURCE};
-    my $dialect  = $self->dialect;
-    my $do_cache = $con->state_does_cache;
-    my $ret      = $do_cache && $dialect->supports_returning_delete;
-
-    my $pk_fields = $source->primary_key;
-
-    my $where = $self->{+WHERE} // $self->sql_builder->qorm_where_for_row($self->{+ROW});
-
-    my $deleted_keys;
-    my $do_it = sub {
-        my $sql = $self->sql_builder->qorm_delete(source => $source, where => $where, $ret ? (returning => $pk_fields) : (), limit => $self->{+LIMIT}, order_by => $self->{+ORDER_BY});
-        my $sth = $self->_make_sth($sql);
-        $deleted_keys = $sth->fetchall_arrayref({}) if $ret;
-    };
-
-    # If we are either not managing cache, or if we can use 'returning' then we
-    # can do the easy way, no txn.
-    if ($ret || !$do_cache || $row) {
-        $do_it->();
-        $deleted_keys //= [$row->primary_key_hashref] if $row;
-    }
-    else {
-        $con->_internal_txn(sub {
-            $deleted_keys = $self->_get_keys($source, $self->{+WHERE});
-            $do_it->();
-        });
-    }
-
-    if ($do_cache && $deleted_keys && @$deleted_keys) {
-        $con->state_delete_row(source => $source, old_primary_key => $_) for @$deleted_keys;
-    }
-
-    return;
+sub iterator {
 }
 
-__END__
-sub update {
-    my $self = shift;
-    my ($in) = @_;
-
-    my $con = $self->{+CONNECTION};
-    $con->pid_and_async_check;
-
-    croak "update() cannot be used asynchronously" unless $self->is_sync;
-    croak "update() with a 'limit' clause is not currently supported"     if $self->{+LIMIT};
-    croak "update() with an 'order_by' clause is not currently supported" if $self->{+ORDER_BY};
-
-    my (@rows, $changes);
-    push @rows => $self->{+ROW} if $self->{+ROW};
-
-    if ($in) {
-        if (blessed($in) && $in->DOES('DBIx::QuickORM::Role::Row')) {
-            push @rows => $in;
-        }
-        elsif (ref($in) eq 'HASH') {
-            $changes = $in;
-        }
-        else {
-            croak "Not sure what to do with update() input '$in'";
-        }
-    }
-
-    my %seen;
-    @rows = grep { $_ && !$seen{$_}++ } @rows;
-    croak "Multiple rows provided to update(): " . join(', ' => map { $_->display } @rows) if @rows > 1;
-    my ($row) = @rows;
-
-    croak "Row provided to update() on a handle that already has a where clause" if $row && $self->{+WHERE} && !$self->{+ROW};
-
-    $changes //= $row->pending_data if $row;
-
-    croak "No changes for update"            unless $changes;
-    croak "Changes must be a hashref"        unless ref($changes) eq 'HASH';
-    croak "Changes hashref may not be empty" unless keys %$changes;
-
-    my $source            = $self->{+SOURCE};
-    my $pk_fields         = $source->primary_key;
-    my $changes_pk_fields = grep { $changes->{$_} } @$pk_fields;
-
-    my $dialect  = $self->dialect;
-    my $do_cache = $con->state_does_cache;
-    my $ret      = $do_cache && $dialect->supports_returning_update;
-
-    my $where = $row ? $self->sql_builder->qorm_where_for_row($row) : $self->{+WHERE};
-
-    # No cache, or not cachable, just do the update
-    unless ($do_cache && $pk_fields && @$pk_fields) {
-        my $sql = $self->sql_builder->qorm_update(source => $source, update => $changes, where => $self->{+WHERE});
-        my $sth = $self-_>make_sth($sql);
-        return $sth->rows;
-    }
-
-    my $fields;
-    my $updated;
-    my $do_it = sub {
-        my $where = shift // $self->{+WHERE};
-        my $sql = $self->sql_builder->qorm_update(source => $source, update => $changes, where => $where, $ret ? (returning => $fields) : ());
-        my $sth = $self->_make_sth($source, $stmt, $bind, $query);
-        $updated = $sth->fetchall_arrayref({}) if $ret;
-    };
-
-    # Simple case, updating a single row, or not updating any pks
-    if ($row || !$changes_pk_fields) {
-        my %seen;
-        $fields = [grep { !$seen{$_}++ } @{$pk_fields // []}, keys %$changes];
-
-        if ($ret) {
-            $do_it->();
-        }
-        else {
-            $self->_internal_txn(sub {
-                my ($keys, $where) = $self->_get_keys($source, $query->{+QUERY_WHERE});
-
-                $do_it->($where);
-
-                my ($stmt, $bind) = $self->sql_builder->qorm_select($source, $fields, $where);
-                my $sth = $self->_make_sth($source, $stmt, $bind, $query);
-                $updated = $sth->fetchall_arrayref({});
-            });
-        }
-
-        $self->{+MANAGER}->update($query->query_pairs, source => $source, connection => $self, fetched => $_) for @$updated;
-
-        return scalar(@$updated);
-    }
-
-    # Not returning anything.
-    $ret = 0;
-
-    # Crap, we are changing pk's, possibly multiple, and no way to associate the before and after...
-    my ($keys, $where);
-    $self->_internal_txn(sub {
-        ($keys, $where) = $self->_get_keys($source, $query->{+QUERY_WHERE});
-        $do_it->($where);
-    });
-
-    $self->{+MANAGER}->invalidate($query->query_pairs, old_primary_key => $_) for @$keys;
-
-    return;
+sub count {
 }
 
+sub iterate {
+}
 
-sub all      { shift->handle(@_)->all }
-sub iterator { shift->handle(@_)->iterator }
-sub any      { shift->handle(@_)->any }
-sub first    { shift->handle(@_)->first }
-sub one      { shift->handle(@_)->one }
-sub count    { shift->handle(@_)->count }
-sub iterate  { }
+sub find_or_insert {
+}
 
-
-sub update_or_insert { my $arg = pop; shift->handle(@_)->update_or_insert($arg) }
-sub find_or_insert   { my $arg = pop; shift->handle(@_)->update_or_insert($arg) }
+sub update_or_insert {
+}
 
 ########################
 # }}} Results Fetchers #
 ########################
 
 1;
-
