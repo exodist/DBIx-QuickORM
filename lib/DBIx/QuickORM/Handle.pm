@@ -14,6 +14,7 @@ use DBIx::QuickORM::STH::Fork();
 use DBIx::QuickORM::STH::Aside();
 use DBIx::QuickORM::STH::Async();
 use DBIx::QuickORM::Row::Async();
+use DBIx::QuickORM::Iterator();
 
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Handle';
@@ -1252,8 +1253,8 @@ sub first {
     return $fetched if $self->{+DATA_ONLY};
 
     return $self->{+CONNECTION}->state_select_row(
-        source  => $self->{+SOURCE},
         fetched => $fetched,
+        source  => $self->{+SOURCE},
         row     => $self->{+ROW},
     );
 }
@@ -1271,8 +1272,8 @@ sub all {
     my @out;
     while (my $fetched = $sth->next) {
         push @out => $self->{+CONNECTION}->state_select_row(
-            source  => $self->{+SOURCE},
             fetched => $fetched,
+            source  => $self->{+SOURCE},
             row     => $self->{+ROW},
         );
     }
@@ -1281,18 +1282,67 @@ sub all {
 }
 
 sub iterator {
+    my $self = shift->_row_or_hashref(WHERE() => @_);
+
+    my $sth = $self->_do_select();
+
+    return DBIx::QuickORM::Iterator->new(
+        sub { $sth->next },
+        sub { $sth->ready },
+    ) if $self->{+DATA_ONLY};
+
+    return DBIx::QuickORM::Iterator->new(
+        sub {
+            my $fetched = $sth->next or return;
+
+            return $self->{+CONNECTION}->state_select_row(
+                fetched => $fetched,
+                source  => $self->{+SOURCE},
+                row     => $self->{+ROW},
+            );
+        },
+        sub { $sth->ready },
+    );
 }
 
 sub count {
+    my $self = shift->_row_or_hashref(WHERE() => @_)->fields([\'COUNT(*) AS count']);
+    croak "count() cannot be used on an async handle" unless $self->is_sync;
+    my $sth = $self->_do_select();
+    my $row = $sth->next or return undef;
+    return $row->{count};
 }
 
 sub iterate {
+    my $cb = pop;
+    croak "The final argument to iterate must be a coderef, got '" . ($cb // '<UNDEF>') . "'" unless $cb && ref($cb) eq 'CODE';
+    my $self = shift->_row_or_hashref(WHERE() => @_);
+    croak "iterate() cannot be used on an async handle" unless $self->is_sync;
+
+    my $sth = $self->_do_select();
+    while (my $fetched = $sth->next) {
+        if ($self->{+DATA_ONLY}) {
+            $cb->($fetched);
+        }
+        else {
+            my $row = $self->{+CONNECTION}->state_select_row(
+                fetched => $fetched,
+                source  => $self->{+SOURCE},
+                row     => $self->{+ROW},
+            );
+            $cb->($row);
+        }
+    }
+
+    return;
 }
 
 sub find_or_insert {
+    die "TODO";
 }
 
 sub update_or_insert {
+    die "TODO";
 }
 
 ########################
