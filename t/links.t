@@ -1,7 +1,6 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 use Carp::Always;
-use Test2::Plugin::DieOnFail;
 
 use lib 't/lib';
 use DBIx::QuickORM::Test;
@@ -25,14 +24,14 @@ do_for_all_dbs {
         };
     };
 
-    ok(my $orm = orm('my_orm')->connect, "Got a connection");
+    ok(my $con = orm('my_orm')->connect, "Got a connection");
 
-    my $foo_a = $orm->insert('foo' => {name => 'a'});
-    my $foo_b = $orm->insert('foo' => {name => 'b'});
+    my $foo_a = $con->insert('foo' => {name => 'a'});
+    my $foo_b = $con->insert('foo' => {name => 'b'});
 
-    my $has_foo_a1 = $orm->insert('has_foo' => {foo_id => $foo_a->field('foo_id')});
-    my $has_foo_a2 = $orm->insert('has_foo' => {foo_id => $foo_a->field('foo_id')});
-    my $has_foo_b  = $orm->insert('has_foo' => {foo_id => $foo_b->field('foo_id')});
+    my $has_foo_a1 = $con->insert('has_foo' => {foo_id => $foo_a->field('foo_id')});
+    my $has_foo_a2 = $con->insert('has_foo' => {foo_id => $foo_a->field('foo_id')});
+    my $has_foo_b  = $con->insert('has_foo' => {foo_id => $foo_b->field('foo_id')});
 
     my $sel = $foo_a->follow('get_has_foo');
     is([$sel->order_by('foo_id')->all], [$has_foo_a1, $has_foo_a2], "Got both has_foo rows");
@@ -54,6 +53,7 @@ do_for_all_dbs {
         "Cannot pre-populate the fields from the link",
     );
 
+    my $h = $has_foo_a4->siblings(['foo_id']);
     is($has_foo_a4->siblings('get_foo')->count,      4, "Got all 4 siblings (including self)");
     is($has_foo_a4->siblings(['foo_id'])->count,     4, "Got all 4 siblings (including self)");
     is($has_foo_a4->siblings(['has_foo_id'])->count, 1, "Only self");

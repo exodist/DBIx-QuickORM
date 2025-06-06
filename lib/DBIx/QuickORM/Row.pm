@@ -69,7 +69,7 @@ sub clone {
     # Add in any overrides
     %$data = (%$data, %overrides);
 
-    return $self->source->vivify($data);
+    return $self->handle->vivify($data);
 }
 
 #####################
@@ -223,7 +223,7 @@ sub _field {
 
     if (my $st = $row_data->{+STORED}) {
         unless (exists $st->{$field}) {
-            my $data = $self->connection->one($self->source, {data_only => 1, where => $self->primary_key_hashref, fields => [$field]});
+            my $data = $self->connection->handle($self->source, where => $self->primary_key_hashref, fields => [$field])->data_only->one;
             $st->{$field} = $data->{$field};
         }
 

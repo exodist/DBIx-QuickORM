@@ -28,9 +28,9 @@ do_for_all_dbs {
     };
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
-    ok(my $row = $orm->source('example')->insert({name => 'a'}), "Inserted a row");
-    ok(my $row2 = $orm->source('example')->insert({name => 'b'}), "Inserted a row");
-    ok(my $row3 = $orm->source('example')->insert({name => 'c'}), "Inserted a row");
+    ok(my $row = $orm->handle('example')->insert({name => 'a'}), "Inserted a row");
+    ok(my $row2 = $orm->handle('example')->insert({name => 'b'}), "Inserted a row");
+    ok(my $row3 = $orm->handle('example')->insert({name => 'c'}), "Inserted a row");
 
     my $async = $orm->async(
         example => (

@@ -50,7 +50,7 @@ sub next {
     my $row_hr  = $self->_next;
 
     if ($self->{+ONLY_ONE}) {
-        croak "Expected only 1 row_hr, but got more than one" if $self->_next;
+        croak "Expected only 1 row, but got more than one" if $self->_next;
         $self->set_done;
     }
 

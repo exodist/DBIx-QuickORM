@@ -21,8 +21,8 @@ do_for_all_dbs {
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
 
-    ok(my $row1 = $orm->source('example')->insert({name => 'a'}), "Inserted a row");
-    ok(my $row2 = $orm->source('example')->insert({name => 'a'}), "Inserted an identical row");
+    ok(my $row1 = $orm->handle('example')->insert({name => 'a'}), "Inserted a row");
+    ok(my $row2 = $orm->handle('example')->insert({name => 'a'}), "Inserted an identical row");
     ref_is_not($row1, $row2, "Not the same ref, no caching");
 
     ok($row1->in_storage, "Is in storage");

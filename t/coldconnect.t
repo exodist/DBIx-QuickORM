@@ -37,7 +37,7 @@ do_for_all_dbs {
     };
 
     ok(my $orm   = orm('my_orm')->connect,                         "Got a connection");
-    ok(my $a_row = $orm->source('example')->insert({name => 'a'}), "Inserted a row");
+    ok(my $a_row = $orm->handle('example')->insert({name => 'a'}), "Inserted a row");
 
     # This prevents some issues where the DB takes too long and does not get
     # cleaned up properly.

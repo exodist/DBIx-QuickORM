@@ -35,9 +35,9 @@ sub async_cancel           { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $db
 sub start_txn          { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->begin_work }
 sub commit_txn         { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->commit }
 sub rollback_txn       { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->rollback }
-sub create_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->dbh->pg_savepoint($p{savepoint}) }
-sub commit_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->dbh->pg_release($p{savepoint}) }
-sub rollback_savepoint { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->dbh->pg_rollback_to($p{savepoint}) }
+sub create_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->pg_savepoint($p{savepoint}) }
+sub commit_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->pg_release($p{savepoint}) }
+sub rollback_savepoint { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->pg_rollback_to($p{savepoint}) }
 
 my %TYPES = (
     uuid => 'UUID',

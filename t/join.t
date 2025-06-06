@@ -24,21 +24,21 @@ do_for_all_dbs {
         };
     };
 
-    ok(my $orm = orm('my_orm')->connect, "Got a connection");
+    ok(my $con = orm('my_orm')->connect, "Got a connection");
 
-    my $foo_a = $orm->insert(foo => {name => 'a'});
-    my $foo_b = $orm->insert(foo => {name => 'b'});
-    my $foo_c = $orm->insert(foo => {name => 'c'});
+    my $foo_a = $con->insert(foo => {name => 'a'});
+    my $foo_b = $con->insert(foo => {name => 'b'});
+    my $foo_c = $con->insert(foo => {name => 'c'});
 
-    my $bar_a  = $orm->insert(bar => {name => 'a',  foo_id => $foo_a->foo_id});
-    my $bar_a2 = $orm->insert(bar => {name => 'a2', foo_id => $foo_a->foo_id});
-    my $bar_a3 = $orm->insert(bar => {name => 'a3', foo_id => $foo_a->foo_id});
-    my $bar_b  = $orm->insert(bar => {name => 'b',  foo_id => $foo_b->foo_id});
-    my $bar_c  = $orm->insert(bar => {name => 'c',  foo_id => $foo_c->foo_id});
+    my $bar_a  = $con->insert(bar => {name => 'a',  foo_id => $foo_a->foo_id});
+    my $bar_a2 = $con->insert(bar => {name => 'a2', foo_id => $foo_a->foo_id});
+    my $bar_a3 = $con->insert(bar => {name => 'a3', foo_id => $foo_a->foo_id});
+    my $bar_b  = $con->insert(bar => {name => 'b',  foo_id => $foo_b->foo_id});
+    my $bar_c  = $con->insert(bar => {name => 'c',  foo_id => $foo_c->foo_id});
 
-    my $baz = $orm->insert(baz => {name => 'a', foo_id => $foo_a->foo_id, bar_id => $bar_a->bar_id});
+    my $baz = $con->insert(baz => {name => 'a', foo_id => $foo_a->foo_id, bar_id => $bar_a->bar_id});
 
-    my $sel = $orm->select('foo')->join('bar', type => 'left')->join('get_baz', from => 'foo', type => 'left')->order_by(qw/a.foo_id b.bar_id c.baz_id/);
+    my $sel = $con->handle('foo')->join('bar', type => 'left')->join('get_baz', from => 'foo', type => 'left')->order_by(qw/a.foo_id b.bar_id c.baz_id/);
     my $iter = $sel->iterator;
     my $one = $iter->next;
     isa_ok($one, ['DBIx::QuickORM::Join::Row'], "Correct row type");
@@ -72,7 +72,7 @@ do_for_all_dbs {
 
     ok(!$iter->next, "Got all rows");
 
-    $sel = $orm->select('foo')->left_join('bar')->left_join('bar:get_baz')->left_join('foo:get_baz')->order_by(qw/a.foo_id b.bar_id c.baz_id d.baz_id/);
+    $sel = $con->handle('foo')->left_join('bar')->left_join('bar:get_baz')->left_join('foo:get_baz')->order_by(qw/a.foo_id b.bar_id c.baz_id d.baz_id/);
     ok(lives { $sel->data_only->all }, "Should come back and finish this");
 
 };
@@ -104,7 +104,7 @@ These need to be refactored:
 
     is(
         $foo_a->parse_link(\'has_foo'),
-        $orm->schema->table('foo')->links_by_alias->{get_has_foo},
+        $con->schema->table('foo')->links_by_alias->{get_has_foo},
         "Got the only link to the specified table",
     );
 

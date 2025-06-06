@@ -106,10 +106,12 @@ sub import {
         $export{$name} //= set_subname("${caller}::$meth" => sub { shift @_ if @_ && $_[0] && "$_[0]" eq $caller; $builder->$meth(@_) });
     }
 
+    my %seen;
     for my $sym (keys %export) {
         my $name = $rename->{$sym} // $sym;
         next if $skip->{$name} || $skip->{$sym};
         next if $only && !($only->{$name} || $only->{$sym});
+        next if $seen{$name}++;
         no strict 'refs';
         *{"${caller}\::${name}"} = $export{$sym};
     }

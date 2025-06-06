@@ -34,7 +34,7 @@ sub primary_key_hashref    { +{ $_[0]->primary_key_hash } }
 
 sub handle {
     my $self = shift;
-    return $self->connection->handle(source => $self->source, @_);
+    $self->connection->handle(source => $self->source, row => $self)->handle(@_);
 }
 
 sub display {
