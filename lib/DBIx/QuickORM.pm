@@ -1454,24 +1454,24 @@ The ORM class
     use My::Orm qw/orm/;
 
     # Get a connection to the orm
+    # Note: This will return the same connection each time, no need to cache it yourself.
+    # See DBIx::QuickORM::Connection for more info.
     my $orm = orm('my_orm');
 
-    my $db = $orm->db;
-    my $schema = $orm->schema;
-
-    my $query = $orm->query('people', {surname => 'smith'});
-    for my $person ($query->all) {
+    # See DBIx::QuickORM::Handle for more info.
+    my $h = $orm->handle('people', {surname => 'smith'});
+    for my $person ($handle->all) {
         print $person->field('first_name') . "\n"
     }
 
-    my $new_query = $query->limit(5)->order_by('surname')->omit(@large_fields);
-    my $iterator = $new_query->iterator; # Query is actually sent to DB here.
+    my $new_h = $h->limit(5)->order_by('surname')->omit(@large_fields);
+    my $iterator = $new_h->iterator; # Query is actually sent to DB here.
     while (my $row = $iterator->next) {
         ...
     }
 
     # Start an async query
-    my $async = $query->async->iterator;
+    my $async = $h->async->iterator;
 
     while (!$async->ready) {
         do_something_else();
@@ -1480,6 +1480,12 @@ The ORM class
     while (my $item = $iterator->next) {
         ...
     }
+
+See L<DBIx::QuickORM::Connection> for details on the object returned by
+C<< my $orm = orm('my_orm'); >>.
+
+See L<DBIx::QuickORM::Handle> for more details on handles, which are similar to
+ResultSets from L<DBIx::Class>.
 
 =head1 A NOTE ON AFFINITY
 

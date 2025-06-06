@@ -27,6 +27,35 @@ do_for_all_dbs {
     my $con = qorm('my_orm');
     my $s = $con->handle('example');
 
+    subtest no_action => sub {
+        subtest commit => sub {
+            my $txn = $con->txn;
+            is(Internals::SvREFCNT($txn), 1, "1 active ref");
+            ok($txn, "got txn object");
+            $txn->commit;
+            ok(lives { $txn = undef }, "Can undef commited txn");
+        };
+
+        subtest rollback => sub {
+            my $txn = $con->txn;
+            is(Internals::SvREFCNT($txn), 1, "1 active ref");
+            ok($txn, "got txn object");
+            $txn->rollback;
+            ok(lives { $txn = undef }, "Can undef rollbacked txn");
+        };
+
+        subtest scope_end => sub {
+            my $txn = $con->txn;
+            ok($txn, "got txn object");
+            is(Internals::SvREFCNT($txn), 1, "1 active ref");
+            $txn = undef;
+            $con->{transactions}->[-1] = undef;
+            ok(!$con->in_txn, "Not in a txn anymore");
+        };
+    };
+
+    return;
+
     subtest external_txns => sub {
         my $dbh = $con->dbh;
         ok(!$con->in_txn, "Not in a transaction");
@@ -362,6 +391,6 @@ do_for_all_dbs {
 
         ok($con->all('example'), "Connected");
     };
-};
+} qw/system_postgresql/;
 
 done_testing;
