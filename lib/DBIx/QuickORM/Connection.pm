@@ -472,6 +472,10 @@ sub handle {
     return $self->{+DEFAULT_HANDLE_CLASS}->handle(connection => $self, @_);
 }
 
+sub async  { shift->handle(@_)->async }
+sub aside  { shift->handle(@_)->aside }
+sub forked { shift->handle(@_)->forked }
+
 sub all      { shift->handle(@_)->all }
 sub iterator { shift->handle(@_)->iterator }
 sub any      { shift->handle(@_)->any }

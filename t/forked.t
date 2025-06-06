@@ -37,27 +37,27 @@ do_for_all_dbs {
     };
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
-    ok(my $row = $orm->source('example')->insert({name => 'a'}), "Inserted a row");
-    ok(my $row2 = $orm->source('example')->insert({name => 'b'}), "Inserted a row");
-    ok(my $row3 = $orm->source('example')->insert({name => 'c'}), "Inserted a row");
+    ok(my $row = $orm->handle('example')->insert({name => 'a'}), "Inserted a row");
+    ok(my $row2 = $orm->handle('example')->insert({name => 'b'}), "Inserted a row");
+    ok(my $row3 = $orm->handle('example')->insert({name => 'c'}), "Inserted a row");
 
     my $sleep;
     if (curdialect() =~ m/PostgreSQL/i) { $sleep = \'pg_sleep(1)' }
     elsif (curdialect() =~ m/(MySQL|MariaDB)/i) { $sleep = \'SLEEP(1)' }
 
-    my $forked = $orm->forked(
+    my $forked = $orm->handle(
         example => (
             where  => {name => 'a'},
             fields => ['name', 'id', $sleep]
         )
-    )->first;
+    )->forked->first;
 
-    my $forkedC = $orm->forked(
+    my $forkedC = $orm->handle(
         example => (
             where  => {name => 'a'},
             fields => ['name', 'id', $sleep]
         )
-    )->first;
+    )->forked->first;
 
     my $counter = 0;
     my $ready;
@@ -93,10 +93,10 @@ do_for_all_dbs {
     ref_is($forked, $row, "Same ref");
     ref_is($copy, $row, "Same ref");
 
-    my $forked2 = $orm->forked(example => (where => {name => 'b'}))->one;
+    my $forked2 = $orm->handle(example => (where => {name => 'b'}))->forked->one;
     is($forked2->field('name'), 'b', "Got b");
 
-    my $forked3 = $orm->forked(example => (where => {}))->one;
+    my $forked3 = $orm->handle(example => (where => {}))->forked->one;
 
     like(
         dies { sleep 0.1 until $forked3->ready },
@@ -104,7 +104,7 @@ do_for_all_dbs {
         "used one() but got multiple rows"
     );
 
-    my $forked4 = $orm->forked(example => (where => {}, order_by => ['name']))->iterator;
+    my $forked4 = $orm->handle(example => (where => {}, order_by => ['name']))->forked->iterator;
     is($forked4->next->field('name'), 'a', "Got a");
     is($forked4->next->field('name'), 'b', "Got b");
     is($forked4->next->field('name'), 'c', "Got c");

@@ -200,6 +200,7 @@ sub parse_params {
         my @pk_vals;
         confess "'fetched' is a required parameter" unless $fetched;
         confess "'$fetched' is not a valid fetched data set" unless ref($fetched) eq 'HASH';
+
         if (my $pk_fields = $source->primary_key) {
             my @bad;
             for my $field (@$pk_fields) {
@@ -211,9 +212,13 @@ sub parse_params {
                 }
             }
 
-            confess "The following primary key fields are missing from the fetched data: " . join(', ' => sort @bad) if @bad;
-
-            $new_pk //= \@pk_vals;
+            if (@bad) {
+                confess "The following primary key fields are missing from the fetched data: " . join(', ' => sort @bad)
+                    unless $skip{fetched};
+            }
+            else {
+                $new_pk //= \@pk_vals;
+            }
         }
     }
 

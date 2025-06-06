@@ -34,7 +34,7 @@ do_for_all_dbs {
     };
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
-    ok(my $row = $orm->source('example')->insert({name => 'a', data => {foo => 'bar'}}), "Inserted a row");
+    ok(my $row = $orm->handle('example')->insert({name => 'a', data => {foo => 'bar'}}), "Inserted a row");
     is($orm->schema->{merged}, 'foo', "Schemas were merged");
     is($orm->schema->{tables}->{example}->{merged}, 'bar', "Tables were merged");
     ok($orm->schema->{tables}->{example}->{columns}->{data}->{merged}, "Columns were merged");

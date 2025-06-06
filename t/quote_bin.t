@@ -26,8 +26,9 @@ do_for_all_dbs {
     my $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($uuid, 'binary');
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
-    my $s = $orm->source('example');
+    my $s = $orm->handle('example');
     ok(my $row = $s->insert({name => 'a', uuid => $uuid}), "Inserted a row");
+    $row = undef; $row = $s->one(name => 'a');
     is($row->row_data->{stored}->{uuid}, $uuid_bin, "Stored as binary");
     isnt($row->row_data->{stored}->{uuid}, $uuid, "Sanity check that original uuid and binary do not match");
     is($row->field('uuid'), $uuid, "Round trip returned the original UUID, no loss");

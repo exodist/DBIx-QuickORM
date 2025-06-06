@@ -34,14 +34,15 @@ do_for_all_dbs {
     };
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
-    ok(my $row = $orm->source('example')->insert({name => 'a', data => {foo => 'bar'}}), "Inserted a row");
+    ok(my $row = $orm->handle('example')->insert({name => 'a', data => {foo => 'bar'}}), "Inserted a row");
     ok($orm->schema->{tables}->{example}->{columns}->{data}->{omit}, "omit was merged into the autofill schema");
+    $row = undef; $row = $orm->handle('example')->one(name => 'a');
     ok(!exists($row->row_data->{stored}->{data}), "did not fetch data");
-    is($row->field('data'), {foo => 'bar'}, "Can fetch data");
 
+    is($row->field('data'), {foo => 'bar'}, "Can fetch data");
     my $addr = "$row";
     $row = undef;
-    $row = $orm->source('example')->one({name => 'a'});
+    $row = $orm->handle('example')->one({name => 'a'});
 
     return;
 
@@ -51,11 +52,11 @@ do_for_all_dbs {
 
     $row = undef;
 
-    $row = $orm->source('example')->one({name => 'a'}, omit => {'name' => 1});
+    $row = $orm->handle('example')->one({name => 'a'}, omit => {'name' => 1});
     ok(!exists($row->row_data->{stored}->{name}), "Did not fetch name");
 
     like(
-        dies { $orm->source('example')->one({name => 'a'}, omit => {id => 1}) },
+        dies { $orm->handle('example')->one({name => 'a'}, omit => {id => 1}) },
         qr/Cannot omit primary key field 'id'/,
         "Cannot omit a primary key field"
     );

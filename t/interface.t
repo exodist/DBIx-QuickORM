@@ -91,12 +91,16 @@ use Test2::V0 -target => 'DBIx::QuickORM';
         import
     });
 
-    use DBIx::QuickORM(
-        only => ['password'],
-        rename => {pass => 'password'},
-    );
+    {
+        package Another::Importer;
+        use Test2::V0 qw/imported_ok/;
+        use DBIx::QuickORM(
+            only => ['password'],
+            rename => {pass => 'password'},
+        );
 
-    imported_ok(qw/password/);
+        imported_ok(qw/password/);
+    }
 
     my $bld = __PACKAGE__->builder;
     isa_ok($bld, ['DBIx::QuickORM'], "Got an instance");

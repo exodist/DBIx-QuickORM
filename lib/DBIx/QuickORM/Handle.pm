@@ -79,10 +79,10 @@ sub init {
 
         croak "You cannot provide both a 'row' and a 'where'" if $self->{+WHERE};
 
-        $self->{+WHERE} = $self->sql_builder->qorm_where_for_row($row);
+        $self->{+WHERE} = $self->sql_builder->qorm_where_for_row($row) if $self->_has_pk;
     }
 
-    unless ($self->{+WHERE}) {
+    if ($self->_has_pk && !$self->{+WHERE}) {
         croak "You must provide a where clause or row before specifying a limit"     if $self->{+LIMIT};
         croak "You must provide a where clause or row before specifying an order_by" if $self->{+ORDER_BY};
     }
@@ -965,12 +965,15 @@ sub _insert {
                     %{$sth->fetchrow_hashref},
                 };
             }
-            else {
+            elsif($has_pk) {
                 my $kv = $dbh->last_insert_id(undef, undef, $self->{+SOURCE}->source_db_moniker);
                 $row_data = {
                     %$data,
                     $has_pk->[0] => $kv,
                 };
+            }
+            else {
+                $row_data = { %$data };
             }
 
             my $sent = 0;

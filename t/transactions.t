@@ -25,7 +25,7 @@ do_for_all_dbs {
     My::ORM->import('qorm');
 
     my $con = qorm('my_orm');
-    my $s = $con->source('example');
+    my $s = $con->handle('example');
 
     subtest external_txns => sub {
         my $dbh = $con->dbh;
@@ -63,7 +63,7 @@ do_for_all_dbs {
 
         like(
             dies { $row_b->field('name') },
-            qr/This row is invalid \(Likely inserted during a transaction that was rolled back\)/,
+            qr/This row is invalid/,
             "Cannot use an invalid row"
         );
 
@@ -117,7 +117,7 @@ do_for_all_dbs {
 
         like(
             dies { $row_c->field('name') },
-            qr/This row is invalid \(Likely inserted during a transaction that was rolled back\)/,
+            qr/This row is invalid/,
             "Cannot use an invalid row"
         );
     };

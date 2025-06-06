@@ -46,7 +46,7 @@ do_for_all_dbs {
     my $orm = orm('my_orm');
     my $con = $orm->connect;
 
-    my $s = $con->source('example');
+    my $s = $con->handle('example');
 
     my $a_uuid = DBIx::QuickORM::Type::UUID->new;
     my $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($a_uuid, 'binary');
@@ -57,8 +57,21 @@ do_for_all_dbs {
     is(
         $a_row->stored_data,
         {
-            id      => 2,
-            name    => 'a',
+            id   => 2,
+            name => 'a',
+            uuid => $a_uuid,
+            data => {name => 'a'},
+        },
+        "Got stored data with correct (orm) field names, and in uninflated forms"
+    );
+
+    $a_row = undef;
+    $a_row = $s->one(name => 'a');
+    is(
+        $a_row->stored_data,
+        {
+            id   => 2,
+            name => 'a',
             uuid => $is_bin ? $uuid_bin : $a_uuid,
             data => match qr/{"name":\s*"a"}/,
         },
@@ -74,6 +87,7 @@ do_for_all_dbs {
     is($a_row->field('data'),      {name => 'a'}, "deserialized json");
 
     $a_row->update({data => {name => 'a2'}});
+    $a_row = undef; $a_row = $s->one(name => 'a');
     is($a_row->stored_data->{data}, match qr/{"name":\s*"a2"}/, "Updated in storage");
     is($a_row->field('data'),       {name => 'a2'},             "Updated json");
 
@@ -81,6 +95,7 @@ do_for_all_dbs {
     is($a_row->pending_data->{data}, {name => "a3"}, "Updated in pending");
     is($a_row->stored_data->{data},  {name => 'a2'}, "Old data is still listed in stored");
     $a_row->save;
+    $a_row = undef; $a_row = $s->one(name => 'a');
     is($a_row->stored_data->{data}, match qr/{"name":\s*"a3"}/, "Updated in storage");
 
     ref_is($s->one({uuid => $a_uuid}),   $a_row, "Found a by UUID string");
@@ -118,15 +133,15 @@ do_for_all_dbs {
         }
 
         {
-            local $s->connection->manager->{cache}->{$s->query_source->source_orm_name}->{2}; # Remove from cache
+            local $s->connection->manager->{cache}->{$s->source->source_orm_name}->{2}; # Remove from cache
             ok($a_row2 = $s->by_id(2), "Fetched row");
             ref_is_not($a_row2, $a_row, "Not the previously cached copy, newly fetched (single id)");
 
-            delete $s->connection->manager->{cache}->{$s->query_source->source_orm_name}->{2}; # Remove from cache
+            delete $s->connection->manager->{cache}->{$s->source->source_orm_name}->{2}; # Remove from cache
             ok($a_row2 = $s->by_id([2]), "Fetched row");
             ref_is_not($a_row2, $a_row, "Not the previously cached copy, newly fetched (array id)");
 
-            delete $s->connection->manager->{cache}->{$s->query_source->source_orm_name}->{2}; # Remove from cache
+            delete $s->connection->manager->{cache}->{$s->source->source_orm_name}->{2}; # Remove from cache
             ok($a_row2 = $s->by_id({id => 2}), "Fetched row");
             ref_is_not($a_row2, $a_row, "Not the previously cached copy, newly fetched (hash id)");
         }
@@ -135,6 +150,7 @@ do_for_all_dbs {
     my $b_uuid = DBIx::QuickORM::Type::UUID->new;
     $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($b_uuid, 'binary');
     my $b_row  = $s->insert({name => 'b', uuid => DBIx::QuickORM::Type::UUID->qorm_deflate($b_uuid, 'binary'), data => {name => 'b'}});
+    $b_row = undef; $b_row = $s->one(name => 'b');
     is(
         $b_row->stored_data,
         {
