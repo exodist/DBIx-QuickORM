@@ -4,7 +4,7 @@ DBIx::QuickORM - Composable ORM builder.
 
 # DESCRIPTION
 
-DBIx::QuickORM allows you to define ORM's with reusable and composible parts.
+DBIx::QuickORM allows you to define ORMs with reusable and composible parts.
 
 With this ORM builder you can specify:
 
@@ -18,6 +18,7 @@ With this ORM builder you can specify:
 The common use case is to create an ORM package for your app, then use that ORM
 package any place in the app that needs ORM access.
 
+\# TODO broken sentence
 The ORM class
 
 ## YOUR ORM PACKAGE
@@ -148,25 +149,24 @@ The ORM class
     use My::Orm qw/orm/;
 
     # Get a connection to the orm
+    # Note: This will return the same connection each time, no need to cache it yourself.
+    # See DBIx::QuickORM::Connection for more info.
     my $orm = orm('my_orm');
 
-    my $db = $orm->db;
-    my $schema = $orm->schema;
-
-    my $source = $orm->source('people');
-    my $select = $orm->select('people', {surname => 'smith'});
-    for my $person ($select->all) {
+    # See DBIx::QuickORM::Handle for more info.
+    my $h = $orm->handle('people', {surname => 'smith'});
+    for my $person ($handle->all) {
         print $person->field('first_name') . "\n"
     }
 
-    my $new_select = $select->limit(5)->order_by('surname')->omit(@large_fields);
-    my $iterator = $new_select->iterator; # Query is actually sent to DB here.
+    my $new_h = $h->limit(5)->order_by('surname')->omit(@large_fields);
+    my $iterator = $new_h->iterator; # Query is actually sent to DB here.
     while (my $row = $iterator->next) {
         ...
     }
 
     # Start an async query
-    my $async = $select->async->iterator;
+    my $async = $h->async->iterator;
 
     while (!$async->ready) {
         do_something_else();
@@ -176,39 +176,65 @@ The ORM class
         ...
     }
 
+See [DBIx::QuickORM::Connection](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3AConnection) for details on the object returned by
+`my $orm = orm('my_orm');`.
+
+See [DBIx::QuickORM::Handle](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3AHandle) for more details on handles, which are similar to
+ResultSets from [DBIx::Class](https://metacpan.org/pod/DBIx%3A%3AClass).
+
 # A NOTE ON AFFINITY
 
-Whenever you define a column in DBIx::QuickORM it is necessary for the orm to
-know the 'affinity' of the column. It may be any of these:
+Whenever you define a column in DBIx::QuickORM it is necessary for the ORM to
+know the _affinity_ of the column. It may be any of these:
 
-- string
+- `string`
 
     The column should be treated as a string when written to, or read from the
     database.
 
-- numeric
+- `numeric`
 
     The column should be treated as a number when written to, or read from the
     database.
 
-- boolean
+- `boolean`
 
     The column should be treated as a boolean when written to, or read from the
     database.
 
-- binary
+- `binary`
 
     The column should be treated as a binary data when written to, or read from the
     database.
 
 Much of the time the affinity can be derived from other data. The
 [DBIx::QuickORM::Affinity](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3AAffinity) package has an internal map for default affinities
-for many sql types. Also if you use a class implementing
+for many SQL types. Also if you use a class implementing
 [DBIx::QuickORM::Role::Type](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ARole%3A%3AType) it will often provide an affinity. You can
 override the affinity if necessary. If the affinity cannot be derived you
 must specify it.
 
 # RECIPES
+
+## RENAMING EXPORTS
+
+When importing [DBIx::QuickORM](https://metacpan.org/pod/DBIx%3A%3AQuickORM) you can provide
+`rename => { name => new_name }` mapping to rename exports.
+
+    package My::ORM;
+    use DBIx::QuickORM rename => {
+        pass  => 'password',
+        user  => 'username',
+        table => 'build_table',
+    };
+
+**Note** If you do not want to bring in the `import()` method that normally
+gets produced, you can also add `type => 'porcelain'`.
+
+    use DBIx::QuickORM type => 'porcelain';
+
+Really any 'type' other than 'orm' and undef (which becomes 'orm' by default)
+will work to prevent `import()` from being exported to your namespace.
 
 ## DEFINE TABLES IN THEIR OWN PACKAGES/FILES
 
@@ -216,17 +242,17 @@ If you have many tables, or want each to have a custom row class (custom
 methods for items returned by tables), then you probably want to define tables
 in their own files.
 
-When you follow this example you create the table My::ORM::Table::Foo. The
+When you follow this example you create the table `My::ORM::Table::Foo`. The
 package will automatically subclass [DBIx::QuickORM::Row](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ARow) unless you use
 `row_class()` to set an alternative base.
 
 Any methods added in the file will be callable on the rows returned when
 querying this table.
 
-First create My/ORM/Table/Foo.pm:
+First create `My/ORM/Table/Foo.pm`:
 
     package My::ORM::Table::Foo;
-    use DBIx::QuickORM 'table';
+    use DBIx::QuickORM type => 'table';
 
     # Calling this will define the table. It will also:
     #  * Remove all functions imported from DBIx::QuickORM
@@ -255,7 +281,7 @@ Then in your ORM package:
         table 'My::ORM::Table::Foo'; # Bring in the table
     };
 
-Or if you have many tables and want to load all the tables under My::ORM::Table:: at once:
+Or if you have many tables and want to load all the tables under `My::ORM::Table::` at once:
 
     schema my_schema => sub {
         tables 'My::ORM::Table';
@@ -263,8 +289,8 @@ Or if you have many tables and want to load all the tables under My::ORM::Table:
 
 ## APP THAT CAN USE NEARLY IDENTICAL MYSQL AND POSTGRESQL DATABASES
 
-Lets say you have a test app that can connect to nearly identical mysql or
-postgres dbs. The schemas are the same apart from minor differences required by
+Lets say you have a test app that can connect to nearly identical MySQL or
+PostgreSQL databases. The schemas are the same apart from minor differences required by
 the database engine. You want to make it easy to access whichever one you want,
 or even both.
 
@@ -279,14 +305,14 @@ or even both.
                 host 'mysql.myapp.com';
                 user $MYSQL_USER;
                 pass $MYSQL_PASS;
-                db_name 'myapp_mysql';    # In mysql the db is named myapp_mysql
+                db_name 'myapp_mysql';    # In MySQL the db is named myapp_mysql
             };
             alt pgsql => sub {
                 dialect 'PostgreSQL';
                 host 'pgsql.myapp.com';
                 user $PGSQL_USER;
                 pass $PGSQL_PASS;
-                db_name 'myapp_pgsql';    # In postgresql the db is names myapp_pgsql
+                db_name 'myapp_pgsql';    # In PostgreSQL the db is named myapp_pgsql
             };
         };
 
@@ -319,16 +345,16 @@ Then to use it:
     my $orm_mysql = orm('my_orm:mysql');
     my $orm_pgsql = orm('my_orm:pgsql');
 
-Each orm object is a complete and self-contained ORM with its own caching and
-db connection. One connects to mysql and one connects to postgresql. Both can
-ask for rown in the 'differs' table, on mysql it will query the
-'differs\_mysql', on postgresql it will query the 'differs\_pgsql' table. You can
+Each ORM object is a complete and self-contained ORM with its own caching and
+db connection. One connects to MySQL and one connects to PostgreSQL. Both can
+ask for rows in the `differs` table, on MySQL it will query the
+`differs_mysql`, on PostgreSQL it will query the `differs_pgsql` table. You can
 use them both at the same time in the same code.
 
 ## ADVANCED COMPOSING
 
-You can define databses and schemas on their own and create multiple orms that
-combine them. You can also define a 'server' that has multiple databases.
+You can define databases and schemas on their own and create multiple ORMs that
+combine them. You can also define a `server` that has multiple databases.
 
     package My::ORM;
     use DBIx::QuickORM;
@@ -364,7 +390,7 @@ Then to use them:
     my $otherapp = orm('otherapp');
 
 Also note that `alt(variant => sub { ... })` can be used in any of the
-above builders to create mysql/postgres/etc variants on the databses and
+above builders to create MySQL/PostgreSQL/etc. variants on the databases and
 schemas. Then access them like:
 
     my $myapp_pgsql = orm('myapp:pgsql');
@@ -374,8 +400,8 @@ schemas. Then access them like:
 
 You get all these when using DBIx::QuickORM.
 
-- orm $NAME => sub { ... }
-- my $orm = orm($NAME)
+- `orm $NAME => sub { ... }`
+- `my $orm = orm($NAME)`
 
     Define or fetch an ORM.
 
@@ -386,7 +412,7 @@ You get all these when using DBIx::QuickORM.
 
         my $orm = orm('myorm');
 
-    You can also compose using dbs or schemas you defined previously:
+    You can also compose using databases or schemas you defined previously:
 
         db mydb1 => sub { ... };
         db mydb2 => sub { ... };
@@ -414,7 +440,7 @@ You get all these when using DBIx::QuickORM.
             schema 'myschema1';
         };
 
-- alt $VARIANT => sub { ... }
+- `alt $VARIANT => sub { ... }`
 
     Can be used to add variations to any builder:
 
@@ -450,19 +476,19 @@ You get all these when using DBIx::QuickORM.
             };
         };
 
-    Variants can be fetched using the ':' in the name:
+    Variants can be fetched using the colon `:` in the name:
 
         my $pg_orm    = orm('my_orm:pgsql');
         my $mysql_orm = orm('my_orm:mysql');
 
-    This works in orm(), db(), schema(), table(), and row() builders. It does
-    cascade, so if you ask for the 'mysql' variant of an orm, it will also give you
-    the mysql variants of the db, schema, tables and rows.
+    This works in `orm()`, `db()`, `schema()`, `table()`, and `row()` builders. It does
+    cascade, so if you ask for the `mysql` variant of an ORM, it will also give you
+    the `mysql` variants of the database, schema, tables and rows.
 
-- db $NAME
-- db $NAME => sub { ... }
-- $db = db $NAME
-- $db = db $NAME => sub { ... }
+- `db $NAME`
+- `db $NAME => sub { ... }`
+- `$db = db $NAME`
+- `$db = db $NAME => sub { ... }`
 
     Used to define a database.
 
@@ -475,90 +501,90 @@ You get all these when using DBIx::QuickORM.
             db_name 'myapp_mysql';    # In mysql the db is named myapp_mysql
         };
 
-    Can also be used to fetch a db by name:
+    Can also be used to fetch a database by name:
 
         my $db = db('mydb');
 
-    Can also be used to tell an ORM which db to use:
+    Can also be used to tell an ORM which database to use:
 
         orm myorm => sub {
             db 'mydb';
             ...
         };
 
-- dialect '+DBIx::QuickORM::Dialect::PostgreSQL'
-- dialect 'PostgreSQL'
-- dialect 'MySQL'
-- dialect 'MySQL::MariaDB'
-- dialect 'MySQL::Percona'
-- dialect 'MySQL::Community'
-- dialect 'SQLite'
+- `dialect '+DBIx::QuickORM::Dialect::PostgreSQL'`
+- `dialect 'PostgreSQL'`
+- `dialect 'MySQL'`
+- `dialect 'MySQL::MariaDB'`
+- `dialect 'MySQL::Percona'`
+- `dialect 'MySQL::Community'`
+- `dialect 'SQLite'`
 
     Specify what dialect of SQL should be used. This is important for reading
     schema from an existing database, or writing new schema SQL.
 
-    'DBIx::QuickORM::Dialect::' will be prefixed to the start of any string
-    provided unless it starts with a '+', in whcih case the plus is removed and the
-    rest of the string is left unmodified.
+    `DBIx::QuickORM::Dialect::` will be prefixed to the start of any string
+    provided unless it starts with a plus `+`, in which case the plus is removed
+    and the rest of the string is left unmodified.
 
     The following are all supported by DBIx::QuickORM by default
 
-    - PostgreSQL
+    - [PostgreSQL](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ADialect%3A%3APostgreSQL)
 
         For interacting with PostgreSQL databases.
 
-    - MySQL
+    - [MySQL](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ADialect%3A%3AMySQL)
 
         For interacting with generic MySQL databases. Selecting this will auto-upgrade
         to MariaDB, Percona, or Community variants if it can detect the variant. If it
         cannot detect the variant then the generic will be used.
 
-        **NOTE:** using the correct variant can produce better results. For example
-        MariaDB supports 'returning' on inserts, Percona and Community variants do not,
-        and thus need a second query to fetch the data post-insert, and using
+        **NOTE:** Using the correct variant can produce better results. For example
+        MariaDB supports `RETURNING` on `INSERT`s, Percona and Community variants
+        do not, and thus need a second query to fetch the data post-`INSERT`, and using
         `last_insert_id` to get auto-generated primary keys. DBIx::QuickORM is aware
         of this and will use returning when possible.
 
-    - MySQL::MariaDB
+    - [MySQL::MariaDB](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ADialect%3A%3AMySQL%3A%3AMariaDB)
 
         For interacting with MariaDB databases.
 
-    - MySQL::Percona
+    - [MySQL::Percona](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ADialect%3A%3AMySQL%3A%3APercona)
 
         For interacting with MySQL as distributed by Percona.
 
-    - MySQL::Community
+    - [MySQL::Community](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ADialect%3A%3AMySQL%3A%3ACommunity)
 
-        For interacting with the community variant of MySQL.
+        For interacting with the Community Edition of MySQL.
 
-    - SQLite
+    - [SQLite](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ADialect%3A%3ASQLite)
 
         For interacting with SQLite databases.
 
-- driver '+DBD::Pg'
-- driver 'Pg'
-- driver 'mysql';
-- driver 'MariaDB';
-- driver 'SQLite';
+- `driver '+DBD::Pg'`
+- `driver 'Pg'`
+- `driver 'mysql'`
+- `driver 'MariaDB'`
+- `driver 'SQLite'`
 
     Usually you do not need to specify this as your dialect should specify the
     correct one to use. However in cases like MySQL and MariaDB they are more or
-    less interchangable and you may want to override the default.
+    less interchangeable and you may want to override the default.
 
-    Specify what DBI driver should be used. 'DBD::' is prefixed to any string you
-    specify unless it starts with '+', in which case the plus is stripped and the
+    Specify what DBI driver should be used. `DBD::` is prefixed to any string you
+    specify unless it starts with `+`, in which case the plus is stripped and the
     rest of the module name is unmodified.
 
     **NOTE:** DBIx::QuickORM can use either [DBD::mysql](https://metacpan.org/pod/DBD%3A%3Amysql) or [DBD::MariaDB](https://metacpan.org/pod/DBD%3A%3AMariaDB) to
-    connect to any of the mysql variants. It will default to [DBD::MariaDB](https://metacpan.org/pod/DBD%3A%3AMariaDB) if it
+    connect to any of the MySQL variants. It will default to [DBD::MariaDB](https://metacpan.org/pod/DBD%3A%3AMariaDB) if it
     is installed and you have not requested [DBD::mysql](https://metacpan.org/pod/DBD%3A%3Amysql) directly.
 
-- attributes \\%HASHREF
-- attributes(attr => val, ...)
+- `attributes \%HASHREF`
+- `attributes(attr => val, ...)`
 
     Set the attributes of the database connection.
 
-    This can take a hashref or key+value pairs.
+    This can take a hashref or key-value pairs.
 
     This will override all previous attributes, it does not merge.
 
@@ -572,24 +598,24 @@ You get all these when using DBIx::QuickORM.
             attributes foo => 1;
         };
 
-- host $HOSTNAME
-- hostname $HOSTNAME
+- `host $HOSTNAME`
+- `hostname $HOSTNAME`
 
-    Provide a hostname or IP address for db connections
+    Provide a hostname or IP address for database connections
 
         db mydb => sub {
             host 'mydb.mydomain.com';
         };
 
-- port $PORT
+- `port $PORT`
 
-    Provide a port number for db connection.
+    Provide a port number for database connection.
 
         db mydb => sub {
             port 1234;
         };
 
-- socket $SOCKET\_PATH
+- `socket $SOCKET_PATH`
 
     Provide a socket instead of a host+port
 
@@ -597,8 +623,8 @@ You get all these when using DBIx::QuickORM.
             socket '/path/to/db.socket';
         };
 
-- user $USERNAME
-- username $USERNAME
+- `user $USERNAME`
+- `username $USERNAME`
 
     provide a database username
 
@@ -606,8 +632,8 @@ You get all these when using DBIx::QuickORM.
             user 'bob';
         };
 
-- pass $PASSWORD
-- password $PASSWORD
+- `pass $PASSWORD`
+- `password $PASSWORD`
 
     provide a database password
 
@@ -615,20 +641,20 @@ You get all these when using DBIx::QuickORM.
             pass 'hunter2'; # Do not store any real passwords in plaintext in code!!!!
         };
 
-- creds sub { return \\%CREDS }
+- `creds sub { return \%CREDS }`
 
     Allows you to provide a coderef that will return a hashref with all the
-    necessary db connection fields.
+    necessary database connection fields.
 
-    This is mainly useful if you credentials are in an encrypted yaml or json file
+    This is mainly useful if you credentials are in an encrypted YAML or JSON file
     and you have a method to decrypt and read it returning it as a hash.
 
         db mydb => sub {
             creds sub { ... };
         };
 
-- connect sub { ... }
-- connect \\&connect
+- `connect sub { ... }`
+- `connect \&connect`
 
     Instead of providing all the other fields, you may specify a coderef that
     returns a [DBI](https://metacpan.org/pod/DBI) connection.
@@ -640,7 +666,7 @@ You get all these when using DBIx::QuickORM.
             connect sub { ... };
         };
 
-- dsn $DSN
+- `dsn $DSN`
 
     Specify the DSN used to connect to the database. If not provided then an
     attempt will be made to construct a DSN from other parameters, if they are
@@ -650,15 +676,15 @@ You get all these when using DBIx::QuickORM.
             dsn "dbi:Pg:dbname=foo";
         };
 
-- server $NAME => sub { ... }
+- `server $NAME => sub { ... }`
 
     Used to define a server with multiple databases. This is a way to avoid
     re-specifying credentials for each database you connect to.
 
-    You can use `db('server_name.db_name')` to fetch the db.
+    You can use `db('server_name.db_name')` to fetch the database.
 
-    Basically this allows you to specify any db fields once in the server, then
-    define any number of db's that inherit them.
+    Basically this allows you to specify any database fields once in the server, then
+    define any number of databases that inherit them.
 
     Example:
 
@@ -687,15 +713,15 @@ You get all these when using DBIx::QuickORM.
             ...;
         };
 
-- schema $NAME => sub { ... }
-- $schema = schema($NAME)
-- $schema = schema($NAME => sub { ... })
+- `schema $NAME => sub { ... }`
+- `$schema = schema($NAME)`
+- `$schema = schema($NAME => sub { ... })`
 
     Used to either fetch or define a schema.
 
     When called with only 1 argument it will fetch the schema with the given name.
 
-    When used inside an orm builder it will set the schema for the orm (all orm's
+    When used inside an ORM builder it will set the schema for the ORM (all ORMs
     have exactly one schema).
 
     When called with 2 arguments it will define the schema using the coderef as a
@@ -722,9 +748,9 @@ You get all these when using DBIx::QuickORM.
             db(...);
         };
 
-- table $NAME => sub { ... }
-- table $CLASS
-- table $CLASS => sub { ... }
+- `table $NAME => sub { ... }`
+- `table $CLASS`
+- `table $CLASS => sub { ... }`
 
     Used to define a table, or load a table class.
 
@@ -745,12 +771,12 @@ You get all these when using DBIx::QuickORM.
             };
         };
 
-    This will assume you are loading a table class if the '::' appears in the name.
-    Otherwise it assumes you are defining a new table. This means it is not
-    possible to load top-level packages as table classes, which is a feature, not a
-    bug.
+    This will assume you are loading a table class if the double colon `::`
+    appears in the name.  Otherwise it assumes you are defining a new table.
+    This means it is not possible to load top-level packages as table classes,
+    which is a feature, not a bug.
 
-- tables 'Table::Namespace'
+- `tables 'Table::Namespace'`
 
     Used to load all tables in the specified namespace:
 
@@ -759,8 +785,8 @@ You get all these when using DBIx::QuickORM.
             tables 'My::Table';
         };
 
-- row\_class '+My::Row::Class'
-- row\_class 'MyRowClass'
+- `row_class '+My::Row::Class'`
+- `row_class 'MyRowClass'`
 
     When fetching a row from a table, this is the class that each row will be
     blessed into.
@@ -769,8 +795,8 @@ You get all these when using DBIx::QuickORM.
     a table. When using table classes this will set the base class for the table as
     the table class itself will be the row class.
 
-    If the class name has a '+' it will be stripped off and the class name will not
-    be altered further. If there is no '+' then 'DBIx::QuickORM::Row::' will be
+    If the class name has a plus `+` it will be stripped off and the class name will not
+    be altered further. If there is no `+` then `DBIx::QuickORM::Row::` will be
     prefixed onto your string, and the resulting class will be loaded.
 
         schema my_schema => sub {
@@ -785,19 +811,19 @@ You get all these when using DBIx::QuickORM.
     In a table class:
 
         package My::ORM::Table::Foo;
-        use DBIx::QuickORM 'table';
+        use DBIx::QuickORM type => 'table';
 
         table foo => sub {
             # Sets the base class (@ISA) for this table class to 'My::Row::Class'
             row_class '+My::Row::Class';
         };
 
-- db\_name $NAME
+- `db_name $NAME`
 
-    Sometimes you want the orm to use one name for a table or database, but the
-    database server actually uses another. For example you may want the orm to use the
-    name 'people' for a table, but the db actually uses the name 'populace'. You can
-    use db\_name to set the in-database name.
+    Sometimes you want the ORM to use one name for a table or database, but the
+    database server actually uses another. For example you may want the ORM to use the
+    name `people` for a table, but the database actually uses the table name `populace`.
+    You can use `db_name` to set the in-database name.
 
         table people => sub {
             db_name 'populace';
@@ -812,12 +838,12 @@ You get all these when using DBIx::QuickORM.
             db_name 'myapp'    # Actual name on the server;
         };
 
-- column NAME => sub { ... }
-- column NAME => %SPECS
+- `column NAME => sub { ... }`
+- `column NAME => %SPECS`
 
     Define a column with the given name. The name will be used both as the name the
     ORM uses for the column, and the actual name of the column in the database.
-    Currently having a column use a different name in the orm vs the table is not
+    Currently having a column use a different name in the ORM vs the table is not
     supported.
 
         column foo => sub {
@@ -836,9 +862,9 @@ You get all these when using DBIx::QuickORM.
 
         column foo => ('not_null', 'identity', \'BIGINT');
 
-- omit
+- `omit`
 
-    When set on a column, the column will be omited from selects by default. When
+    When set on a column, the column will be omitted from `SELECT`s by default. When
     you fetch a row the column will not be fetched until needed. This is useful if
     a table has a column that is usually huge and rarely used.
 
@@ -846,20 +872,20 @@ You get all these when using DBIx::QuickORM.
             omit;
         };
 
-    In a non-void context it will return the string 'omit' for use in a column
+    In a non-void context it will return the string `omit` for use in a column
     specification without a builder.
 
         column bar => omit();
 
-- nullable()
-- nullable(1)
-- nullable(0)
-- not\_null()
-- not\_null(1)
-- not\_null(0)
+- `nullable()`
+- `nullable(1)`
+- `nullable(0)`
+- `not_null()`
+- `not_null(1)`
+- `not_null(0)`
 
-    Toggle nullability for a column. nullable() defaults to setting the column as
-    nullable. not\_null() defaults to setting the column as not nullable.
+    Toggle nullability for a column. `nullable()` defaults to setting the column as
+    nullable. `not_null()` defaults to setting the column as _not_ nullable.
 
         column not_nullable => sub {
             not_null();
@@ -869,39 +895,39 @@ You get all these when using DBIx::QuickORM.
             nullable();
         };
 
-    In a non-void context these will return a string, either 'nullable' or
-    'not\_null'. These can be used in column specifications that do not use a
+    In a non-void context these will return a string, either `nullable` or
+    `not_null`. These can be used in column specifications that do not use a
     builder.
 
         column foo => nullable();
         column bar => not_null();
 
-- identity()
-- identity(1)
-- identity(0)
+- `identity()`
+- `identity(1)`
+- `identity(0)`
 
     Used to designate a column as an identity column. This is mainly used for
-    generating schema SQL. In a sufficient version of postgresql this will generate
+    generating schema SQL. In a sufficient version of PostgreSQL this will generate
     an identity column. It will fallback to a column with a sequence, or in
-    mysql/sqlite it will use auto-incrementing columns.
+    MySQL/SQLite it will use auto-incrementing columns.
 
-    In a column builder it will set (default) or unset the 'identity' attribute of
+    In a column builder it will set (default) or unset the `identity` attribute of
     the column.
 
         column foo => sub {
             identity();
         };
 
-    In a non-void context it will simply return 'identity' by default or when given
+    In a non-void context it will simply return `identity` by default or when given
     a true value as an argument. It will return an empty list if a false argument
     is provided.
 
         column foo => identity();
 
-- affinity('string')
-- affinity('numeric')
-- affinity('binary')
-- affinity('boolean')
+- `affinity('string')`
+- `affinity('numeric')`
+- `affinity('binary')`
+- `affinity('boolean')`
 
     When used inside a column builder it will set the columns affinity to the one
     specified.
@@ -916,18 +942,18 @@ You get all these when using DBIx::QuickORM.
 
         column foo => affinity('string');
 
-- type(\\$sql)
-- type("+My::Custom::Type") # The + is stripped off
-- type("+My::Custom::Type", @CONSTRUCTION\_ARGS)
-- type("MyType") # Short for "DBIx::QuickORM::Type::MyType"
-- type("MyType", @CONSTRUCTION\_ARGS)
-- type(My::Type->new(...))
+- `type(\$sql)`
+- `type("+My::Custom::Type") # The + is stripped off`
+- `type("+My::Custom::Type", @CONSTRUCTION_ARGS)`
+- `type("MyType") # Short for "DBIx::QuickORM::Type::MyType"`
+- `type("MyType", @CONSTRUCTION_ARGS)`
+- `type(My::Type->new(...))`
 
     Used to specify the type for the column. You can provide custom SQL in the form
     of a scalar referernce. You can also provide the class of a type, if you prefix
-    the class name with a '+' then it will strip the + off and make no further
-    modifications. If you provide a string without a + it will attempt to load
-    'DBIx::QuickORM::Type::YOUR\_STRING' and use that.
+    the class name with a plus `+` then it will strip the `+` off and make no further
+    modifications. If you provide a string without a `+` it will attempt to load
+    `DBIx::QuickORM::Type::YOUR_STRING` and use that.
 
     In a column builder this will directly apply the type to the column being
     built.
@@ -940,31 +966,31 @@ You get all these when using DBIx::QuickORM.
 
         column foo => type('MyType');
 
-- sql($sql)
-- sql(infix => $sql)
-- sql(prefix => $sql)
-- sql(postfix => $sql)
+- `sql($sql)`
+- `sql(infix => $sql)`
+- `sql(prefix => $sql)`
+- `sql(postfix => $sql)`
 
-    This is used when generating sql to define the database.
+    This is used when generating SQL to define the database.
 
-    This allows you to provide custom SQL to define a table/column, or add sql
+    This allows you to provide custom SQL to define a table/column, or add SQL
     before (prefix) and after (postfix).
 
-    Infix will prevent the typical sql from being generated, the infix will be used
+    Infix will prevent the typical SQL from being generated, the infix will be used
     instead.
 
-    If no \*fix is specified then 'infix' is assumed.
+    If no \*fix is specified then `infix` is assumed.
 
-- default(\\$sql)
-- default(sub { ... })
-- %key\_val = default(\\$sql)
-- %key\_val = default(sub { ... })
+- `default(\$sql)`
+- `default(sub { ... })`
+- `%key_val = default(\$sql)`
+- `%key_val = default(sub { ... })`
 
     When given a scalar reference it is treated as SQL to be used when generating
-    sql to define the column.
+    SQL to define the column.
 
     When given a coderef it will be used as a default value generator for the
-    column whenever DBIx::QuickORM inserts a new row.
+    column whenever DBIx::QuickORM `INSERT`s a new row.
 
     In void context it will apply the default to the column being defined, or will
     throw an exception if no column is being built.
@@ -983,15 +1009,15 @@ You get all these when using DBIx::QuickORM.
         (sql_default => "NOW()")
         (perl_default => sub { 123 })
 
-- columns(@names)
-- columns(@names, \\%attrs)
-- columns(@names, sub { ... })
+- `columns(@names)`
+- `columns(@names, \%attrs)`
+- `columns(@names, sub { ... })`
 
     Define multiple columns at a time. If any attrs hashref or sub builder are
-    specified they will be applied to ALL provided column names.
+    specified they will be applied to **all** provided column names.
 
-- primary\_key
-- primary\_key(@COLS)
+- `primary_key`
+- `primary_key(@COLUMNS)`
 
     Used to define a primary key. When used under a table you must provide a
     list of columns. When used under a column builder it designates just that
@@ -1013,8 +1039,8 @@ You get all these when using DBIx::QuickORM.
             };
         };
 
-- unique
-- unique(@COLS)
+- `unique`
+- `unique(@COLUMNS)`
 
     Used to define a unique constraint. When used under a table you must provide a
     list of columns. When used under a column builder it designates just that
@@ -1036,7 +1062,7 @@ You get all these when using DBIx::QuickORM.
             };
         };
 
-- build\_class $CLASS
+- `build_class $CLASS`
 
     Use this to override the class being built by a builder.
 
@@ -1046,7 +1072,7 @@ You get all these when using DBIx::QuickORM.
             ...
         };
 
-- my $meta = meta
+- `my $meta = meta`
 
     Get the current builder meta hashref
 
@@ -1057,17 +1083,17 @@ You get all these when using DBIx::QuickORM.
             $meta->{name} = 'foo';
         };
 
-- plugin '+My::Plugin'
-- plugin 'MyPlugin'
-- plugin 'MyPlugin' => @CONSTRUCTION\_ARGS
-- plugin 'MyPlugin' => \\%CONSTRUCTION\_ARGS
-- plugin My::Plugin->new()
+- `plugin '+My::Plugin'`
+- `plugin 'MyPlugin'`
+- `plugin 'MyPlugin' => @CONSTRUCTION_ARGS`
+- `plugin 'MyPlugin' => \%CONSTRUCTION_ARGS`
+- `plugin My::Plugin->new()`
 
     Load a plugin and apply it to the current builder (or top level) and all nested
     builders below it.
 
-    The '+' prefix can be used to specify a fully qualified plugin package name.
-    Without the '+' the namespace 'DBIx::QuickORM::Plugin::' will be prefixed to
+    The `+` prefix can be used to specify a fully qualified plugin package name.
+    Without the plus `+` the namespace `DBIx::QuickORM::Plugin::` will be prefixed to
     the string.
 
         plugin '+My::Plugin';    # Loads 'My::Plugin'
@@ -1082,8 +1108,8 @@ You get all these when using DBIx::QuickORM.
         plugin '+My::Plugin' => (foo => 1, bar => 2);
         plugin '+MyPlugin'   => {foo => 1, bar => 2};
 
-- $plugins = plugins()
-- plugins '+My::Plugin', 'MyPlugin' => \\%ARGS, My::Plugin->new(...), ...;
+- `$plugins = plugins()`
+- `plugins '+My::Plugin', 'MyPlugin' => \%ARGS, My::Plugin->new(...), ...`
 
     Load several plugins at once, if a plugin class is followed by a hashref it is
     used as construction arguments.
@@ -1091,15 +1117,15 @@ You get all these when using DBIx::QuickORM.
     Can also be used with no arguments to return an arrayref of all active plugins
     for the current scope.
 
-- autofill()
-- autofill($CLASS)
-- autofill(sub { ... })
-- autofill($CLASS, sub { ... })
-- autofill $CLASS
-- autofill sub { ... }
-- autofill $CLASS => sub { ... }
+- `autofill()`
+- `autofill($CLASS)`
+- `autofill(sub { ... })`
+- `autofill($CLASS, sub { ... })`
+- `autofill $CLASS`
+- `autofill sub { ... }`
+- `autofill $CLASS => sub { ... }`
 
-    Used inside an `orm()` builder. This tells the QuickORM to build an
+    Used inside an `orm()` builder. This tells QuickORM to build an
     [DBIx::QuickORM::Schema](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ASchema) object by asking the database what tables and columns
     it has.
 
@@ -1124,23 +1150,23 @@ You get all these when using DBIx::QuickORM.
             autohook HOOK => sub { ... };           # Run behavior at specific hook points
         };
 
-- autotype $TYPE\_CLASS
-- autotype 'JSON'
-- autotype '+DBIx::QuickORM::Type::JSON'
-- autotype 'UUID'
-- autotype '+DBIx::QuickORM::Type::UUID'
+- `autotype $TYPE_CLASS`
+- `autotype 'JSON'`
+- `autotype '+DBIx::QuickORM::Type::JSON'`
+- `autotype 'UUID'`
+- `autotype '+DBIx::QuickORM::Type::UUID'`
 
     Load custom [DBIx::QuickORM::Type](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3AType) subclasses. If a column is found with the
     right type then the type class will be used to inflate/deflate the values
     automatically.
 
-- autoskip table => qw/table1 table2 .../
-- autoskip column => qw/col1 col2 .../
+- `autoskip table =` qw/table1 table2 .../>
+- `autoskip column =` qw/col1 col2 .../>
 
     Skip defining schema entries for the specified tables or columns.
 
-- autorow 'My::App::Row'
-- autorow $ROW\_BASE\_CLASS
+- `autorow 'My::App::Row'`
+- `autorow $ROW_BASE_CLASS`
 
     Generate `My::App::Row::TABLE` classes for each table autofilled. If you write
     a `My/App/Row/TABLE.pm` file it will be loaded as well.
@@ -1149,10 +1175,10 @@ You get all these when using DBIx::QuickORM.
     use it as a base class. If no such class is found the new classes will use
     [DBIx::QuickORM::Row](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ARow) as a base class.
 
-- autoname link\_accessor => sub { ... }
-- autoname field\_accessor => sub { ... }
-- autoname table => sub { ... }
-- autoname link => sub { ... }
+- `autoname link_accessor => sub { ... }`
+- `autoname field_accessor => sub { ... }`
+- `autoname table => sub { ... }`
+- `autoname link => sub { ... }`
 
     You can name the `$row->FIELD` accessor:
 
@@ -1180,7 +1206,7 @@ You get all these when using DBIx::QuickORM.
             return "obtain_" . $linked_table if $link->unique;
 
             # If the foreign key points to non-unique rows, then the accessor will
-            # return a DBIx::QuickORM::Select object:
+            # return a DBIx::QuickORM::Query object:
             return "select_" . $linked_table . "s";
         };
 
@@ -1208,26 +1234,26 @@ You get all these when using DBIx::QuickORM.
             return $alias;
         };
 
-- autohook HOOK => sub { my %params = @\_; ... }
+- `autohook HOOK =` sub { my %params = @\_; ... }>
 
     See [DBIx::QuickORM::Schema::Autofill](https://metacpan.org/pod/DBIx%3A%3AQuickORM%3A%3ASchema%3A%3AAutofill) for a list of hooks and their params.
 
 # YOUR ORM PACKAGE EXPORTS
 
-- $orm\_meta = orm()
-- $orm = orm($ORM\_NAME)
-- $db = orm(db => $DB\_NAME)
-- $schema = orm(schema => $SCHEMA\_NAME)
-- $orm\_variant = orm("${ORM\_NAME}:${VARIANT}")
-- $db\_variant = orm(db => "${DB\_NAME}:${VARIANT}")
-- $schema\_variant = orm(schema => "${SCHEMA\_NAME}:${VARIANT}")
+- `$orm_meta = orm()`
+- `$orm = orm($ORM_NAME)`
+- `$db = orm(db => $DB_NAME)`
+- `$schema = orm(schema => $SCHEMA_NAME)`
+- `$orm_variant = orm("${ORM_NAME}:${VARIANT}")`
+- `$db_variant = orm(db => "${DB_NAME}:${VARIANT}")`
+- `$schema_variant = orm(schema => "${SCHEMA_NAME}:${VARIANT}")`
 
-    This function is the one-stop shop to access any orm, schema, or db instances
+    This function is the one-stop shop to access any ORM, schema, or database instances
     you have defined.
 
 ## RENAMING THE EXPORT
 
-You can rename the orm() function at import time by providing an alternate
+You can rename the `orm()` function at import time by providing an alternate
 name.
 
     use My::ORM qw/renamed_orm/;
