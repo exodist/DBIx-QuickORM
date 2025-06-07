@@ -27,6 +27,31 @@ do_for_all_dbs {
     my $con = qorm('my_orm');
     my $s = $con->handle('example');
 
+    subtest no_action => sub {
+        subtest commit => sub {
+            my $txn = $con->txn;
+            ok($txn, "got txn object");
+            $txn->commit;
+            ok(lives { $txn = undef }, "Can undef commited txn");
+            ok(!$con->in_txn, "Not in a txn anymore");
+        };
+
+        subtest rollback => sub {
+            my $txn = $con->txn;
+            ok($txn, "got txn object");
+            $txn->rollback;
+            ok(lives { $txn = undef }, "Can undef rollbacked txn");
+            ok(!$con->in_txn, "Not in a txn anymore");
+        };
+
+        subtest scope_end => sub {
+            my $txn = $con->txn;
+            ok($txn, "got txn object");
+            ok(lives { $txn = undef }, "Can undef rollbacked txn");
+            ok(!$con->in_txn, "Not in a txn anymore");
+        };
+    };
+
     subtest external_txns => sub {
         my $dbh = $con->dbh;
         ok(!$con->in_txn, "Not in a transaction");

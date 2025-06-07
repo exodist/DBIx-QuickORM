@@ -23,6 +23,8 @@ use DBIx::QuickORM::Util::HashBase qw{
 
     <in_destroy
     +finalize
+
+    no_last
 };
 
 sub is_savepoint { $_[0]->{+SAVEPOINT} ? 1 : 0 }
@@ -40,6 +42,14 @@ sub init {
 }
 
 sub complete { defined $_[0]->{+RESULT} }
+
+sub state {
+    my $self = shift;
+    return 'committed'   if $self->{+COMMITTED};
+    return 'rolled_back' if $self->{+ROLLED_BACK};
+    return 'complete'    if $self->{+RESULT};
+    return 'active';
+}
 
 {
     no warnings 'once';
@@ -68,6 +78,10 @@ sub rollback {
 
     $self->{+ROLLED_BACK} = $why;
 
+    $self->finalize(1, $why) if $self->{+FINALIZE};
+
+    return if $self->{+NO_LAST};
+
     no warnings 'exiting';
     last QORM_TRANSACTION;
 };
@@ -94,6 +108,10 @@ sub commit {
     }
 
     $self->{+COMMITTED} = $why;
+
+    $self->finalize(1) if $self->{+FINALIZE};
+
+    return if $self->{+NO_LAST};
 
     no warnings 'exiting';
     last QORM_TRANSACTION;
@@ -167,15 +185,16 @@ sub finalize {
     my $self = shift;
     my ($ok, $err) = @_;
     my $cb = delete $self->{+FINALIZE} or croak "Nothing to finalize!";
-    $cb->($ok, $err);
+    $cb->($self, $ok, $err);
     return $ok;
 }
 
 sub DESTROY {
     my $self = shift;
+    my @caller = caller;
     my $finalize = $self->{+FINALIZE} or return;
     $self->{+IN_DESTROY} = 1;
-    $finalize->(0, "Transaction ended without a call to finalize!");
+    $finalize->($self, 1, "Transaction fell out of scope");
 }
 
 1;
