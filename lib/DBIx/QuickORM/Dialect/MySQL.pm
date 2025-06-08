@@ -140,6 +140,13 @@ sub db_vendor {
     return undef;
 }
 
+sub upsert_statement {
+    my $self = shift;
+    my ($pk) = @_;
+    return "ON DUPLICATE KEY UPDATE";
+}
+
+
 ###############################################################################
 # {{{ Schema Builder Code
 ###############################################################################

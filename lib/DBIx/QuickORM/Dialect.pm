@@ -86,6 +86,12 @@ sub dsn {
     return $dsn;
 }
 
+sub upsert_statement {
+    my $self = shift;
+    my ($pk) = @_;
+    return "ON CONFLICT(" . join(", " => @$pk). ") DO UPDATE SET";
+}
+
 ###############################################################################
 # {{{ Schema Builder Code
 ###############################################################################

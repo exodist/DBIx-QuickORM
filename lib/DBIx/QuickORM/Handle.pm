@@ -860,6 +860,7 @@ sub _builder_args {
         limit    => $self->{+LIMIT},
         order_by => $self->{+ORDER_BY},
         fields   => $self->fields,
+        dialect  => $self->dialect,
     };
 }
 
@@ -883,6 +884,17 @@ sub _row_or_hashref {
     return $self->$meth({ @_ });
 }
 
+sub upsert {
+    my $self = shift->_row_or_hashref(TARGET() => @_);
+    return $self->_insert_and_refresh(upsert => 1) if $self->{+AUTO_REFRESH};
+    return $self->_insert(upsert => 1);
+}
+
+sub upsert_and_refresh {
+    my $self = shift->_row_or_hashref(TARGET() => @_);
+    return $self->_insert_and_refresh(upsert => 1);
+}
+
 sub insert {
     my $self = shift->_row_or_hashref(TARGET() => @_);
     return $self->_insert_and_refresh() if $self->{+AUTO_REFRESH};
@@ -896,12 +908,13 @@ sub insert_and_refresh {
 
 sub _insert_and_refresh {
     my $self = shift;
+    my %params = @_;
 
     croak "Cannot refresh a row without a primary key" unless $self->_has_pk;
 
-    return $self->handle(AUTO_REFRESH() => 1)->_insert() if $self->dialect->supports_returning_insert;
+    return $self->handle(AUTO_REFRESH() => 1)->_insert(%params) if $self->dialect->supports_returning_insert;
 
-    my $row = $self->_insert();
+    my $row = $self->_insert(%params);
 
     if ($self->is_sync) {
         $row->refresh();
@@ -915,6 +928,9 @@ sub _insert_and_refresh {
 
 sub _insert {
     my $self = shift;
+    my %params = @_;
+
+    my $upsert = $params{upsert};
 
     croak "Cannot insert rows using a handle with data_only set"   if $self->{+DATA_ONLY};
     croak "Cannot insert rows using a handle with a limit set"     if defined $self->{+LIMIT};
@@ -964,7 +980,8 @@ sub _insert {
         $builder_args->{returning} = $self->{+AUTO_REFRESH} ? [ grep { !$seen{$_}++ } @$has_pk, @$fields, keys %$data ] : $has_pk;
     }
 
-    my $sql = $self->sql_builder->qorm_insert(%$builder_args);
+    my $meth = $upsert ? 'qorm_upsert' : 'qorm_insert';
+    my $sql = $self->sql_builder->$meth(%$builder_args);
     my $sth = $self->_make_sth(
         $sql,
         only_one => 1,
@@ -1353,14 +1370,6 @@ sub iterate {
     }
 
     return;
-}
-
-sub find_or_insert {
-    die "TODO";
-}
-
-sub update_or_insert {
-    die "TODO";
 }
 
 ########################
@@ -1907,6 +1916,27 @@ used, otherwise the insert and fetch operations are wrapped in a single
 transaction, unless internal transactions are disabled in which case an
 exception may be thrown.
 
+=item $h->update(\%CHANGES)
+
+Apply the changes (field names and new values) to all rows matching the where condition.
+
+=item $h->update($row_obj)
+
+Write pending changes to the row.
+
+=item $row = $h->upsert(\%ROW_DATA)
+
+=item $row = $h->upsert_and_refresh(\%ROW_DATA)
+
+These will either insert or update the row depending on if it already exists in
+the database.
+
+Depending on SQL dialect  it will usually result in a sql statement like one of these:
+
+    INSERT INTO example (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = ? RETURNING id
+    INSERT INTO example (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = ? RETURNING id
+    INSERT INTO example (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = ?
+
 =item $h->delete
 
 =item $h->delete($row)
@@ -1921,14 +1951,6 @@ If a where clause is provided then all rows it would find will be deleted.
 
 If a row or where condition are provided they will override any that are
 already associated with the handle.
-
-=item $h->update(\%CHANGES)
-
-Apply the changes (field names and new values) to all rows matching the where condition.
-
-=item $h->update($row_obj)
-
-Write pending changes to the row.
 
 =item $row = $h->one()
 
@@ -1979,13 +2001,5 @@ Get the number of rows that the query would return.
 Run the callback for each row found.
 
 In data_only mode this will provide hashrefs instead of blessed row objects.
-
-=item $h->find_or_insert
-
-TODO: Not yet implemented
-
-=item $h->update_or_insert
-
-TODO: Not yet implemented
 
 =back

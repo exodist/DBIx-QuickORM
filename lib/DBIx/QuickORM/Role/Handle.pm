@@ -31,8 +31,7 @@ requires qw{
     insert
     update
     vivify
-    find_or_insert
-    update_or_insert
+    upsert
 
     connection
     dialect
