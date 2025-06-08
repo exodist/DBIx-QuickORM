@@ -2,6 +2,8 @@ package DBIx::QuickORM::STH;
 use strict;
 use warnings;
 
+our $VERSION = '0.000012';
+
 use Carp qw/croak/;
 
 use Role::Tiny::With qw/with/;

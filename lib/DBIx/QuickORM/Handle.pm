@@ -3,6 +3,8 @@ use strict;
 use warnings;
 use feature qw/state/;
 
+our $VERSION = '0.000012';
+
 use Carp qw/confess croak carp/;
 use Sub::Util qw/set_subname/;
 use List::Util qw/mesh/;
