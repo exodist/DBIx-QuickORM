@@ -2,7 +2,7 @@ package DBIx::QuickORM::STH::Fork;
 use strict;
 use warnings;
 
-our $VERSION = '0.000012';
+our $VERSION = '0.000013';
 
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::STH';

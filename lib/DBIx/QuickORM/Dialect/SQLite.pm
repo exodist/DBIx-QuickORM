@@ -2,7 +2,7 @@ package DBIx::QuickORM::Dialect::SQLite;
 use strict;
 use warnings;
 
-our $VERSION = '0.000012';
+our $VERSION = '0.000013';
 
 use DBD::SQLite 1.0;
 
