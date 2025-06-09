@@ -1683,8 +1683,6 @@ Return the L<DBIx::QuickORM::Dialect> object.
 
 Used to create a join handle.
 
-TODO: Flesh this out more!
-
 =item $new_h = $h->left_join(@args)
 
 =item $new_h = $h->right_join(@args)
@@ -1699,7 +1697,80 @@ These are all shortcuts for:
 
     $new_h = $h->join(type => $DIRECTION, @args);
 
+Then you can get L<DBIx::QuickORM::Join::Row> objects:
+
+    my $jrow = $h->first;
+
+    my @jrows = $h->all;
+
 =back
+
+Here is an example, here is some schema:
+
+    CREATE TABLE foo (
+        foo_id  SERIAL      NOT NULL PRIMARY KEY,
+        name    VARCHAR(20) NOT NULL,
+        UNIQUE(name)
+    );
+
+    CREATE TABLE bar (
+        bar_id  SERIAL      NOT NULL PRIMARY KEY,
+        name    VARCHAR(20) NOT NULL,
+        foo_id  INTEGER     DEFAULT NULL REFERENCES foo(foo_id),
+        UNIQUE(name)
+    );
+
+    CREATE TABLE baz (
+        baz_id  SERIAL      NOT NULL PRIMARY KEY,
+        name    VARCHAR(20) NOT NULL,
+        foo_id  INTEGER     DEFAULT NULL REFERENCES foo(foo_id),
+        bar_id  INTEGER     DEFAULT NULL REFERENCES bar(bar_id),
+        UNIQUE(name)
+    );
+
+Define the ORM:
+
+    orm my_orm => sub {
+        db 'mydb';
+        autofill sub {
+            autorow 'My::Test::Row';
+        };
+    };
+
+Insert some data and use join:
+
+    my $con = orm('my_orm');
+
+    # Insert a row into foo
+    my $foo_a = $con->insert(foo => {name => 'a'});
+
+    # Insert 3 rows into bar that link to foo.
+    my $bar_a1 = $con->insert(bar => {name => 'a1', foo_id => $foo_a->foo_id});
+    my $bar_a2 = $con->insert(bar => {name => 'a2', foo_id => $foo_a->foo_id});
+    my $bar_a3 = $con->insert(bar => {name => 'a3', foo_id => $foo_a->foo_id});
+
+    # Insert a row into baz linked to foo_a and bar_a1
+    my $baz = $con->insert(baz => {name => 'a', foo_id => $foo_a->foo_id, bar_id => $bar_a1->bar_id});
+
+    my $h = $con->handle('foo')->left_join('bar')->left_join('baz', from => 'foo')->order_by(qw/a.foo_id b.bar_id c.baz_id/);
+
+The handle can be used to fetch L<DBIx::QuickORM::Join::Row> instances, that lets you get each component row object by alias:
+
+    my $one = $iter->first;
+
+Getting component rows using C<by_alias()> will return regular row objects,
+they will be the same references if the rows have already been fetched and are
+in memory/cache.
+
+    use Test2::V0 qw/ref_is/;
+
+    ref_is($one->by_alias('a'), $foo_a,  "Got the foo_a reference");
+    ref_is($one->by_alias('b'), $bar_a1, "Got the bar_a reference");
+    ref_is($one->by_alias('c'), $baz,    "Got the baz reference");
+
+You can also directly access fields:
+
+    my $a_name = $one->field('a.name');
 
 =head2 Immutators
 
