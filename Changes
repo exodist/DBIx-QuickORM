@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+    - Make it possible to add DB info after prepaing the orm/schema
+
 0.000014  2025-06-10 14:46:48-07:00 America/Los_Angeles
 
     - Doc updates
