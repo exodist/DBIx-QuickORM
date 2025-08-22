@@ -62,6 +62,7 @@ my %WriteMakefileArgs = (
     "parent" => 0
   },
   "TEST_REQUIRES" => {
+    "Carp::Always" => 0,
     "Test2::Require::Module" => 0,
     "Test2::Tools::QuickDB" => "0.000037",
     "Test2::Tools::Subtest" => 0,
@@ -78,6 +79,7 @@ my %WriteMakefileArgs = (
 
 my %FallbackPrereqs = (
   "Carp" => 0,
+  "Carp::Always" => 0,
   "Class::Method::Modifiers" => 0,
   "Cpanel::JSON::XS" => 0,
   "DBD::SQLite" => 0,

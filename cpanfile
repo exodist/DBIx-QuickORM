@@ -39,6 +39,7 @@ suggests "DateTime::Format::Pg" => "0";
 suggests "DateTime::Format::SQLite" => "0";
 
 on 'test' => sub {
+  requires "Carp::Always" => "0";
   requires "Test2::Require::Module" => "0";
   requires "Test2::Tools::QuickDB" => "0.000037";
   requires "Test2::Tools::Subtest" => "0";
@@ -53,6 +54,7 @@ on 'configure' => sub {
 };
 
 on 'develop' => sub {
+  requires "Carp::Always" => "0";
   requires "DBD::MariaDB" => "0";
   requires "DBD::Pg" => "0";
   requires "DBD::SQLite" => "0";

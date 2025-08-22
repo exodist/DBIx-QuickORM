@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+    - Fix #25, add Carp::Always to test and develop deps
+
 0.000015  2025-06-13 17:37:50-07:00 America/Los_Angeles
 
     - Make it possible to add DB info after prepaing the orm/schema
