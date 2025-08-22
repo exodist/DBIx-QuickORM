@@ -78,8 +78,9 @@ sub qorm_upsert {
     $returning = $1 if $statement =~ s/\s+(returning.*)$//is;
 
     my $conf = $params{dialect}->upsert_statement($pk);
+    my @inject;
     for my $field (sort keys %$changes) {
-        $conf .= " $field = ?";
+        push @inject => "$field = ?";
         push @$binds => {
             field => $field,
             value => $changes->{$field},
@@ -87,6 +88,7 @@ sub qorm_upsert {
             param => $counter++,
         };
     }
+    $conf .= " " . join(', ' => @inject) if @inject;
 
     $sql->{statement} = "$statement $conf $returning";
 
