@@ -4,9 +4,10 @@ use warnings;
 
 our $VERSION = '0.000018';
 
-BEGIN { require DBIx::QuickORM::Role::Type };
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Type';
+
+use DBIx::QuickORM::Util qw/parse_conflate_args/;
 
 use Scalar::Util qw/blessed/;
 use UUID qw/uuid7 parse unparse/;
@@ -15,7 +16,7 @@ use Carp qw/croak/;
 sub new { uuid7() }
 
 sub qorm_inflate {
-    my $params = DBIx::QuickORM::Role::Type::parse_conflate_args(@_);
+    my $params = parse_conflate_args(@_);
     my $val    = $params->{value} or return undef;
     my $class  = $params->{class} // __PACKAGE__;
 
@@ -25,7 +26,7 @@ sub qorm_inflate {
 }
 
 sub qorm_deflate {
-    my $params   = DBIx::QuickORM::Role::Type::parse_conflate_args(@_);
+    my $params   = parse_conflate_args(@_);
     my $val      = $params->{value}    or return undef;
     my $affinity = $params->{affinity} or croak "Could not determine affinity";
     my $class    = $params->{class} // __PACKAGE__;

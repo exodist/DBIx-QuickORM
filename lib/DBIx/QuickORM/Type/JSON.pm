@@ -4,9 +4,10 @@ use warnings;
 
 our $VERSION = '0.000018';
 
+use DBIx::QuickORM::Util qw/parse_conflate_args/;
+
 use Carp qw/croak/;
 use Scalar::Util qw/reftype blessed/;
-BEGIN { require DBIx::QuickORM::Role::Type };
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Type';
 
@@ -19,7 +20,7 @@ my $CJSON = Cpanel::JSON::XS->new->utf8(1)->convert_blessed(1)->allow_nonref(1)-
 sub CJSON { $CJSON }
 
 sub qorm_inflate {
-    my $params = DBIx::QuickORM::Role::Type::parse_conflate_args(@_);
+    my $params = parse_conflate_args(@_);
     my $val    = $params->{value} or return undef;
     my $class  = $params->{class} // __PACKAGE__;
 
@@ -28,7 +29,7 @@ sub qorm_inflate {
 }
 
 sub qorm_deflate {
-    my $params   = DBIx::QuickORM::Role::Type::parse_conflate_args(@_);
+    my $params   = parse_conflate_args(@_);
     my $val      = $params->{value}    or return undef;
     my $affinity = $params->{affinity} or croak "Could not determine affinity";
     my $class    = $params->{class} // __PACKAGE__;
