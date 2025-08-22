@@ -28,7 +28,8 @@ sub percona  { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools
 sub sqlite   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'SQLite',     @args}) } or diag(clean_err($@)) }
 
 my @SETS = (
-    {name => 'system_postgresql', ver => '',   db => \&psql,     dialect => 'PostgreSQL',       dbi => ['Pg'],               quickdb => 'PostgreSQL', env => {}},
+    {name => 'fake',              ver => '',   db => sub { die "oops" }, dialect => 'fake',       dbi => ['fake'], quickdb => 'fake',       env => {}},
+    {name => 'system_postgresql', ver => '',   db => \&psql,             dialect => 'PostgreSQL', dbi => ['Pg'],   quickdb => 'PostgreSQL', env => {}},
     {name => 'postgresql9',       ver => '9',  db => \&psql,     dialect => 'PostgreSQL',       dbi => ['Pg'],               quickdb => 'PostgreSQL', env => {PATH => "$ENV{HOME}/dbs/postgresql9/bin:$ENV{PATH}"}},
     {name => 'postgresql17',      ver => '17', db => \&psql,     dialect => 'PostgreSQL',       dbi => ['Pg'],               quickdb => 'PostgreSQL', env => {PATH => "$ENV{HOME}/dbs/postgresql17/bin:$ENV{PATH}"}},
     {name => 'sqlite',            ver => '',   db => \&sqlite,   dialect => 'SQLite',           dbi => ['SQLite'],           quickdb => 'SQLite',     env => {}},
