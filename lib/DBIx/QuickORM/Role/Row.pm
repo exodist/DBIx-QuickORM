@@ -45,6 +45,13 @@ sub display {
     return $source->source_orm_name . "(" . join(', ' => $self->primary_key_value_list) . ")";
 }
 
+sub conflate_args {
+    my $self = shift;
+    my ($field, $val) = @_;
+
+    return (field => $field, value => $val, source => $self->source, dialect => $self->dialect, affinity => $self->field_affinity($field));
+}
+
 #####################
 # {{{ Sanity Checks #
 #####################
