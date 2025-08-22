@@ -2,7 +2,7 @@ package DBIx::QuickORM::RowManager;
 use strict;
 use warnings;
 
-our $VERSION = '0.000018';
+our $VERSION = '0.000019';
 
 use Carp qw/confess croak/;
 use Scalar::Util qw/weaken/;
