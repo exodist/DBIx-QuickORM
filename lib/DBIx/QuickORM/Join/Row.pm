@@ -2,7 +2,7 @@ package DBIx::QuickORM::Join::Row;
 use strict;
 use warnings;
 
-our $VERSION = '0.000017';
+our $VERSION = '0.000018';
 
 use Carp qw/croak/;
 
