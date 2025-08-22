@@ -27,8 +27,8 @@ do_for_all_dbs {
     my $row2 = $h->upsert({id => $row->field('id'), name => 'b'});
     ref_is($row, $row2, "Same row ref");
     is($row->field('name'), "b", "Upsert!");
-    my $row2 = $h->upsert({id => $row->field('id'), name => 'x', xxx => 'c'});
-    ref_is($row, $row2, "Same row ref");
+    my $row3 = $h->upsert({id => $row->field('id'), name => 'x', xxx => 'c'});
+    ref_is($row, $row3, "Same row ref");
     is($row->field('name'), "x", "Upsert name!");
     is($row->field('xxx'), "c", "Upsert xxx!");
 };
