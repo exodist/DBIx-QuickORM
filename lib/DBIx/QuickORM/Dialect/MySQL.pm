@@ -340,7 +340,7 @@ sub build_indexes_from_db {
         push @{$idx->{columns}} => $col;
     }
 
-    return [map { $params{autofill}->hook(index => $out{$_}, table_name => $table); $out{$_} } sort keys %out];
+    return [map { $params{autofill}->hook(index => {index => $out{$_}, table_name => $table}); $out{$_} } sort keys %out];
 }
 
 ###############################################################################
