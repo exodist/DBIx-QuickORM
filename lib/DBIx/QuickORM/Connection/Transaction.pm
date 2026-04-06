@@ -196,7 +196,7 @@ sub DESTROY {
     my @caller = caller;
     my $finalize = $self->{+FINALIZE} or return;
     $self->{+IN_DESTROY} = 1;
-    $finalize->($self, 1, "Transaction fell out of scope");
+    $finalize->($self, 0, "Transaction fell out of scope");
 }
 
 1;
