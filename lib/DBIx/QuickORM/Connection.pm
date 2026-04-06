@@ -294,7 +294,7 @@ sub txn {
             if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
 
         $txnx->throw("Internal Error: Transaction stack mismatch")
-            unless @$txns && ($txnx->in_destroy && !$txns->[-1]) || $txns->[-1] == $txnx;
+            unless @$txns && (($txnx->in_destroy && !$txns->[-1]) || $txns->[-1] == $txnx);
 
         pop @$txns;
 
