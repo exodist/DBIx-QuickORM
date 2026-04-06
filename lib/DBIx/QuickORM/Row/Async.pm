@@ -40,7 +40,7 @@ sub can {
     if (my $class = Scalar::Util::blessed($this)) {
         if ($this->ready) {
             $_[0] = $this->swapout;
-            return $_[0]->isa($check);
+            return $_[0]->can($check);
         }
 
         return $this->{row_class}->can($check) if $this->{row_class};
