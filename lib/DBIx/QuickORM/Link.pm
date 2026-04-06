@@ -53,7 +53,7 @@ sub merge {
     croak "Links do not have the same columns ([$self->{+KEY}] vs [$other->{+KEY}])"
         unless $self->{+KEY} eq $other->{+KEY};
 
-    my $new = {%$self, %$self};
+    my $new = {%$self, %$other};
 
     if ($new->{+CREATED}) {
         if ($other->{+CREATED}) {
