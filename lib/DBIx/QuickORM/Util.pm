@@ -53,8 +53,9 @@ sub find_modules {
 sub merge_hash_of_objs {
     my ($hash_a, $hash_b, $merge_params) = @_;
 
-    $hash_a //= {};
-    $hash_b //= {};
+    $hash_a      //= {};
+    $hash_b      //= {};
+    $merge_params //= {};
 
     my %out;
     my %seen;
@@ -82,7 +83,7 @@ sub merge_hash_of_objs {
         my $bl = blessed($v);
         if    ($bl)           { $out{$name} = $v->clone(%$merge_params) }
         elsif ($r eq 'ARRAY') { $out{$name} = [@$v] }
-        elsif ($r eq 'HASH')  { $out{$name} = clone_hash_of_objs($v, %$merge_params) }
+        elsif ($r eq 'HASH')  { $out{$name} = clone_hash_of_objs($v, $merge_params) }
         else                  { $out{$name} = $v }
     }
 
