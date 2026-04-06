@@ -17,17 +17,17 @@ sub new { uuid7() }
 
 sub qorm_inflate {
     my $params = parse_conflate_args(@_);
-    my $val    = $params->{value} or return undef;
-    my $class  = $params->{class} // __PACKAGE__;
-
+    my $val    = $params->{value};
     return undef unless defined $val;
+    my $class  = $params->{class} // __PACKAGE__;
 
     return $class->looks_like_uuid($val) // $class->looks_like_bin($val) // croak "'$val' does not look like a UUID";
 }
 
 sub qorm_deflate {
     my $params   = parse_conflate_args(@_);
-    my $val      = $params->{value}    or return undef;
+    my $val      = $params->{value};
+    return undef unless defined $val;
     my $affinity = $params->{affinity} or croak "Could not determine affinity";
     my $class    = $params->{class} // __PACKAGE__;
 
