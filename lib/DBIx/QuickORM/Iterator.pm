@@ -21,7 +21,7 @@ sub new {
     my $class = shift;
     my ($gen, $ready) = @_;
 
-    my $self = bless({GENERATOR() => $gen, READY => $ready}, $class);
+    my $self = bless({GENERATOR() => $gen, READY() => $ready}, $class);
     $self->init;
 
     return $self;
