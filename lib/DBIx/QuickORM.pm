@@ -143,11 +143,8 @@ sub unimport_from {
 
     my $stash = do { no strict 'refs'; \%{"$caller\::"} };
 
-    for my $item (@EXPORT) {
-        my $export = $class->can($item)  or next;
-        my $sub    = $caller->can($item) or next;
-
-        next unless $export == $sub;
+    for my $item (@EXPORT, 'builder') {
+        next unless exists $stash->{$item} && defined(*{$stash->{$item}}{CODE});
 
         my $glob = delete $stash->{$item};
 
