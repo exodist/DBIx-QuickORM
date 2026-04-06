@@ -5,6 +5,7 @@ use warnings;
 our $VERSION = '0.000020';
 
 use Carp qw/croak/;
+use List::Util qw/first/;
 
 use constant ROW_DATA => 'row_data';
 
