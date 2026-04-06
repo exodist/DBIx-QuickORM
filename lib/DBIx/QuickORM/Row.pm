@@ -77,7 +77,7 @@ sub clone {
 #####################
 
 sub check_sync {
-    croak <<"    EOT" if $_[0]->{+DESYNC} && !$_[0]->track_desync;
+    croak <<"    EOT" if $_[0]->row_data->{+DESYNC} && !$_[0]->track_desync;
 
 This row is out of sync, this means it was refreshed while it had pending
 changes and the data retrieved from the database does not match what was in
