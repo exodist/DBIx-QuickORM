@@ -70,8 +70,9 @@ sub qorm_sql_type {
         return $stype;
     }
 
-    return $dialect->supports_type('longtext') // $dialect->supports_type('text');
-    die "Could not find usable type for json, no json type, no longtest, and no text";
+    my $fallback = $dialect->supports_type('longtext') // $dialect->supports_type('text');
+    return $fallback if $fallback;
+    die "Could not find usable type for json, no json type, no longtext, and no text";
 }
 
 sub qorm_register_type {
