@@ -85,7 +85,7 @@ sub define_autorow {
 
     unless(load_class($row_class)) {
         my $err = $@;
-        die $@ unless $@ =~ m/Can't locate.*in \@INC/;
+        die $err unless $err =~ m/Can't locate.*in \@INC/;
         my $row_file = $row_class;
         $row_file =~ s{::}{/}g;
         $row_file .= ".pm";
