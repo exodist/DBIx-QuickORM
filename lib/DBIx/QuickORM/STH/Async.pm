@@ -36,7 +36,7 @@ sub cancel {
 
 sub result {
     my $self = shift;
-    return $self->{+GOT_RESULT} if $self->{+GOT_RESULT};
+    return $self->{+GOT_RESULT} if exists $self->{+GOT_RESULT};
 
     # Blocking
     $self->{+GOT_RESULT} = $self->dialect->async_result(sth => $self->{+STH}, dbh => $self->{+DBH});

@@ -55,7 +55,7 @@ sub ready {
 
 sub result {
     my $self = shift;
-    return $self->{+GOT_RESULT} if $self->{+GOT_RESULT};
+    return $self->{+GOT_RESULT} if exists $self->{+GOT_RESULT};
 
     $self->wait unless $self->{+READY};
 
