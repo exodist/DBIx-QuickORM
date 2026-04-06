@@ -54,6 +54,8 @@ sub affinity {
 
         croak "'$self->{+AFFINITY}' is not a valid affinity${debug}"
             unless validate_affinity($self->{+AFFINITY});
+
+        return $self->{+AFFINITY};
     }
 
     croak "'$type' is not a valid type${debug}" unless $type->DOES('DBIx::QuickORM::Role::Type');
