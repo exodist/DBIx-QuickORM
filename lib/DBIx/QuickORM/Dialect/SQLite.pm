@@ -38,9 +38,9 @@ sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does n
 sub start_txn          { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->begin_work }
 sub commit_txn         { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->commit }
 sub rollback_txn       { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->rollback }
-sub create_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->do("SAVEPOINT $p{savepoint}") }
-sub commit_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->do("RELEASE SAVEPOINT $p{savepoint}") }
-sub rollback_savepoint { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; $dbh->do("ROLLBACK TO SAVEPOINT $p{savepoint}") }
+sub create_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; my $sp = $dbh->quote_identifier($p{savepoint}); $dbh->do("SAVEPOINT $sp") }
+sub commit_savepoint   { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; my $sp = $dbh->quote_identifier($p{savepoint}); $dbh->do("RELEASE SAVEPOINT $sp") }
+sub rollback_savepoint { my ($s, %p) = @_; my $dbh = $p{dbh} // $s->dbh; my $sp = $dbh->quote_identifier($p{savepoint}); $dbh->do("ROLLBACK TO SAVEPOINT $sp") }
 
 sub version_search { 0 }
 
