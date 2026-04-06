@@ -80,6 +80,7 @@ sub cancel {
 
     kill('TERM', $self->{+PID}) or die "Could not kill pid $self->{+PID}: $!\n";
 
+    waitpid($self->{+PID}, 0);
     $self->clear;
     $self->{+DONE} = 1;
 }
@@ -121,6 +122,7 @@ sub set_done {
     return if $self->{+DONE};
 
     close(delete $self->{+PIPE}) if $self->{+PIPE};
+    waitpid($self->{+PID}, 0) if $self->{+PID};
     $self->clear;
     $self->{+DONE} = 1;
 }
