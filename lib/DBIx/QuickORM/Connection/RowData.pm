@@ -148,7 +148,7 @@ sub change_state {
 
     my $merge = 0;
     $merge ||= !($row_txn || $state_txn);
-    $merge ||= $state_txn == $row_txn;
+    $merge ||= $state_txn && $row_txn && $state_txn == $row_txn;
 
     if ($merge) {
         # If the transactions are the same, or if there are no txns for eather, just merge.
