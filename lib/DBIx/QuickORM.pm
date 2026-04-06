@@ -584,9 +584,10 @@ sub creds {
     my ($in) = @_;
 
     croak "creds() accepts only a coderef as an argument" unless $in && ref($in) eq 'CODE';
-    my $data = $in->();
 
     my $top = $self->_in_builder(qw{db server});
+
+    my $data = $in->();
 
     croak "The subroutine passed to creds() must return a hashref" unless $data && ref($data) eq 'HASH';
 
