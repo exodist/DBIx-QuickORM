@@ -35,6 +35,9 @@ sub compare_affinity_values {
     # this
     return ($vala xor $valb) if $affinity eq 'boolean';
 
+    # Both undef means equal
+    return 1 if !defined($vala) && !defined($valb);
+
     # For the rest of these it is false if only 1 of the 2 is defined
     return 0 if (defined($vala) xor defined($valb));
 
