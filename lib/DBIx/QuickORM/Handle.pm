@@ -119,7 +119,7 @@ sub _normalize_omit {
     my $r = ref($omit);
     #<<<
     if    ($r eq 'HASH')  {                                           } # Do nothing
-    elsif ($r eq 'ARRAY') { $omit = map { ($_ => 1) } @$omit          } # Turn list into hash
+    elsif ($r eq 'ARRAY') { $omit = { map { ($_ => 1) } @$omit }       } # Turn list into hash
     elsif (!$r)           { $omit =    {$omit => 1}                   } # Turn single into hash
     else                  { croak "$omit is not a valid 'omit' value" } # oops
     #>>>
