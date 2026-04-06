@@ -748,7 +748,7 @@ sub _make_forked_sth {
 
         close($wh);
         1;
-    } or warn $@;
+    } or do { warn $@; $guard->dismiss(); POSIX::_exit(1) };
     $guard->dismiss();
     POSIX::_exit(0);
 }
