@@ -55,7 +55,7 @@ sub init {
     my $self = shift;
 
     croak "A 'dbh' is required"      unless $self->{+DBH};
-    croak "A 'db_name' is arequired" unless $self->{+DB_NAME};
+    croak "A 'db_name' is required" unless $self->{+DB_NAME};
 }
 
 sub dsn {
