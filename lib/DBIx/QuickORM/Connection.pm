@@ -497,8 +497,8 @@ sub insert  { my $arg = pop; shift->handle(@_)->insert($arg) }
 sub vivify  { my $arg = pop; shift->handle(@_)->vivify($arg) }
 sub update  { my $arg = pop; shift->handle(@_)->update($arg) }
 
-sub update_or_insert { my $arg = pop; shift->handle(@_)->update_or_insert($arg) }
-sub find_or_insert   { my $arg = pop; shift->handle(@_)->update_or_insert($arg) }
+sub update_or_insert { my $arg = pop; shift->handle(@_)->upsert($arg) }
+sub find_or_insert   { my $arg = pop; my $h = shift->handle(@_); $h->one($arg) // $h->insert($arg) }
 
 sub by_ids {
     my $self = shift;
