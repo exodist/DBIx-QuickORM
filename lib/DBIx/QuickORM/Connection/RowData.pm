@@ -206,8 +206,8 @@ sub _merge_state {
 
     my $desync = $merge->{+DESYNC};
     if (my $pending = $merge->{+PENDING}) {
-        $into->{+PENDING} = $into->{+PENDING} ? {%{$self->{+PENDING}}, %$pending} : $pending;
-        $into->{+DESYNC}  = $into->{+DESYNC}  ? {%{$self->{+DESYNC}},  %$desync}  : $desync if $desync;
+        $into->{+PENDING} = $into->{+PENDING} ? {%{$into->{+PENDING}}, %$pending} : $pending;
+        $into->{+DESYNC}  = $into->{+DESYNC}  ? {%{$into->{+DESYNC}},  %$desync}  : $desync if $desync;
     }
     elsif (exists $merge->{+PENDING}) {
         delete $into->{+PENDING};
