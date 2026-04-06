@@ -21,7 +21,8 @@ sub CJSON { $CJSON }
 
 sub qorm_inflate {
     my $params = parse_conflate_args(@_);
-    my $val    = $params->{value} or return undef;
+    my $val    = $params->{value};
+    return undef unless defined $val;
     my $class  = $params->{class} // __PACKAGE__;
 
     return $val if ref($val);
@@ -30,7 +31,8 @@ sub qorm_inflate {
 
 sub qorm_deflate {
     my $params   = parse_conflate_args(@_);
-    my $val      = $params->{value}    or return undef;
+    my $val      = $params->{value};
+    return undef unless defined $val;
     my $affinity = $params->{affinity} or croak "Could not determine affinity";
     my $class    = $params->{class} // __PACKAGE__;
 
