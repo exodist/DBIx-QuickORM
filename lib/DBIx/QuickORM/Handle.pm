@@ -313,7 +313,7 @@ sub handle {
             my $flag = $1;
             my $val = shift @_;
             $flags{$flag} = $val;
-            if ($arg eq 'unknown') {
+            if ($flag eq 'unknown') {
                 $flags{$_} = $val for qw/unknown_object unknown_ref unknown_arg/;
             }
             next;
