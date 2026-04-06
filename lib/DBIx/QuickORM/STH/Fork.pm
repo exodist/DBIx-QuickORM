@@ -9,6 +9,7 @@ with 'DBIx::QuickORM::Role::STH';
 with 'DBIx::QuickORM::Role::Async';
 
 use Carp qw/croak/;
+use POSIX qw/WNOHANG/;
 use Time::HiRes qw/sleep/;
 use Cpanel::JSON::XS qw/decode_json/;
 
@@ -78,9 +79,11 @@ sub cancel {
 
     close(delete $self->{+PIPE}) if $self->{+PIPE};
 
-    kill('TERM', $self->{+PID}) or die "Could not kill pid $self->{+PID}: $!\n";
+    if (waitpid($self->{+PID}, WNOHANG) <= 0) {
+        kill('TERM', $self->{+PID});
+        waitpid($self->{+PID}, 0);
+    }
 
-    waitpid($self->{+PID}, 0);
     $self->clear;
     $self->{+DONE} = 1;
 }
