@@ -241,9 +241,6 @@ sub build_table_keys_from_db {
         if ($type eq 'foreign key') {
             push @links => $item->{link};
         }
-        elsif ($type eq 'unique') {
-            $unique{column_key(@{$item->{columns}})} = $item->{columns};
-        }
         elsif ($type eq 'unique' || $type eq 'primary key') {
             $unique{column_key(@{$item->{columns}})} = $item->{columns};
             $pk = $item->{columns} if $type eq 'primary key';
