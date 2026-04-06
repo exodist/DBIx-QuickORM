@@ -81,7 +81,7 @@ sub merge_hash_of_objs {
         my $r  = ref($v);
         my $bl = blessed($v);
         if    ($bl)           { $out{$name} = $v->clone(%$merge_params) }
-        elsif ($r eq 'ARRAY') { $out{$name} = [@$a] }
+        elsif ($r eq 'ARRAY') { $out{$name} = [@$v] }
         elsif ($r eq 'HASH')  { $out{$name} = clone_hash_of_objs($v, %$merge_params) }
         else                  { $out{$name} = $v }
     }
