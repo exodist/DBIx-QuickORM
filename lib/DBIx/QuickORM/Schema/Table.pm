@@ -69,7 +69,7 @@ sub merge {
     $params{+UNIQUE}      //= merge_hash_of_objs($self->{+UNIQUE}, $other->{+UNIQUE})   if $self->{+UNIQUE}      || $other->{+UNIQUE};
     $params{+LINKS}       //= [@{$self->{+LINKS}}, @{$other->{+LINKS}}]                 if $self->{+LINKS}       || $other->{+LINKS};
     $params{+INDEXES}     //= [@{$self->{+INDEXES}}, @{$other->{+INDEXES}}]             if $self->{+INDEXES}     || $other->{+INDEXES};
-    $params{+PRIMARY_KEY} //= [@{$self->{+PRIMARY_KEY}}]                                if $self->{+PRIMARY_KEY} || $other->{+PRIMARY_KEY};
+    $params{+PRIMARY_KEY} //= [@{$self->{+PRIMARY_KEY} // $other->{+PRIMARY_KEY}}]        if $self->{+PRIMARY_KEY} || $other->{+PRIMARY_KEY};
 
     return blessed($self)->new(%$self, %$other, %params);
 }
