@@ -57,7 +57,8 @@ sub uncache {
 
     my $pk = $old_pk // $new_pk;
     if ($row && !$pk && $row->primary_key) {
-        $pk = $row->primary_key_hashref;
+        my $pk_hash = $row->primary_key_hashref;
+        $pk = [values %$pk_hash];
     }
 
     # No pk, not a cachable row
