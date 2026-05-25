@@ -144,6 +144,7 @@ sub merge {
 
     my $new = {%$self, %$other};
 
+    $new->{+CREATED} = $self->{+CREATED};
     if ($new->{+CREATED}) {
         if ($other->{+CREATED}) {
             $new->{+CREATED} .= ", " . $other->{+CREATED}
@@ -154,7 +155,7 @@ sub merge {
         $new->{+CREATED} = $other->{+CREATED};
     }
 
-    push @{$new->{+ALIASES}} => @{$other->{+ALIASES}};
+    $new->{+ALIASES} = [@{$self->{+ALIASES} // []}, @{$other->{+ALIASES} // []}];
 
     return bless($new, blessed($self));
 }
