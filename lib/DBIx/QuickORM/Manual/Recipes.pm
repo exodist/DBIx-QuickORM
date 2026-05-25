@@ -73,6 +73,50 @@ Your app:
     # Connect to the database with the ORM
     my $con = qorm('MyORM');
 
+=head2 SCHEMA WITH NO DATABASE, ADD A CONNECT CALLBACK LATER
+
+Like L</"DEFINE DB LATER">, but instead of credentials you attach your own
+C<connect> callback (any sub that returns a fresh L<DBI> handle) right before
+you need the connection. This is handy when the connection comes from
+something you build yourself - a pool, a tunnel, an already-open handle, and
+so on.
+
+Define the schema with no database at all:
+
+    package My::Schema;
+    use DBIx::QuickORM;
+
+    orm MyORM => sub {
+        # No db here - just the schema.
+        schema my_schema => sub {
+            table users => sub {
+                column id   => sub { primary_key; identity; not_null };
+                column name => sub { type \'VARCHAR(128)'; affinity 'string'; not_null };
+            };
+        };
+    };
+
+Then, just before you get a connection, build a database from a C<connect>
+callback and set it on the ORM:
+
+    use DBIx::QuickORM only => [qw/db dialect connect/];
+    use My::Schema;
+
+    # 'orm => ...' returns the ORM without trying to connect yet.
+    my $orm = qorm(orm => 'MyORM');
+
+    $orm->db(db {
+        dialect 'PostgreSQL';                 # the dialect is still required
+        connect sub { $pool->checkout_dbh };  # any sub returning a new DBI handle
+    });
+
+    # Now connect:
+    my $con = $orm->connection;
+
+The C<connect> callback must hand back a B<new> handle each time it is called
+and must not cache or reuse one; the connection manages the handle's lifecycle
+(see L<DBIx::QuickORM::Manual::Connections>).
+
 =head2 RENAMING EXPORTS
 
 When importing L<DBIx::QuickORM> you can provide
