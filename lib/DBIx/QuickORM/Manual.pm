@@ -36,6 +36,11 @@ the system easier to work with.
 
 A brief index of every feature with links to where each is documented.
 
+=item L<DBIx::QuickORM::Manual::DBIxClass>
+
+Coming from L<DBIx::Class>? This maps its concepts (ResultSet, Result,
+relationships, ...) to their DBIx::QuickORM equivalents.
+
 =back
 
 =head1 GUIDES
