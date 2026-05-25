@@ -109,12 +109,61 @@ You can also go through a handle, which is handy once you have a handle around:
 
     my $bob = $con->handle('users')->insert({name => 'bob'});
 
-To change an existing row, update it and save:
-
-    $bob->update({name => 'robert'});
-
 See L<DBIx::QuickORM::Manual::Querying> for create, update, and delete in
 depth.
+
+=head1 WORKING WITH ROWS
+
+A row is a L<DBIx::QuickORM::Row>. Reading a column gives you its B<inflated>
+value - typed columns come back as Perl values (a JSON column as a ref, a
+UUID as its object, and so on):
+
+    my $name = $user->field('name');
+
+=head2 MODIFY NOW, SAVE LATER
+
+Setting a field with the two-argument form stages the change as B<pending>;
+nothing is written until you C<save>. This lets you make several changes and
+persist them together:
+
+    $user->field(name  => 'robert');     # staged, not written yet
+    $user->field(email => 'r@example.com');
+    $user->save;                          # write all pending changes at once
+
+    $user->has_pending;                   # true while changes are unsaved
+    $user->discard;                       # throw away pending changes instead
+
+To set and save in a single step, use C<update>:
+
+    $user->update({name => 'robert'});    # stage these changes and save
+
+=head2 INFLATED vs RAW vs ORIGINAL VALUES
+
+A row tracks the values it last read from the database (the "stored" values)
+separately from any pending changes, and can give you each in inflated or raw
+(database) form:
+
+    $user->field('meta');          # inflated value (e.g. a JSON ref)
+    $user->raw_field('meta');      # raw value as stored in the db (a string)
+
+    $user->field(name => 'robert');
+    $user->field('name');          # 'robert'  - the pending value
+    $user->stored_field('name');   # 'bob'     - the original, from the db
+    $user->raw_stored_field('name'); # original, in raw db form
+
+Grab them all at once as a hashref with C<fields> (inflated) or C<raw_fields>
+(raw).
+
+=head2 REFRESH AND DELETE
+
+Re-read the row's stored values from the database, or remove the row:
+
+    $user->refresh;
+    $user->delete;
+
+If you C<refresh> a row that still has unsaved changes the two can disagree;
+the row is then "desynced" until you C<discard> the changes or call
+C<force_sync>. See L<DBIx::QuickORM::Row> for the full row interface.
 
 =head1 FOLLOW RELATIONS
 
