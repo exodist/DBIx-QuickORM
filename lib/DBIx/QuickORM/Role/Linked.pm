@@ -6,6 +6,7 @@ our $VERSION = '0.000020';
 
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
+use DBIx::QuickORM::Util qw/column_key/;
 
 use constant 'LINKS'          => '__links__';
 use constant 'BUILT'          => 'built';
