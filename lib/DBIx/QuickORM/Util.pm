@@ -25,6 +25,9 @@ our @EXPORT_OK = qw{
     column_key
     debug
     parse_conflate_args
+    mask
+    unmask
+    masked
 };
 
 =pod
@@ -151,6 +154,15 @@ sub debug {
     print $out;
 }
 
+sub masked { my ($it) = @_; blessed($it) && $it->isa('DBIx::QuickORM::Util::Mask') ? 1 : 0 }
+
+sub unmask { my ($it) = @_; masked($it) ? $it->qorm_unmask : $it }
+
+sub mask {
+    require DBIx::QuickORM::Util::Mask;
+    return DBIx::QuickORM::Util::Mask->new(@_);
+}
+
 sub parse_conflate_args {
     my ($proto, %params);
     $proto = shift if @_ % 2;
@@ -259,6 +271,20 @@ Normalizes the flexible argument forms accepted by the type-conflation
 interface into a single hash ref. Resolves C<class>, C<value>, and
 C<affinity> from the supplied prototype and key/value arguments. Croaks
 unless a C<value> can be determined.
+
+=item $mask = mask(string => $str, generator => sub { ... }, mask_class => $class)
+
+Build a L<DBIx::QuickORM::Util::Mask> - a lazily-built wrapper that hides a
+heavy object from dumps and stack traces. See that module for details.
+
+=item $bool = masked($thing)
+
+True if C<$thing> is a mask.
+
+=item $obj = unmask($thing)
+
+Returns the wrapped object (building it if needed) for a mask, or C<$thing>
+unchanged otherwise.
 
 =back
 
