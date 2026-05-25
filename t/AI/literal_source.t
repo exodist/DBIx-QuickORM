@@ -35,6 +35,15 @@ subtest construction => sub {
         qr/is not a scalar reference/, "a hashref is rejected");
     like(dies { DBIx::QuickORM::LiteralSource->new([]) },
         qr/is not a scalar reference/, "an arrayref is rejected");
+
+    # The subquery option wraps the SQL as a derived table.
+    my $named = DBIx::QuickORM::LiteralSource->new("SELECT 1", subquery => 'x');
+    is($named->source_db_moniker, "( SELECT 1 ) AS x",
+        "subquery => 'x' wraps as a derived table aliased x");
+
+    my $defaulted = DBIx::QuickORM::LiteralSource->new("SELECT 1", subquery => 1);
+    is($defaulted->source_db_moniker, "( SELECT 1 ) AS subquery",
+        "subquery => 1 uses the default alias");
 };
 
 subtest role_source_interface => sub {
@@ -81,18 +90,30 @@ subtest query_through_connection => sub {
     # The SQL builder splices the moniker in after FROM, so a literal source
     # works as a FROM fragment (e.g. a table name). It is NOT a full
     # standalone SELECT statement.
-    #
-    # FLAG: A literal source holding a complete "SELECT ..." statement cannot
-    # be queried through the standard handle SELECT path -- the builder emits
-    # "SELECT * FROM <moniker>", producing "SELECT * FROM SELECT ...". Treating
-    # a full statement (or wrapping it as a subquery) would be a builder/handle
-    # design decision, so it is left alone here.
     my @rows = $con->handle($src)->data_only->all;
     is(scalar(@rows), 2, "queried the literal (FROM-fragment) source");
     is(
         [sort map { $_->{surname} } @rows],
         ['jones', 'smith'],
         "rows came back from the literal source query",
+    );
+
+    # A full SELECT statement can be queried when wrapped as a subquery: the
+    # builder emits "SELECT * FROM ( <sql> ) AS <alias>".
+    my $sub = DBIx::QuickORM::LiteralSource->new(
+        "SELECT surname FROM people WHERE surname = 'smith'",
+        subquery => 'only_smith',
+    );
+    is(
+        $sub->source_db_moniker,
+        "( SELECT surname FROM people WHERE surname = 'smith' ) AS only_smith",
+        "subquery moniker is wrapped as a derived table",
+    );
+    my @sub_rows = $con->handle($sub)->data_only->all;
+    is(
+        [map { $_->{surname} } @sub_rows],
+        ['smith'],
+        "queried a full statement via the subquery wrapping",
     );
 
     # Documented contract: handle() does NOT accept a scalar ref directly the

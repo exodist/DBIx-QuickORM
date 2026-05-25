@@ -24,19 +24,38 @@ A source (see L<DBIx::QuickORM::Role::Source>) backed by a literal SQL
 string rather than a table, view, or join. The object is a blessed scalar
 reference holding the SQL; C<source_db_moniker> returns that SQL verbatim.
 
+The SQL is spliced in as the B<FROM target> of the generated statement, so by
+default it must be a table name or FROM-fragment (for example C<users> or
+C<users AS u>), B<not> a complete C<SELECT> statement. A full statement
+produces broken SQL (C<SELECT * FROM SELECT ...>).
+
+To query a complete statement, pass the C<subquery> option: the SQL is wrapped
+as a derived table, C<< ( <sql> ) AS <alias> >>, where the alias is the value
+of C<subquery>:
+
+    # SELECT * FROM ( SELECT ... ) AS recent
+    my $src = DBIx::QuickORM::LiteralSource->new($full_select, subquery => 'recent');
+
 Literal sources carry no schema metadata: they expose no fields, no primary
 key, and no row class, so the field/key accessors return nothing and the
 source is not cachable. C<fields_to_fetch> is C<['*']>.
 
 =head1 SYNOPSIS
 
-    my $source = DBIx::QuickORM::LiteralSource->new("SELECT * FROM users");
+    # FROM-fragment (table name)
+    my $source = DBIx::QuickORM::LiteralSource->new("users");
+
+    # Full statement wrapped as a derived table
+    my $sub = DBIx::QuickORM::LiteralSource->new(
+        "SELECT * FROM users WHERE active = 1",
+        subquery => 'active_users',
+    );
 
 =cut
 
 sub new {
     my $class = shift;
-    my ($literal) = @_;
+    my ($literal, %params) = @_;
 
     my $sql;
     if (my $ref = ref($literal)) {
@@ -45,6 +64,15 @@ sub new {
     }
     else {
         $sql = $literal;
+    }
+
+    # By default the SQL is spliced in as a FROM target (a table name or
+    # fragment). When 'subquery' is given the SQL is a complete statement and
+    # gets wrapped as a derived table: "( <sql> ) AS <alias>". The alias is the
+    # value of 'subquery' (a true value of 1 uses a default alias).
+    if (defined(my $sq = $params{subquery})) {
+        my $alias = (length($sq) && $sq ne '1') ? $sq : 'subquery';
+        $sql = "( $sql ) AS $alias";
     }
 
     # Bless a fresh scalar ref; never bless the caller's ref in place (doing so
