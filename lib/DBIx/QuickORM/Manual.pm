@@ -2,6 +2,8 @@ package DBIx::QuickORM::Manual;
 use strict;
 use warnings;
 
+our $VERSION = '0.000020';
+
 1;
 
 __END__
@@ -28,6 +30,8 @@ of fighting against it.
 =back
 
 =head2 TODO - More to come
+
+More tutorials and how-to documents are planned.
 
 =head1 KEY MODULE DOCS
 
