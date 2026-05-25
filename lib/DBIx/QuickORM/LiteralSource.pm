@@ -38,7 +38,11 @@ sub new {
     my $class = shift;
     my ($literal) = @_;
 
-    $literal = \$literal unless ref($literal);
+    unless (ref($literal)) {
+        my $sql = $literal;
+        $literal = \$sql;
+    }
+
     croak "'$literal' is not a scalar reference" unless ref($literal) eq 'SCALAR';
 
     return bless($literal, $class);
