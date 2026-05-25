@@ -74,7 +74,6 @@ print STDERR "\n";
 
 {
     my @mods = qw{
-        Carp::Always
         Class::XSAccessor
         Cpanel::JSON::XS
         DBD::MariaDB

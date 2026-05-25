@@ -176,6 +176,119 @@ sub new {
     return bless(\%params, $class);
 }
 
+sub quick {
+    my $class = shift;
+    my %params = @_;
+
+    my $creds   = delete $params{credentials};
+    my $connect = delete $params{connect};
+    my $types   = delete $params{auto_types} // [];
+    my $dialect = delete $params{dialect};
+
+    croak "Unknown parameter(s) to quick(): " . join(', ', sort keys %params) if keys %params;
+
+    croak "quick() requires exactly one of 'credentials' or 'connect'"
+        unless (($creds ? 1 : 0) + ($connect ? 1 : 0)) == 1;
+
+    croak "'credentials' must be a hashref" if $creds   && ref($creds) ne 'HASH';
+    croak "'connect' must be a coderef"     if $connect && ref($connect) ne 'CODE';
+    croak "'auto_types' must be an arrayref" if ref($types) ne 'ARRAY';
+
+    my ($dialect_class, $db_name) = $class->_quick_detect($dialect, $creds, $connect);
+
+    require DBIx::QuickORM::DB;
+    my %db_params = (dialect => $dialect_class, db_name => $db_name);
+    if ($creds) {
+        $db_params{dsn}        = $creds->{dsn}   if defined $creds->{dsn};
+        $db_params{user}       = $creds->{user}  if defined $creds->{user};
+        $db_params{pass}       = $creds->{pass}  if defined $creds->{pass};
+        $db_params{attributes} = $creds->{attrs} if defined $creds->{attrs};
+        $db_params{dbi_driver} = $creds->{dbd}   if defined $creds->{dbd};
+    }
+    else {
+        $db_params{connect} = $connect;
+    }
+    my $db = DBIx::QuickORM::DB->new(%db_params);
+
+    my (%type_map, %affinities);
+    for my $type (@$types) {
+        my $type_class = load_class($type, 'DBIx::QuickORM::Type') or croak "Could not load type '$type': $@";
+        $type_class->qorm_register_type(\%type_map, \%affinities);
+    }
+
+    my $autofill = DBIx::QuickORM::Schema::Autofill->new(
+        types      => \%type_map,
+        affinities => \%affinities,
+        hooks      => {},
+        skip       => {},
+    );
+
+    require DBIx::QuickORM::ORM;
+    my $orm = DBIx::QuickORM::ORM->new(db => $db, autofill => $autofill);
+
+    return $orm->connection;
+}
+
+sub _quick_detect {
+    my $class = shift;
+    my ($explicit, $creds, $connect) = @_;
+
+    my ($driver, $name_source);
+    if ($creds) {
+        $name_source = $creds->{dsn};
+        if (my $dbd = $creds->{dbd}) {
+            ($driver = $dbd) =~ s/^DBD:://;
+        }
+        elsif (my $dsn = $creds->{dsn}) {
+            ($driver) = $dsn =~ m/^dbi:([^:]+):/i
+                or croak "Could not parse a driver from the dsn '$dsn'";
+        }
+        elsif (!$explicit) {
+            croak "quick() credentials need a 'dsn' or 'dbd' to detect the dialect, or pass an explicit 'dialect'";
+        }
+    }
+    else {
+        my $dbh = $connect->() or croak "The 'connect' callback did not return a database handle";
+        $driver      = $dbh->{Driver}->{Name};
+        $name_source = $dbh->{Name};
+        $dbh->disconnect;
+    }
+
+    my $dialect;
+    if ($explicit) {
+        $dialect = load_class($explicit, 'DBIx::QuickORM::Dialect') // croak "Could not load dialect '$explicit': $@";
+    }
+    else {
+        my $dialect_name = $class->_dialect_for_driver($driver)
+            or croak "Could not determine a dialect for driver '$driver'; pass an explicit 'dialect'";
+        $dialect = load_class($dialect_name, 'DBIx::QuickORM::Dialect') // croak "Could not load dialect '$dialect_name': $@";
+    }
+
+    my $db_name = $class->_quick_dbname($name_source) // 'quickorm';
+
+    return ($dialect, $db_name);
+}
+
+sub _quick_dbname {
+    my $class = shift;
+    my ($source) = @_;
+
+    return undef unless defined $source;
+    return $1 if $source =~ m/(?:dbname|database|db)=([^;]+)/i;
+    return undef;
+}
+
+sub _dialect_for_driver {
+    my $class = shift;
+    my ($driver) = @_;
+
+    return undef unless defined $driver;
+    return 'SQLite'     if $driver =~ m/^SQLite$/i;
+    return 'PostgreSQL' if $driver =~ m/^Pg/i;
+    return 'MySQL'      if $driver =~ m/^(?:mysql|MariaDB)$/i;
+    return undef;
+}
+
 sub import_into {
     my $self = shift;
     my ($caller, $name, @extra) = @_;
@@ -1323,6 +1436,47 @@ With this ORM builder you can specify:
 =head1 SEE ALSO
 
 L<DBIx::QuickORM::Manual> - Documentation hub.
+
+=head1 QUICK INTERFACE
+
+When you just have a database and want to manipulate its rows as objects
+without writing any builder DSL, use the C<quick()> class method. It
+introspects all metadata from the live database, applies any auto-types you
+ask for, and returns a ready-to-use L<DBIx::QuickORM::Connection>.
+
+    my $con = DBIx::QuickORM->quick(
+        # Provide exactly one of 'credentials' or 'connect'.
+
+        credentials => {
+            dsn   => $dsn,        # e.g. "dbi:Pg:dbname=myapp;host=..."
+            user  => $user,
+            pass  => $pass,
+            attrs => \%attrs,     # optional DBI attributes
+            dbd   => 'DBD::Pg',   # optional; otherwise taken from the dsn
+        },
+
+        # A callback returning a brand new handle each call (never cached
+        # or reused). Mutually exclusive with 'credentials'.
+        connect => sub { DBI->connect(...) },
+
+        # Type classes (under DBIx::QuickORM::Type unless fully qualified)
+        # used to auto inflate/deflate matching columns.
+        auto_types => ['JSON', 'UUID'],
+    );
+
+    my @users = $con->handle('users')->all;
+    my $user  = $con->by_id(users => 5);
+    $con->insert(users => {name => 'bob'});
+    $con->txn(sub { ... });
+
+The SQL dialect is detected automatically: from the C<dsn> scheme or the
+C<dbd> when using C<credentials>, or by probing a throwaway handle from the
+C<connect> callback. Pass an explicit C<< dialect => 'PostgreSQL' >> (etc.)
+to override detection.
+
+The returned connection self-heals: it can C<reconnect> in place and run
+work under C<auto_retry>, preserving its row cache. The originating ORM is
+reachable via C<< $con->orm >> if you need it.
 
 =head1 SYNOPSIS
 

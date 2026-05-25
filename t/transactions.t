@@ -3,7 +3,6 @@ use lib 't/lib';
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 use DBIx::QuickORM::Test;
-use Carp::Always;
 
 do_for_all_dbs {
     my $db = shift;

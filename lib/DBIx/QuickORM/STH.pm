@@ -52,7 +52,12 @@ sub next {
     my $row_hr  = $self->_next;
 
     if ($self->{+ONLY_ONE}) {
-        croak "Expected only 1 row, but got more than one" if $self->_next;
+        # Finalize before throwing so the statement (and any async slot on
+        # the connection) is released even on the error path.
+        if ($self->_next) {
+            $self->set_done;
+            croak "Expected only 1 row, but got more than one";
+        }
         $self->set_done;
     }
 

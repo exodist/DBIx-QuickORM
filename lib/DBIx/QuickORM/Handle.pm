@@ -11,6 +11,8 @@ use List::Util qw/mesh/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw{debug};
 
+use Atomic::Pipe();
+
 use DBIx::QuickORM::STH();
 use DBIx::QuickORM::STH::Fork();
 use DBIx::QuickORM::STH::Aside();
@@ -702,12 +704,13 @@ sub _make_forked_sth {
 
     my $con = $self->{+CONNECTION};
 
-    my ($rh, $wh);
-    pipe($rh, $wh) or die "Could not create pipe: $!";
+    # Rows are zstd-compressed before crossing the pipe: more rows fit before
+    # the pipe buffer fills, and less is written to the wire.
+    my ($rh, $wh) = Atomic::Pipe->pair(compression => 'zstd');
     my $pid = fork // die "Could not fork: $!";
 
     if ($pid) {    # Parent
-        close($wh);
+        undef $wh;    # Drop the writer end so the reader sees EOF when the child exits.
 
         my $fork = DBIx::QuickORM::STH::Fork->new(
             %params,
@@ -729,24 +732,24 @@ sub _make_forked_sth {
         print STDERR "Escaped Scope in forked query at $caller[1] line $caller[2].\n";
         POSIX::_exit(255);
     });
-    close($rh);
+    undef $rh;
 
     my $json = Cpanel::JSON::XS->new->utf8(1)->convert_blessed(1)->allow_nonref(1);
     my $dbh = $con->aside_dbh;
 
     my ($sth, $res) = $self->_execute($dbh, $sql);
-    print $wh $json->encode({result => $res}), "\n";
+    $wh->write_message($json->encode({result => $res}));
 
     eval {
         if (my $on_ready = $params{on_ready}) {
             if (my $fetch = $on_ready->($dbh, $sth, $res, $sql)) {
                 while (my $row = $fetch->()) {
-                    print $wh $json->encode($row), "\n";
+                    $wh->write_message($json->encode($row));
                 }
             }
         }
 
-        close($wh);
+        undef $wh;
         1;
     } or do { warn $@; $guard->dismiss(); POSIX::_exit(1) };
     $guard->dismiss();
