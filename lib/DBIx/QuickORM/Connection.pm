@@ -12,7 +12,7 @@ use DBIx::QuickORM::Util qw/load_class/;
 use DBIx::QuickORM::Handle;
 use DBIx::QuickORM::Connection::Transaction;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <orm
     <dbh
     <dialect

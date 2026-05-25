@@ -14,7 +14,7 @@ use DBIx::QuickORM::Schema::Table::Column;
 use DBIx::QuickORM::Schema::View;
 
 use parent 'DBIx::QuickORM::Dialect';
-use DBIx::QuickORM::Util::HashBase;
+use Object::HashBase;
 
 sub dbi_driver   { 'DBD::Pg' }
 sub dialect_name { 'PostgreSQL' }

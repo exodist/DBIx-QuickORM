@@ -12,7 +12,7 @@ use constant ROW_DATA => 'row_data';
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Row';
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     +source
     +connection
     +by_alias

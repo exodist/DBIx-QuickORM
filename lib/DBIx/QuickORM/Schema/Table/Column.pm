@@ -12,7 +12,7 @@ use DBIx::QuickORM::Affinity qw{
     affinity_from_type
 };
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     +name
     <sql_default
     <perl_default

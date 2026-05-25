@@ -11,7 +11,7 @@ use DBIx::QuickORM::Affinity qw/affinity_from_type/;
 use DBIx::QuickORM::Util qw/column_key/;
 
 use parent 'DBIx::QuickORM::Dialect';
-use DBIx::QuickORM::Util::HashBase;
+use Object::HashBase;
 
 use DBIx::QuickORM::Schema;
 use DBIx::QuickORM::Schema::Table;

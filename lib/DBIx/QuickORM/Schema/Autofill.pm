@@ -7,7 +7,7 @@ our $VERSION = '0.000020';
 use List::Util qw/first/;
 use DBIx::QuickORM::Util qw/load_class/;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <types
     <affinities
     <hooks

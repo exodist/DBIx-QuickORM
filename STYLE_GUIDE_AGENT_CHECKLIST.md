@@ -62,8 +62,8 @@ verification. Open the file, look, confirm.
 
 For every `.pm` that defines a class or role:
 
-- [ ] Uses `DBIx::QuickORM::Util::HashBase` for attributes (not
-      `Object::HashBase` directly, `Moo`, `Moose`, manual `bless`, etc.).
+- [ ] Uses `Object::HashBase` for attributes (not `Moo`, `Moose`, manual
+      `bless`, etc.).
 - [ ] Uses `Role::Tiny` or `Role::Tiny::With` for roles (not `Moo::Role`,
       `Moose::Role`).
 - [ ] Uses `parent` for inheritance, never `base`.
@@ -77,7 +77,7 @@ For every `.pm` that defines a class or role:
 
 A file is an **object module** if at file scope it matches either:
 
-- `^use DBIx::QuickORM::Util::HashBase` (any form), or
+- `^use Object::HashBase` (any form), or
 - `^with ` (consumes a role).
 
 In every object module:
@@ -384,7 +384,7 @@ The following items come from `AGENTS.md`, not `STYLE_GUIDE.md`. They
 are listed here because they are easy to miss; the source for any
 disagreement is `AGENTS.md`:
 
-- `DBIx::QuickORM::Util::HashBase` slot-ordering convention (§1) —
+- `Object::HashBase` slot-ordering convention (§1) —
   agent workflow preference layered on top of the style guide's
   HashBase rule.
 - POD `ATTRIBUTES` section for HashBase-style classes (§15) — agent

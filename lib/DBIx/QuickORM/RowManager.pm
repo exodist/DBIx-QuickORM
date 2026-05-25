@@ -18,7 +18,7 @@ use DBIx::QuickORM::Connection::RowData qw{
     ROW_DATA
 };
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     transactions
     connection
 };

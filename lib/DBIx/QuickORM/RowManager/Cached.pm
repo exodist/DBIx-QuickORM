@@ -10,7 +10,7 @@ use Scalar::Util qw/weaken/;
 use DBIx::QuickORM::Affinity();
 
 use parent 'DBIx::QuickORM::RowManager';
-use DBIx::QuickORM::Util::HashBase qw {
+use Object::HashBase qw {
     +cache
 };
 

@@ -11,7 +11,7 @@ use DBIx::QuickORM::Util qw/column_key merge_hash_of_objs clone_hash_of_objs/;
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Linked';
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     +name
     +db_name
     +columns
@@ -101,7 +101,7 @@ sub column {
 {
     with 'DBIx::QuickORM::Role::Source';
 
-    use DBIx::QuickORM::Util::HashBase qw{
+    use Object::HashBase qw{
         +fields_to_fetch
         +fields_to_omit
         +fields_list_all

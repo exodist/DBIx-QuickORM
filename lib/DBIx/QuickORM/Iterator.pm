@@ -8,7 +8,7 @@ use Carp qw/croak/;
 
 sub new;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     generator
     items
     generator_done

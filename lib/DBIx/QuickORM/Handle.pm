@@ -24,7 +24,7 @@ sub new;
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Handle';
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     +connection
     +source
     +sql_builder

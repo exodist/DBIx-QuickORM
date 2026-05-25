@@ -11,7 +11,7 @@ with 'DBIx::QuickORM::Role::STH';
 with 'DBIx::QuickORM::Role::Async';
 
 use parent 'DBIx::QuickORM::STH::Async';
-use DBIx::QuickORM::Util::HashBase;
+use Object::HashBase;
 
 sub clear { $_[0]->{+CONNECTION}->clear_aside($_[0]) }
 

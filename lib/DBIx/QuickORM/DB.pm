@@ -7,7 +7,7 @@ our $VERSION = '0.000020';
 use Carp qw/croak confess/;
 use Scalar::Util qw/blessed/;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <name
     +connect
     <attributes

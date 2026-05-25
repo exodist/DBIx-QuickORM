@@ -11,7 +11,7 @@ use DBIx::QuickORM::Util qw/merge_hash_of_objs column_key/;
 
 use DBIx::QuickORM::Link;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <name
     +tables
     <created

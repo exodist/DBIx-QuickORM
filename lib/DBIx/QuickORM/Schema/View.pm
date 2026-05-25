@@ -8,7 +8,7 @@ use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 
 use parent 'DBIx::QuickORM::Schema::Table';
-use DBIx::QuickORM::Util::HashBase;
+use Object::HashBase;
 
 sub is_view { 1 }
 

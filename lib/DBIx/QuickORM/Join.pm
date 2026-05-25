@@ -13,7 +13,7 @@ use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Source';
 with 'DBIx::QuickORM::Role::Linked';
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <schema
     <primary_source
     <join_as

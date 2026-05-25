@@ -12,7 +12,7 @@ use Carp qw/croak/;
 use Time::HiRes qw/sleep/;
 
 use parent 'DBIx::QuickORM::STH';
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <got_result
 };
 

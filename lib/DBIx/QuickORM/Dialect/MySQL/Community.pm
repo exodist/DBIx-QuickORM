@@ -7,7 +7,7 @@ our $VERSION = '0.000020';
 use Carp qw/croak/;
 
 use parent 'DBIx::QuickORM::Dialect::MySQL';
-use DBIx::QuickORM::Util::HashBase;
+use Object::HashBase;
 
 sub dialect_name { 'MySQL::Community' }
 

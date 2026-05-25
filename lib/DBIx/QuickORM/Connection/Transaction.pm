@@ -6,7 +6,7 @@ our $VERSION = '0.000020';
 
 use Carp qw/croak confess/;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <id
     +savepoint
 

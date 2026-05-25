@@ -8,7 +8,7 @@ use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/column_key/;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <local_table
     <local_columns
     <other_table

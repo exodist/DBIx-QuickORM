@@ -13,7 +13,7 @@ use POSIX qw/WNOHANG/;
 use Time::HiRes qw/sleep/;
 use Cpanel::JSON::XS qw/decode_json/;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <connection
     <source
 

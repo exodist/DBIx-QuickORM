@@ -10,7 +10,7 @@ use Role::Tiny::With qw/with/;
 
 with 'DBIx::QuickORM::Role::STH';
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <connection
     <dbh
     <sth

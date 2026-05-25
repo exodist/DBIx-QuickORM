@@ -3,8 +3,8 @@ use strict;
 use warnings;
 
 # Scan lib/ for STYLE_GUIDE.md "Naming and structure" violations:
-# named subs defined in object modules (use DBIx::QuickORM::Util::HashBase,
-# or `with '...'`) must be methods. A method either shifts an invokant,
+# named subs defined in object modules (use Object::HashBase, or
+# `with '...'`) must be methods. A method either shifts an invokant,
 # declares it via `my ($self, ...) = @_;`, or accesses $_[0] as the
 # invokant. Bare `sub name { ... }` with no invokant touch is a
 # function and a violation.
@@ -68,7 +68,7 @@ sub _audit_file {
     chomp @lines;
 
     my $src = join("\n", @lines);
-    return unless $src =~ /^use DBIx::QuickORM::Util::HashBase\b|^use Object::HashBase\b|^with\s+['"]|^with\s+qw/m;
+    return unless $src =~ /^use Object::HashBase\b|^with\s+['"]|^with\s+qw/m;
 
     for (my $i = 0; $i < @lines; $i++) {
         next unless $lines[$i] =~ /^sub ([a-zA-Z_][a-zA-Z0-9_]*)\s*[\({]/;

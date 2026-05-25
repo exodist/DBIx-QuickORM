@@ -8,7 +8,7 @@ use Carp qw/croak/;
 
 use DBIx::QuickORM::Connection;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <name
     +db
     <schema

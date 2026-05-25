@@ -4,7 +4,7 @@ use warnings;
 
 our $VERSION = '0.000020';
 
-use DBIx::QuickORM::Util::HashBase;
+use Object::HashBase;
 
 =pod
 

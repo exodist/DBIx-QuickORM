@@ -10,7 +10,7 @@ our $VERSION = '0.000020';
 
 use DBIx::QuickORM::Util qw/load_class find_modules/;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <dbh
     <db_name
 };

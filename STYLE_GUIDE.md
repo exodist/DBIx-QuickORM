@@ -14,9 +14,7 @@ real reason to edit it, not as a mass retro-fix pass.
 
 ## Object orientation
 
-- Use `DBIx::QuickORM::Util::HashBase` for object attributes — the
-  distribution's bundled copy of `Object::HashBase`. Use that name, not
-  `Object::HashBase` directly.
+- Use `Object::HashBase` for object attributes.
 - Slot ordering in `HashBase` is intentional; additions should
   typically go at the end unless a specific grouping is documented.
 - Use `Role::Tiny` / `Role::Tiny::With` for roles.
@@ -113,7 +111,7 @@ primitive. If you find existing code doing it, replace with
 
 ## Naming and structure
 
-- Named subroutines (ones defined in a package namespace, not anonymous subs or subs assigned to a variable) in a module that defines an object class must be methods, not functions. A class is an object module if it `use`s `DBIx::QuickORM::Util::HashBase` or composes a `Role::Tiny::With` role (i.e. matches `^use DBIx::QuickORM::Util::HashBase` or `^with ` at file scope). Imported named subs (e.g. `use Carp qw/croak/`) stay as functions; this rule applies only to subs defined in the module itself.
+- Named subroutines (ones defined in a package namespace, not anonymous subs or subs assigned to a variable) in a module that defines an object class must be methods, not functions. A class is an object module if it `use`s `Object::HashBase` or composes a `Role::Tiny::With` role (i.e. matches `^use Object::HashBase` or `^with ` at file scope). Imported named subs (e.g. `use Carp qw/croak/`) stay as functions; this rule applies only to subs defined in the module itself.
 
   Concretely, a named sub in such a module must do at least one of:
 

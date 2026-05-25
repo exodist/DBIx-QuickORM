@@ -23,7 +23,7 @@ our @EXPORT_OK = qw{
     ROW_DATA
 };
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     +connection
     +source
     +stack

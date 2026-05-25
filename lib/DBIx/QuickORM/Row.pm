@@ -20,7 +20,7 @@ use DBIx::QuickORM::Connection::RowData qw{
     TRANSACTION
 };
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     +row_data
 };
 

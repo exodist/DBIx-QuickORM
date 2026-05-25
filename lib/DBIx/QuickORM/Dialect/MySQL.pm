@@ -17,7 +17,7 @@ use DBIx::QuickORM::Schema::Table::Column;
 use DBIx::QuickORM::Schema::View;
 
 use parent 'DBIx::QuickORM::Dialect';
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     +dbi_driver
 };
 
