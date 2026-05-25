@@ -288,50 +288,14 @@ sub build_table_keys_from_db { my $self = shift; confess "Not Implemented" }
 sub build_columns_from_db    { my $self = shift; confess "Not Implemented" }
 sub build_indexes_from_db    { my $self = shift; confess "Not Implemented" }
 
-###############################################################################
-# }}} Schema Builder Code
-###############################################################################
-
-###############################################################################
-# {{{ SQL Builder Code
-###############################################################################
-
 =pod
-
-=item $sql = $dialect->build_sql_from_schema($schema, %params)
-
-Builds a full SQL string from a schema, wrapping the table SQL with optional
-C<prefix> and C<postfix> sections.
-
-=cut
-
-sub build_sql_from_schema {
-    my $self = shift;
-    my ($schema, %params) = @_;
-
-    my @sections;
-
-    push @sections => @{$params{prefix} // []};
-    push @sections => $self->build_table_sql_from_schema(@_);
-    push @sections => @{$params{postfix} // []};
-
-    return join "\n" => @sections;
-}
-
-=pod
-
-=item $sql = $dialect->build_table_sql_from_schema($schema, %params)
-
-Builds the table-creation SQL for a schema. Stub; subclasses override.
 
 =back
 
 =cut
 
-sub build_table_sql_from_schema { my $self = shift; confess "Not Implemented" }
-
 ###############################################################################
-# }}} SQL Builder Code
+# }}} Schema Builder Code
 ###############################################################################
 
 1;
