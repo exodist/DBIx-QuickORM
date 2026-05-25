@@ -29,7 +29,7 @@ subtest new_returns_v7_uuid => sub {
 
 subtest looks_like => sub {
     is($C->looks_like_uuid($SAMPLE), $SAMPLE, "looks_like_uuid returns the canonical string for a UUID");
-    is($C->looks_like_uuid(uc $SAMPLE), uc $SAMPLE, "looks_like_uuid is case-insensitive");
+    is($C->looks_like_uuid(uc $SAMPLE), $SAMPLE, "looks_like_uuid canonicalizes to lowercase");
     is($C->looks_like_uuid('not-a-uuid'), undef, "looks_like_uuid returns undef for a non-UUID");
     is($C->looks_like_uuid(''), undef, "looks_like_uuid returns undef for empty string");
 
@@ -117,13 +117,9 @@ subtest compare => sub {
     UUID::parse($SAMPLE, $bin);
     is($C->qorm_compare($SAMPLE, $bin), 0, "string and packed-binary forms of the same UUID compare equal");
 
-    # FLAG: qorm_compare is case-sensitive on the hyphenated string form.
-    # looks_like_uuid (used by qorm_inflate) returns its input verbatim and
-    # does not lowercase it, so the same UUID written in upper vs lower case
-    # inflates to two different strings and compares unequal -- even though the
-    # docs describe the inflated value as "the canonical hyphenated string
-    # form" (canonical UUID text is lowercase). See agent report.
-    isnt($C->qorm_compare($SAMPLE, uc $SAMPLE), 0, "case-sensitive: differing case currently compares unequal (flagged)");
+    # Inflation canonicalizes to lowercase, so the same UUID written in upper
+    # vs lower case compares equal.
+    is($C->qorm_compare($SAMPLE, uc $SAMPLE), 0, "differing case compares equal (canonical lowercase)");
 };
 
 subtest autotype_registration => sub {

@@ -85,10 +85,10 @@ subtest affinity_from_type => sub {
         is(affinity_from_type('Text'),         'string',  "mixed case -> string");
         is(affinity_from_type('char (5)'),     'string',  "whitespace adjacent to size group stripped");
 
-        # NOTE: only whitespace adjacent to the parenthesized size is
-        # stripped. The type name itself is not trimmed, so stray
-        # leading/trailing whitespace (with no size group) yields undef.
-        is(affinity_from_type('char '), undef, "trailing whitespace (no size group) is NOT trimmed -> undef");
+        # Surrounding whitespace on the type name is trimmed.
+        is(affinity_from_type('char '),  'string', "trailing whitespace trimmed -> string");
+        is(affinity_from_type(' char'),  'string', "leading whitespace trimmed -> string");
+        is(affinity_from_type('  char  '), 'string', "surrounding whitespace trimmed -> string");
     };
 
     subtest prefix_resolution => sub {

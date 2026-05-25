@@ -138,6 +138,8 @@ sub affinity_from_type {
 
     $type = lc($type);
     $type =~ s/\s*\(.*\)\s*$//;
+    $type =~ s/^\s+//;
+    $type =~ s/\s+$//;
 
     if ($type =~ m/^(?:tiny|medium|big|long|var)(.+)/i) {
         return $AFFINITY_BY_TYPE{$1} if $AFFINITY_BY_TYPE{$1};

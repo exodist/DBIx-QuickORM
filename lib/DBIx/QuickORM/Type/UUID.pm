@@ -130,7 +130,9 @@ sub looks_like_bin {
 
 sub looks_like_uuid {
     my $in = pop;
-    return $in if $in && $in =~ m/^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i;
+    # Return the canonical (lowercase) hyphenated form so inflation and
+    # comparison are case-insensitive and match the form produced from binary.
+    return lc($in) if $in && $in =~ m/^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i;
     return undef;
 }
 
