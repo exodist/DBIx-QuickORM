@@ -86,7 +86,7 @@ print STDERR "\n";
         DateTime::Format::Pg
         DateTime::Format::SQLite
         ExtUtils::MakeMaker
-        IO::Select
+        Hash::Merge
         Importer
         Parallel::Runner
         Role::Tiny
