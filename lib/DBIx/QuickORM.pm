@@ -1437,47 +1437,6 @@ With this ORM builder you can specify:
 
 L<DBIx::QuickORM::Manual> - Documentation hub.
 
-=head1 QUICK INTERFACE
-
-When you just have a database and want to manipulate its rows as objects
-without writing any builder DSL, use the C<quick()> class method. It
-introspects all metadata from the live database, applies any auto-types you
-ask for, and returns a ready-to-use L<DBIx::QuickORM::Connection>.
-
-    my $con = DBIx::QuickORM->quick(
-        # Provide exactly one of 'credentials' or 'connect'.
-
-        credentials => {
-            dsn   => $dsn,        # e.g. "dbi:Pg:dbname=myapp;host=..."
-            user  => $user,
-            pass  => $pass,
-            attrs => \%attrs,     # optional DBI attributes
-            dbd   => 'DBD::Pg',   # optional; otherwise taken from the dsn
-        },
-
-        # A callback returning a brand new handle each call (never cached
-        # or reused). Mutually exclusive with 'credentials'.
-        connect => sub { DBI->connect(...) },
-
-        # Type classes (under DBIx::QuickORM::Type unless fully qualified)
-        # used to auto inflate/deflate matching columns.
-        auto_types => ['JSON', 'UUID'],
-    );
-
-    my @users = $con->handle('users')->all;
-    my $user  = $con->by_id(users => 5);
-    $con->insert(users => {name => 'bob'});
-    $con->txn(sub { ... });
-
-The SQL dialect is detected automatically: from the C<dsn> scheme or the
-C<dbd> when using C<credentials>, or by probing a throwaway handle from the
-C<connect> callback. Pass an explicit C<< dialect => 'PostgreSQL' >> (etc.)
-to override detection.
-
-The returned connection self-heals: it can C<reconnect> in place and run
-work under C<auto_retry>, preserving its row cache. The originating ORM is
-reachable via C<< $con->orm >> if you need it.
-
 =head1 SYNOPSIS
 
 The common use case is to create an ORM package for your app, then use that ORM
@@ -1643,6 +1602,47 @@ C<< my $orm = orm('my_orm'); >>.
 
 See L<DBIx::QuickORM::Handle> for more details on handles, which are similar to
 ResultSets from L<DBIx::Class>.
+
+=head2 QUICK INTERFACE
+
+When you just have a database and want to manipulate its rows as objects
+without writing any builder DSL, use the C<quick()> class method. It
+introspects all metadata from the live database, applies any auto-types you
+ask for, and returns a ready-to-use L<DBIx::QuickORM::Connection>.
+
+    my $con = DBIx::QuickORM->quick(
+        # Provide exactly one of 'credentials' or 'connect'.
+
+        credentials => {
+            dsn   => $dsn,        # e.g. "dbi:Pg:dbname=myapp;host=..."
+            user  => $user,
+            pass  => $pass,
+            attrs => \%attrs,     # optional DBI attributes
+            dbd   => 'DBD::Pg',   # optional; otherwise taken from the dsn
+        },
+
+        # A callback returning a brand new handle each call (never cached
+        # or reused). Mutually exclusive with 'credentials'.
+        connect => sub { DBI->connect(...) },
+
+        # Type classes (under DBIx::QuickORM::Type unless fully qualified)
+        # used to auto inflate/deflate matching columns.
+        auto_types => ['JSON', 'UUID'],
+    );
+
+    my @users = $con->handle('users')->all;
+    my $user  = $con->by_id(users => 5);
+    $con->insert(users => {name => 'bob'});
+    $con->txn(sub { ... });
+
+The SQL dialect is detected automatically: from the C<dsn> scheme or the
+C<dbd> when using C<credentials>, or by probing a throwaway handle from the
+C<connect> callback. Pass an explicit C<< dialect => 'PostgreSQL' >> (etc.)
+to override detection.
+
+The returned connection self-heals: it can C<reconnect> in place and run
+work under C<auto_retry>, preserving its row cache. The originating ORM is
+reachable via C<< $con->orm >> if you need it.
 
 =head1 RECIPES
 
