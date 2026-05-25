@@ -148,27 +148,22 @@ subtest parse_hash_spec => sub {
     is($single->other_columns, ['user_id'], "single-key hash form fills other_columns");
 };
 
-subtest parse_scalar_ref_lookup => sub {
+subtest parse_rejects_scalar_ref => sub {
+    # A scalar ref is not a valid link spec. To look a link up by destination
+    # table name use resolve_link(table => $name) (see the resolve_link
+    # subtest); parse only builds links from hashrefs / key-value pairs.
     like(
         dies { DBIx::QuickORM::Link->parse(\'posts') },
-        qr/without an source/,
-        "scalar-ref lookup without a source croaks",
+        qr/Not sure what to do with arg/,
+        "a scalar ref is rejected by parse",
     );
 
-    # FLAG: the scalar-ref lookup branch in DBIx::QuickORM::Link::parse calls
-    # $source->links($$link), passing the table name as an argument. No source
-    # type implements a filtering links($name): Schema::Table/View expose the
-    # bare HashBase reader (which croaks on extra args) and Join::links ignores
-    # its argument. So `parse($source, \'name')` (and resolve_link(\'name'))
-    # dies on every real source. Fixing it is a design decision (define
-    # links($name) filtering semantics, or have parse filter the arrayref
-    # itself), so it is left for human review rather than guessed at here.
     my $users = DBIx::QuickORM::Schema::Table->new(name => 'users', columns => {user_id => col('user_id', 1)});
-    push @{$users->links} => link_obj(local_table => 'users', other_table => 'posts', aliases => ['posts']);
-
-    my $todo = todo "scalar-ref source lookup path is broken (links(\$name) unsupported)";
-    my $found = eval { DBIx::QuickORM::Link->parse($users, \'posts') };
-    is($found && $found->other_table, 'posts', "scalar-ref spec looks a link up on the source by table name");
+    like(
+        dies { DBIx::QuickORM::Link->parse($users, \'posts') },
+        qr/Not sure what to do with arg/,
+        "a scalar ref is rejected even with a source",
+    );
 };
 
 subtest resolve_link => sub {
@@ -181,11 +176,17 @@ subtest resolve_link => sub {
     push @{$source->links} => $by_alias, $by_cols;
 
     is($source->resolve_link($by_alias)->other_table, 'posts', "resolve_link returns an existing Link object as-is");
-    is($source->resolve_link('posts_alias')->other_table, 'posts', "resolve_link by alias");
-    is($source->resolve_link('posts')->other_table, 'posts', "resolve_link by other-table name");
+
+    # A bare string is a fuzzy lookup: alias, then table name, then key.
+    is($source->resolve_link('posts_alias')->other_table, 'posts', "fuzzy string matches an alias");
+    is($source->resolve_link('posts')->other_table, 'posts', "fuzzy string matches a table name");
+
+    # Keyword forms force a specific dimension instead of the fuzzy match.
+    is($source->resolve_link(alias => 'posts_alias')->other_table, 'posts', "keyword alias => forces an alias match");
+    is($source->resolve_link(table => 'posts')->other_table, 'posts', "keyword table => forces a destination-table match");
 
     # The by-columns path derives a key via column_key and matches against the
-    # cached per-table key index. This is the recently-fixed import path.
+    # cached per-table key index. Columns are scoped to a table.
     my $by_columns = $source->resolve_link(table => 'posts', columns => ['user_id']);
     is($by_columns->other_table, 'posts', "resolve_link by table + columns (column_key path)");
     is($by_columns->key, column_key('user_id'), "by-columns resolution matched on the column key");

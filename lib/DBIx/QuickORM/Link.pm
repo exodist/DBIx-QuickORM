@@ -190,12 +190,15 @@ sub clone {
 
 =item $link = $class->parse(@args)
 
-Build (or look up) a link from a flexible mix of arguments: schema,
-connection, and source objects, plus a link spec given as a hashref, a
-scalar ref naming a table to look up, or key/value pairs. Resolves local and
-other tables and columns, infers C<unique> from the schema when possible, and
-returns a new link (or an existing one when a lookup matches). Croaks on
-ambiguous or insufficient input.
+Build a link from a flexible mix of arguments: schema, connection, and source
+objects, plus a link spec given as a hashref or as key/value pairs. Resolves
+local and other tables and columns, infers C<unique> from the schema when
+possible, and returns a new link (or an existing one when passed a
+L<DBIx::QuickORM::Link>). Croaks on ambiguous or insufficient input.
+
+To look an existing link up by name/alias/table/columns, use
+C<< $source->resolve_link(...) >> (see L<DBIx::QuickORM::Role::Linked>) rather
+than C<parse>.
 
 =back
 
@@ -216,7 +219,6 @@ sub parse {
         }
         else {
             if ($r eq 'HASH') { $link = $item; next }
-            if ($r eq 'SCALAR') { $link = $item; next };
         }
 
         croak "Not sure what to do with arg '$item'";
@@ -229,13 +231,6 @@ sub parse {
     $connection  //= delete $params{connection};
     $source //= delete $params{source};
     $schema      //= $connection->schema if $connection;
-
-    if (ref($link) eq 'SCALAR') {
-        croak "Cannot use a table name (scalar ref: \\$$link) to lookup a link without an source" unless $source;
-        my ($out, @extra) = $source->links($$link);
-        croak "There are multiple links to table '$$link'" if @extra;
-        return $out // croak "No link to table '$$link' found";
-    }
 
     $link = { %{$link // {}}, %params };
 

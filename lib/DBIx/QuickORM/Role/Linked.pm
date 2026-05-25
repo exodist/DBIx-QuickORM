@@ -84,9 +84,20 @@ sub from {}
 =item $link = $source->resolve_link(%params)
 
 Resolve a link from a specification. Accepts an existing
-L<DBIx::QuickORM::Link> (returned as-is), a reference (parsed into a link),
-or a name/alias/table/column lookup. Croaks when the specification cannot
-be resolved or is ambiguous.
+L<DBIx::QuickORM::Link> (returned as-is), a reference (a hashref/arrayref
+parsed into a link), or a name/alias/table/column lookup. Croaks when the
+specification cannot be resolved or is ambiguous.
+
+A bare string spec is a B<fuzzy> lookup: it is matched against aliases, then
+table names, then column keys, and the first hit wins. To force a particular
+dimension, pass it by keyword instead:
+
+    $source->resolve_link(alias => 'author');           # by link alias only
+    $source->resolve_link(table => 'users');            # by destination table only
+    $source->resolve_link(table => 'users', columns => ['user_id']);  # by table + columns
+
+C<alias> and C<table> resolve standalone; C<columns> (or a precomputed
+C<key>) is scoped to a table, so pass it together with C<table>.
 
 =back
 
