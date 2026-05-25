@@ -117,15 +117,21 @@ construction arguments and supplying an already-built type object.
 
 Rather than naming a type on every column, register it with C<autotype> in the
 autofill block. The type then applies itself to any matching column the ORM
-introspects - matching on SQL type name and on column name.
+introspects, matching on the column's SQL type and on its name.
 
-    autotype 'JSON';    # Auto-apply to json/jsonb columns and columns named *json*
-    autotype 'UUID';    # Auto-apply to uuid columns and columns named *uuid*
+    autotype 'JSON';    # json/jsonb columns, and columns with "json" in the name
+    autotype 'UUID';    # uuid columns, and columns with "uuid" in the name
 
-This works because both built-in types implement C<qorm_register_type>, which
-claims the SQL types they handle and registers a name matcher (for example, any
-string column whose name contains C<json>). See L<DBIx::QuickORM/autotype> for
-the DSL reference.
+Both built-in types implement C<qorm_register_type>: they claim the SQL types
+they handle (C<json>/C<jsonb>, C<uuid>), and they register a name matcher that
+matches B<any> column whose name (or database name) B<contains> the word,
+case-insensitively - not only a column named exactly C<json> or C<uuid>. So
+C<user_uuid>, C<uuid_pk>, and C<MetaJSON> all match.
+
+That name matcher only applies to columns of the relevant affinity (JSON to
+C<string> columns; UUID to C<string> or C<binary> columns), and a recognized
+SQL type takes precedence over a name match. See L<DBIx::QuickORM/autotype>
+for the DSL reference.
 
 =head1 WRITING A CUSTOM TYPE
 
