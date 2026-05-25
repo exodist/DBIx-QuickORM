@@ -31,18 +31,14 @@ etc.), so reading and re-storing a column you never inspect costs nothing.
 Stringification always returns the original database string - it never builds
 the DateTime - so printing a value is cheap and predictable.
 
-The affinity is C<string>. The actual parse/format and the SQL type come from
-the dialect (C<datetime_formatter> and C<datetime_type>).
+The affinity is C<string>, and the parse/format comes from the dialect
+(C<datetime_formatter>).
 
 =cut
 
 sub qorm_affinity { 'string' }
 
-sub qorm_sql_type {
-    my $self = shift;
-    my ($dialect) = @_;
-    return $dialect->datetime_type;
-}
+sub qorm_sql_type { 'DATETIME' }
 
 sub qorm_inflate {
     my $params = parse_conflate_args(@_);

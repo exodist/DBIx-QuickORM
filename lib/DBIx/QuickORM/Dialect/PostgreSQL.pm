@@ -144,7 +144,6 @@ sub supports_type {
     return $TYPES{lc($type)};
 }
 
-sub datetime_type      { 'TIMESTAMP' }
 sub datetime_formatter { 'DateTime::Format::Pg' }
 
 =pod
