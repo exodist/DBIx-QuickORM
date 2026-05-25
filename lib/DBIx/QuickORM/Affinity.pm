@@ -61,8 +61,9 @@ sub compare_affinity_values {
     croak "'$affinity' is not a valid affinity" unless $VALID_AFFINITY{$affinity};
 
     # For boolean undef is false, so we do not do the undef check until after
-    # this
-    return ($vala xor $valb) if $affinity eq 'boolean';
+    # this. The result is "true if equal" to match the other affinities: two
+    # values are equal when their truthiness agrees.
+    return !($vala xor $valb) if $affinity eq 'boolean';
 
     # Both undef means equal
     return 1 if !defined($vala) && !defined($valb);
