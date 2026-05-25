@@ -14,6 +14,35 @@ our @EXPORT = qw{
     affinity_from_type
 };
 
+=pod
+
+=encoding UTF-8
+
+=head1 NAME
+
+DBIx::QuickORM::Affinity - Column affinity helpers for DBIx::QuickORM.
+
+=head1 DESCRIPTION
+
+Functions for working with column "affinities" - the broad value categories
+(C<string>, C<numeric>, C<binary>, C<boolean>) that drive type-aware
+comparison and introspection. Maps SQL type names to affinities, validates
+affinity names, and compares two values according to a given affinity.
+
+All four functions are exported by default.
+
+=head1 SYNOPSIS
+
+    use DBIx::QuickORM::Affinity;
+
+    my @all      = valid_affinities();
+    my $affinity = affinity_from_type('VARCHAR(255)');   # 'string'
+    my $ok       = validate_affinity('numeric');         # 'numeric'
+
+    my $same = compare_affinity_values('numeric', 1, 1.0);
+
+=cut
+
 my %VALID_AFFINITY = (
     string  => 'string',
     numeric => 'numeric',
@@ -117,3 +146,64 @@ sub affinity_from_type {
 }
 
 1;
+
+__END__
+
+=head1 EXPORTS
+
+=over 4
+
+=item @affinities = valid_affinities()
+
+Returns the sorted, de-duplicated list of valid affinity names.
+
+=item $affinity_or_undef = validate_affinity($affinity)
+
+Returns the affinity name if it is valid, otherwise returns nothing.
+
+=item $bool = compare_affinity_values($affinity, $a, $b)
+
+Compares two values under the given affinity and returns true when they are
+considered equal. For C<boolean>, undef is treated as false; for the other
+affinities two undefs compare equal and a defined/undef mismatch is unequal.
+Croaks when C<$affinity> is missing or not valid.
+
+=item $affinity_or_undef = affinity_from_type($type)
+
+Maps a SQL type name to an affinity. Lower-cases the type, strips any
+parenthesized size/precision, and resolves common C<tiny>/C<medium>/C<big>/
+C<long>/C<var> prefixes. Returns undef for unknown types.
+
+=back
+
+=head1 SOURCE
+
+The source code repository for DBIx::QuickORM can be found at
+L<https://github.com/exodist/DBIx-QuickORM>.
+
+=head1 MAINTAINERS
+
+=over 4
+
+=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+
+=back
+
+=head1 AUTHORS
+
+=over 4
+
+=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+
+=back
+
+=head1 COPYRIGHT
+
+Copyright Chad Granum E<lt>exodist7@gmail.comE<gt>.
+
+This program is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+See L<https://dev.perl.org/licenses/>
+
+=cut
