@@ -368,8 +368,8 @@ True if the named field is marked out of sync.
 sub field     { my $self = shift; $self->_field(_inflated_field => @_) }
 sub raw_field { my $self = shift; $self->_field(_raw_field      => @_) }
 
-sub fields     { my $d = $_[0]->row_data; $_[0]->_fields(_field     => $d->{+PENDING}, $d->{+STORED}) }
-sub raw_fields { my $d = $_[0]->row_data; $_[0]->_fields(_raw_field => $d->{+PENDING}, $d->{+STORED}) }
+sub fields     { my $d = $_[0]->row_data; $_[0]->_fields(_inflated_field => $d->{+PENDING}, $d->{+STORED}) }
+sub raw_fields { my $d = $_[0]->row_data; $_[0]->_fields(_raw_field      => $d->{+PENDING}, $d->{+STORED}) }
 
 sub stored_field  { $_[0]->_inflated_field($_[0]->row_data->{+STORED},  $_[1]) }
 sub pending_field { $_[0]->_inflated_field($_[0]->row_data->{+PENDING}, $_[1]) }
@@ -377,10 +377,10 @@ sub pending_field { $_[0]->_inflated_field($_[0]->row_data->{+PENDING}, $_[1]) }
 sub raw_stored_field  { $_[0]->_raw_field($_[0]->row_data->{+STORED},  $_[1]) }
 sub raw_pending_field { $_[0]->_raw_field($_[0]->row_data->{+PENDING}, $_[1]) }
 
-sub stored_fields      { $_[0]->_fields(_field     => $_[0]->row_data->{+STORED}) }
-sub pending_fields     { $_[0]->_fields(_field     => $_[0]->row_data->{+PENDING}) }
-sub raw_stored_fields  { $_[0]->_fields(_raw_field => $_[0]->row_data->{+STORED}) }
-sub raw_pending_fields { $_[0]->_fields(_raw_field => $_[0]->row_data->{+PENDING}) }
+sub stored_fields      { $_[0]->_fields(_inflated_field => $_[0]->row_data->{+STORED}) }
+sub pending_fields     { $_[0]->_fields(_inflated_field => $_[0]->row_data->{+PENDING}) }
+sub raw_stored_fields  { $_[0]->_fields(_raw_field      => $_[0]->row_data->{+STORED}) }
+sub raw_pending_fields { $_[0]->_fields(_raw_field      => $_[0]->row_data->{+PENDING}) }
 
 sub field_is_desynced {
     my $self = shift;

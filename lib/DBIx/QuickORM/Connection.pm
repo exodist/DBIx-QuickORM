@@ -559,8 +559,8 @@ sub txn {
 
         pop @$txns;
 
-        my $rolled_back = $txnx->rolled_back;
-        my $res         = $ok && !$rolled_back;
+        my $aborted = $txnx->aborted;
+        my $res     = $ok && !$aborted;
 
         if ($sp) {
             if   ($res) { $dialect->commit_savepoint(savepoint => $sp) }
@@ -592,6 +592,9 @@ sub txn {
         QORM_TRANSACTION: { $cb->($txn) };
         1;
     };
+
+    # The body threw - record the exception that forced the rollback.
+    $txn->set_exception($@) unless $ok;
 
     $finalize->($txn, $ok, $@);
 
@@ -811,6 +814,12 @@ Get an L<DBIx::QuickORM::Handle> object that operates on this connection. Any
 argument accepted by the C<new()> or C<handle()> methods on
 L<DBIx::QuickORM::Handle> can be provided here as arguments.
 
+B<Note:> unlike C<source()>, C<handle()> does not accept a scalar reference
+(literal SQL) directly; passing one throws. Build the source first and pass
+the object:
+
+    $con->handle($con->source(\$sql))->all;
+
 =cut
 
 sub handle {
@@ -985,7 +994,19 @@ sub state_select_row   { my $self = shift; $self->{+MANAGER}->select(connection 
 sub state_update_row   { my $self = shift; $self->{+MANAGER}->update(connection => $self, @_) }
 sub state_vivify_row   { my $self = shift; $self->{+MANAGER}->vivify(connection => $self, @_) }
 sub state_invalidate   { my $self = shift; $self->{+MANAGER}->invalidate(connection => $self, @_) }
-sub state_cache_lookup { $_[0]->{+MANAGER}->do_cache_lookup($_[1], undef, undef, $_[2]) }
+sub state_cache_lookup {
+    my $self = shift;
+    my ($in, $pk) = @_;
+
+    my $source = $self->source($in);
+
+    if (ref($pk) eq 'HASH') {
+        my $fields = $source->primary_key // [];
+        $pk = [map { $pk->{$_} } @$fields];
+    }
+
+    return $self->{+MANAGER}->do_cache_lookup($source, undef, undef, $pk);
+}
 
 ########################
 # }}} STATE OPERATIONS #

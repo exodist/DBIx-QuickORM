@@ -93,10 +93,14 @@ fully-built L<DBIx::QuickORM::Link> object. A spec may be:
 
 =item * An existing L<DBIx::QuickORM::Link> object (used as-is).
 
-=item * A name or alias the link is known by.
+=item * A bare string: a B<fuzzy> lookup matched against aliases, then table
+names, then column keys (first hit wins).
 
-=item * A reference (hashref / scalar ref) describing the link, which is
-parsed into a link.
+=item * Keyword pairs that force a specific dimension instead of the fuzzy
+match: C<< alias => $name >>, C<< table => $name >>, or
+C<< table => $name, columns => \@cols >>.
+
+=item * A hashref describing a new link, which is parsed into one.
 
 =back
 

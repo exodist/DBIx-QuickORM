@@ -33,17 +33,6 @@ garbage collected once no longer referenced.
 
     my $mgr = DBIx::QuickORM::RowManager::Cached->new(connection => $connection);
 
-=head1 ATTRIBUTES
-
-=over 4
-
-=item cache
-
-Hashref of caches keyed by source name; each value maps a primary-key cache
-key to a (weak) row reference.
-
-=back
-
 =cut
 
 sub does_cache { 1 }

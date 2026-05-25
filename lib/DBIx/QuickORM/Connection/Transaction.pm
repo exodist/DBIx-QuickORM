@@ -20,8 +20,8 @@ use Object::HashBase qw{
     <errors
     <trace
 
-    <rolled_back
-    <committed
+    exception
+    +aborted
 
     <in_destroy
     +finalize
@@ -95,12 +95,11 @@ The error(s) captured on failure.
 
 Arrayref describing where the transaction was started, used in C<throw>.
 
-=item rolled_back
+=item exception
 
-=item committed
-
-The reason / trace recorded when the transaction was rolled back or
-committed.
+The exception that forced the transaction to roll back, if any. Set when the
+transaction's body threw (or the transaction fell out of scope); undef for a
+normal commit or an explicit C<rollback>.
 
 =item in_destroy
 
@@ -154,16 +153,46 @@ sub complete { defined $_[0]->{+RESULT} }
 
 =item $str = $txn->state
 
-Returns C<committed>, C<rolled_back>, C<complete>, or C<active>.
+Returns C<active> while the transaction is open, then C<committed> or
+C<rolled_back> once it finishes. Derived from C<result>.
+
+=item $bool = $txn->committed
+
+True if the transaction committed, false if it rolled back, undef while still
+open. Derived from C<result>.
+
+=item $bool = $txn->rolled_back
+
+The inverse of C<committed>: true if it rolled back, false if it committed,
+undef while still open.
+
+=item $bool = $txn->aborted
+
+True if an explicit C<rollback> was requested on this transaction.
 
 =cut
 
+sub committed {
+    my $r = $_[0]->{+RESULT};
+    return undef unless defined $r;
+    return $r ? 1 : 0;
+}
+
+sub rolled_back {
+    my $r = $_[0]->{+RESULT};
+    return undef unless defined $r;
+    return $r ? 0 : 1;
+}
+
+# True if an explicit rollback was requested (drives the commit/rollback
+# decision in Connection::txn before the result is recorded).
+sub aborted { $_[0]->{+ABORTED} ? 1 : 0 }
+
 sub state {
     my $self = shift;
-    return 'committed'   if $self->{+COMMITTED};
-    return 'rolled_back' if $self->{+ROLLED_BACK};
-    return 'complete'    if $self->{+RESULT};
-    return 'active';
+    my $r = $self->{+RESULT};
+    return 'active' unless defined $r;
+    return $r ? 'committed' : 'rolled_back';
 }
 
 =pod
@@ -207,7 +236,7 @@ sub rollback {
         }
     }
 
-    $self->{+ROLLED_BACK} = $why;
+    $self->{+ABORTED} = 1;
 
     $self->finalize(1, $why) if $self->{+FINALIZE};
 
@@ -248,8 +277,6 @@ sub commit {
             $why = $trace;
         }
     }
-
-    $self->{+COMMITTED} = $why;
 
     $self->finalize(1) if $self->{+FINALIZE};
 
@@ -388,6 +415,7 @@ sub DESTROY {
     my @caller = caller;
     my $finalize = $self->{+FINALIZE} or return;
     $self->{+IN_DESTROY} = 1;
+    $self->set_exception("Transaction fell out of scope");
     $finalize->($self, 0, "Transaction fell out of scope");
 }
 

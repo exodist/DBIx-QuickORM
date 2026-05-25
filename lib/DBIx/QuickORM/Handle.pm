@@ -472,6 +472,17 @@ If a simple integer is provided it will be used as the query LIMIT.
 If a string is provided that does not match any other string, it will be
 asusmed to be a table name and will be used as the source.
 
+=item \$sql - NOT accepted directly
+
+A scalar reference (literal SQL) is B<not> a valid handle argument and will
+throw C<Not sure what to do with 'SCALAR(...)'>. Build the literal source
+first and pass the resulting object:
+
+    my $src = $con->source(\$sql);    # a DBIx::QuickORM::LiteralSource
+    $con->handle($src)->all;
+
+See L<DBIx::QuickORM::Connection/source> and L<DBIx::QuickORM::LiteralSource>.
+
 =item connection => $CONNECTION
 
 You can specify the connection using the C<connection> key in a key/value pair.

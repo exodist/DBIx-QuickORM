@@ -61,8 +61,9 @@ sub compare_affinity_values {
     croak "'$affinity' is not a valid affinity" unless $VALID_AFFINITY{$affinity};
 
     # For boolean undef is false, so we do not do the undef check until after
-    # this
-    return ($vala xor $valb) if $affinity eq 'boolean';
+    # this. The result is "true if equal" to match the other affinities: two
+    # values are equal when their truthiness agrees.
+    return !($vala xor $valb) if $affinity eq 'boolean';
 
     # Both undef means equal
     return 1 if !defined($vala) && !defined($valb);
@@ -137,6 +138,8 @@ sub affinity_from_type {
 
     $type = lc($type);
     $type =~ s/\s*\(.*\)\s*$//;
+    $type =~ s/^\s+//;
+    $type =~ s/\s+$//;
 
     if ($type =~ m/^(?:tiny|medium|big|long|var)(.+)/i) {
         return $AFFINITY_BY_TYPE{$1} if $AFFINITY_BY_TYPE{$1};

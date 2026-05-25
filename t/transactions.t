@@ -172,7 +172,9 @@ do_for_all_dbs {
         ok(defined($txn->result), "Result is defined");
         ok(!$txn->result, "Result is false");
         ok($txn->complete, "txn is complete");
-        is($txn->rolled_back, "${ \__FILE__ } line $line", "Recorded where the rollback happened");
+        ok($txn->rolled_back, "rolled_back is true");
+        ok(!$txn->committed, "committed is false");
+        ok(!defined($txn->exception), "no exception recorded for an explicit rollback");
 
         $warns = warnings {
             $con->txn(sub {
@@ -185,7 +187,7 @@ do_for_all_dbs {
         };
 
         is($warns, ["Transaction 'will fail 2' rolled back in ${ \__FILE__ } line $line (Cause I said so)\n"], "Got verbose warning");
-        is($txn->rolled_back, "Cause I said so in ${ \__FILE__ } line $line", "Recorded where the rollback happened");
+        ok($txn->rolled_back, "rolled_back is true");
     };
 
     subtest commit => sub {
@@ -214,7 +216,8 @@ do_for_all_dbs {
         ok(defined($txn->result), "Result is defined");
         ok($txn->result, "Result is true");
         ok($txn->complete, "txn is complete");
-        is($txn->committed, "${ \__FILE__ } line $line", "Recorded where the commit happened");
+        ok($txn->committed, "committed is true");
+        ok(!$txn->rolled_back, "rolled_back is false");
 
         $warns = warnings {
             $con->txn(sub {
@@ -227,7 +230,7 @@ do_for_all_dbs {
         };
 
         is($warns, ["Transaction 'will work 2' committed in ${ \__FILE__ } line $line (Cause I said so)\n"], "Got verbose warning");
-        is($txn->committed, "Cause I said so in ${ \__FILE__ } line $line", "Recorded where the commit happened");
+        ok($txn->committed, "committed is true");
 
     };
 
@@ -251,6 +254,7 @@ do_for_all_dbs {
 
         like($exception, qr{oops I did it again}, "Propogated exception");
         like($txn->errors, [qr{oops I did it again}], "Stored error");
+        like($txn->exception, qr{oops I did it again}, "Recorded the exception that forced the rollback");
 
         ok(!$row_e->is_valid,  "Row is not valid anymore");
         ok(!$row_e->is_stored, "Row is not in storage anymore");
