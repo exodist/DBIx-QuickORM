@@ -20,6 +20,81 @@ use Object::HashBase qw{
     <compiled
 };
 
+=pod
+
+=encoding UTF-8
+
+=head1 NAME
+
+DBIx::QuickORM::Link - A relationship between two tables.
+
+=head1 DESCRIPTION
+
+Describes a directional relationship between a local table and another table:
+the local columns, the other columns they reference, whether the relationship
+is unique on the other side, and any aliases naming it. Links are used to
+build joins and to follow related rows.
+
+A link carries a C<key> derived from its local columns, which lets two links
+describing the same relationship be merged.
+
+=head1 SYNOPSIS
+
+    my $link = DBIx::QuickORM::Link->new(
+        local_table   => 'users',
+        local_columns => ['id'],
+        other_table   => 'posts',
+        other_columns => ['user_id'],
+        unique        => 0,
+    );
+
+    my $link = DBIx::QuickORM::Link->parse($schema, \%spec);
+
+=head1 ATTRIBUTES
+
+=over 4
+
+=item local_table
+
+Name of the table the relationship is defined from.
+
+=item local_columns
+
+Arrayref of column names on the local table.
+
+=item other_table
+
+Name of the table the relationship points to.
+
+=item other_columns
+
+Arrayref of column names on the other table.
+
+=item unique
+
+True when the relationship is unique on the other side (at most one related
+row).
+
+=item key
+
+A stable key derived from the local columns, used to match links for merging.
+
+=item aliases
+
+Arrayref of names this link is known by.
+
+=item created
+
+Human-readable note of where the link was defined.
+
+=item compiled
+
+Cached compiled form of the link.
+
+=back
+
+=cut
+
 sub init {
     my $self = shift;
 
@@ -39,6 +114,20 @@ sub init {
 
     return;
 }
+
+=pod
+
+=head1 PUBLIC METHODS
+
+=over 4
+
+=item $merged = $link->merge($other)
+
+Merge another link describing the same relationship (same local table, other
+table, and columns) into a new link, combining their C<created> notes and
+aliases. Croaks if the two links do not describe the same relationship.
+
+=cut
 
 sub merge {
     my $self = shift;
@@ -70,6 +159,15 @@ sub merge {
     return bless($new, blessed($self));
 }
 
+=pod
+
+=item $copy = $link->clone(%overrides)
+
+Return a new link copied from this one, duplicating the column and alias
+arrays and dropping the compiled and created state. Any passed overrides win.
+
+=cut
+
 sub clone {
     my $self   = shift;
     my %params = @_;
@@ -86,6 +184,21 @@ sub clone {
 
     return $out;
 }
+
+=pod
+
+=item $link = $class->parse(@args)
+
+Build (or look up) a link from a flexible mix of arguments: schema,
+connection, and source objects, plus a link spec given as a hashref, a
+scalar ref naming a table to look up, or key/value pairs. Resolves local and
+other tables and columns, infers C<unique> from the schema when possible, and
+returns a new link (or an existing one when a lookup matches). Croaks on
+ambiguous or insufficient input.
+
+=back
+
+=cut
 
 sub parse {
     my $class = shift;
@@ -188,3 +301,37 @@ sub parse {
 }
 
 1;
+
+__END__
+
+=head1 SOURCE
+
+The source code repository for DBIx::QuickORM can be found at
+L<https://github.com/exodist/DBIx-QuickORM>.
+
+=head1 MAINTAINERS
+
+=over 4
+
+=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+
+=back
+
+=head1 AUTHORS
+
+=over 4
+
+=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+
+=back
+
+=head1 COPYRIGHT
+
+Copyright Chad Granum E<lt>exodist7@gmail.comE<gt>.
+
+This program is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+See L<https://dev.perl.org/licenses/>
+
+=cut
