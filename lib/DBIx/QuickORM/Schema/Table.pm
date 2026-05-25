@@ -228,15 +228,15 @@ sub init {
     $self->{+INDEXES} //= [];
 }
 
-# QuerySource role implementation
-{
-    with 'DBIx::QuickORM::Role::Source';
+# {{{ Role::Source interface
 
-    use Object::HashBase qw{
-        +fields_to_fetch
-        +fields_to_omit
-        +fields_list_all
-    };
+with 'DBIx::QuickORM::Role::Source';
+
+use Object::HashBase qw{
+    +fields_to_fetch
+    +fields_to_omit
+    +fields_list_all
+};
 
 =pod
 
@@ -260,13 +260,13 @@ True if the table has a column with the given name.
 
 =cut
 
-    sub source_db_moniker  { $_[0]->{+DB_NAME} }
-    sub source_orm_name { $_[0]->{+NAME} }
+sub source_db_moniker { $_[0]->{+DB_NAME} }
+sub source_orm_name   { $_[0]->{+NAME} }
 
-    # row_class     # In HashBase at top of file
-    # primary_key   # In HashBase at top of file
+# row_class     # In HashBase at top of file
+# primary_key   # In HashBase at top of file
 
-    sub has_field { $_[0]->{+COLUMNS}->{$_[1]} ? 1 : 0 }
+sub has_field { $_[0]->{+COLUMNS}->{$_[1]} ? 1 : 0 }
 
 =pod
 
@@ -284,9 +284,9 @@ Arrayref of all column names.
 
 =cut
 
-    sub fields_to_fetch  { $_[0]->{+FIELDS_TO_FETCH}  //= [ map { $_->name } grep { !$_->omit } values %{$_[0]->{+COLUMNS}} ] }
-    sub fields_to_omit   { $_[0]->{+FIELDS_TO_OMIT}   //= [ map { $_->name } grep { $_->omit }  values %{$_[0]->{+COLUMNS}} ] }
-    sub fields_list_all  { $_[0]->{+FIELDS_LIST_ALL}  //= [ map { $_->name }                    values %{$_[0]->{+COLUMNS}} ] }
+sub fields_to_fetch { $_[0]->{+FIELDS_TO_FETCH} //= [ map { $_->name } grep { !$_->omit } values %{$_[0]->{+COLUMNS}} ] }
+sub fields_to_omit  { $_[0]->{+FIELDS_TO_OMIT}  //= [ map { $_->name } grep { $_->omit }  values %{$_[0]->{+COLUMNS}} ] }
+sub fields_list_all { $_[0]->{+FIELDS_LIST_ALL} //= [ map { $_->name }                    values %{$_[0]->{+COLUMNS}} ] }
 
 =pod
 
@@ -297,15 +297,15 @@ no type object.
 
 =cut
 
-    sub field_type {
-        my $self = shift;
-        my ($field) = @_;
-        my $col = $self->{+COLUMNS}->{$field} or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
-        my $type = $col->type or return undef;
-        return undef if ref($type);
-        return $type if $type->DOES('DBIx::QuickORM::Role::Type');
-        return undef;
-    }
+sub field_type {
+    my $self = shift;
+    my ($field) = @_;
+    my $col = $self->{+COLUMNS}->{$field} or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
+    my $type = $col->type or return undef;
+    return undef if ref($type);
+    return $type if $type->DOES('DBIx::QuickORM::Role::Type');
+    return undef;
+}
 
 =pod
 
@@ -317,13 +317,14 @@ The affinity for a field, optionally for a specific dialect.
 
 =cut
 
-    sub field_affinity {
-        my $self = shift;
-        my ($field, $dialect) = @_;
-        my $col = $self->{+COLUMNS}->{$field} or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
-        return $col->affinity($dialect);
-    }
+sub field_affinity {
+    my $self = shift;
+    my ($field, $dialect) = @_;
+    my $col = $self->{+COLUMNS}->{$field} or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
+    return $col->affinity($dialect);
 }
+
+# }}} Role::Source interface
 
 =pod
 
