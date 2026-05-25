@@ -60,6 +60,46 @@ subtest explicit_dialect => sub {
     isa_ok($con->dialect, ['DBIx::QuickORM::Dialect::SQLite'], "explicit dialect honored");
 };
 
+subtest row_manager => sub {
+    my $def = DBIx::QuickORM->quick(credentials => {dsn => $dsn});
+    isa_ok($def->manager, ['DBIx::QuickORM::RowManager::Cached'], "default row manager is Cached");
+
+    my $plain = DBIx::QuickORM->quick(credentials => {dsn => $dsn}, row_manager => 'DBIx::QuickORM::RowManager');
+    isa_ok($plain->manager, ['DBIx::QuickORM::RowManager'], "row_manager override honored");
+    ok(!$plain->manager->does_cache, "the plain RowManager does not cache");
+
+    like(
+        dies { DBIx::QuickORM->quick(credentials => {dsn => $dsn}, row_manager => 'No::Such::Manager::XYZ') },
+        qr/Could not load row_manager/,
+        "bad row_manager class is reported",
+    );
+};
+
+subtest autorow => sub {
+    # Off by default: rows are the generic class.
+    my $off = DBIx::QuickORM->quick(credentials => {dsn => $dsn});
+    my ($u) = $off->handle('users')->all;
+    is(ref($u), 'DBIx::QuickORM::Row', "autorow off by default -> generic Row");
+
+    # autorow => 1 generates a unique namespace.
+    my $gen = DBIx::QuickORM->quick(credentials => {dsn => $dsn}, autorow => 1);
+    my ($g) = $gen->handle('users')->all;
+    like(ref($g), qr/^DBIx::QuickORM::Row::Auto\d+::Users$/, "autorow => 1 generates a row class");
+    isa_ok($g, ['DBIx::QuickORM::Row'], "generated row class isa Row");
+    is($g->name, 'bob', "generated row class has a named field accessor");
+
+    # autorow => prefix uses that namespace.
+    my $pfx = DBIx::QuickORM->quick(credentials => {dsn => $dsn}, autorow => 'My::QS::Row');
+    my ($p) = $pfx->handle('users')->all;
+    is(ref($p), 'My::QS::Row::Users', "autorow => prefix uses the given namespace");
+    is($p->name, 'bob', "prefixed row class has a named field accessor");
+
+    # Two generated namespaces do not collide.
+    my $gen2 = DBIx::QuickORM->quick(credentials => {dsn => $dsn}, autorow => 1);
+    my ($g2) = $gen2->handle('users')->all;
+    isnt(ref($g2), ref($g), "each autorow => 1 connection gets its own namespace");
+};
+
 subtest validation => sub {
     like(
         dies { DBIx::QuickORM->quick() },

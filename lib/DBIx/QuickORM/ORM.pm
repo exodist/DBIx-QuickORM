@@ -18,6 +18,7 @@ use Object::HashBase qw{
     <compiled
     cache_class
     <default_handle_class
+    <row_manager
 
     +connection
 };
@@ -85,6 +86,12 @@ Optional class used to build the per-connection cache.
 
 Optional default handle class passed through to new connections.
 
+=item row_manager
+
+Optional row manager class (or instance) passed through to new connections
+as their C<manager>. When unset the connection uses its own default
+(L<DBIx::QuickORM::RowManager::Cached>).
+
 =item connection
 
 The active connection, created lazily and cached here.
@@ -143,6 +150,8 @@ sub connect {
     $params{cache} = $self->{+CACHE_CLASS}->new() if $self->{+CACHE_CLASS};
 
     $params{+DEFAULT_HANDLE_CLASS} = $self->{+DEFAULT_HANDLE_CLASS};
+
+    $params{manager} = $self->{+ROW_MANAGER} if $self->{+ROW_MANAGER};
 
     return DBIx::QuickORM::Connection->new(%params);
 }

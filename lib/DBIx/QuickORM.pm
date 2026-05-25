@@ -184,6 +184,8 @@ sub quick {
     my $connect = delete $params{connect};
     my $types   = delete $params{auto_types} // [];
     my $dialect = delete $params{dialect};
+    my $autorow = delete $params{autorow};    # 0 = off (default), 1 = generated namespace, or a class-name prefix
+    my $row_manager = delete $params{row_manager} // 'DBIx::QuickORM::RowManager::Cached';
 
     croak "Unknown parameter(s) to quick(): " . join(', ', sort keys %params) if keys %params;
 
@@ -216,17 +218,65 @@ sub quick {
         $type_class->qorm_register_type(\%type_map, \%affinities);
     }
 
-    my $autofill = DBIx::QuickORM::Schema::Autofill->new(
-        types      => \%type_map,
-        affinities => \%affinities,
-        hooks      => {},
-        skip       => {},
-    );
+    my %autofill_args = (types => \%type_map, affinities => \%affinities, hooks => {}, skip => {});
+    if ($autorow) {
+        my $base = "$autorow" eq '1' ? $class->_generate_autorow_base : $autorow;
+        $autofill_args{autorow} = $base;
+        $autofill_args{hooks}{post_table} = [$class->_autorow_hook($base, undef, (caller)[1])];
+    }
+    my $autofill = DBIx::QuickORM::Schema::Autofill->new(%autofill_args);
+
+    load_class($row_manager) or croak "Could not load row_manager '$row_manager': $@"
+        unless ref $row_manager;
 
     require DBIx::QuickORM::ORM;
-    my $orm = DBIx::QuickORM::ORM->new(db => $db, autofill => $autofill);
+    my $orm = DBIx::QuickORM::ORM->new(db => $db, autofill => $autofill, row_manager => $row_manager);
 
     return $orm->connection;
+}
+
+sub _generate_autorow_base {
+    my $class = shift;
+    state $counter = 0;
+    $counter++;
+    return "DBIx::QuickORM::Row::Auto${counter}";
+}
+
+sub _autorow_hook {
+    my $class = shift;
+    my ($base, $name_to_class, $caller_file) = @_;
+
+    $name_to_class //= sub {
+        my $name = shift;
+        my @parts = split /_/, $name;
+        return join '' => map { ucfirst(lc($_)) } @parts;
+    };
+
+    local $@;
+    my $parent = load_class($base) // load_class('DBIx::QuickORM::Row') or die $@;
+
+    return sub {
+        my %params = @_;
+        my $autofill = $params{autofill};
+        my $table = $params{table};
+
+        my $postfix = $name_to_class->($table->{name});
+        my $package = "$base\::$postfix";
+
+        local $@;
+        load_class($package);
+
+        my $isa = do { no strict 'refs'; \@{"$package\::ISA"} };
+        push @$isa => $parent unless @$isa;
+
+        my $file = $package;
+        $file =~ s{::}{/};
+        $file .= ".pm";
+        $INC{$file} ||= $caller_file;
+
+        $table->{row_class} = $package;
+        $table->{row_class_autofill} = $autofill;
+    };
 }
 
 sub _quick_detect {
@@ -520,38 +570,9 @@ sub autorow {
 
     my $caller = $self->_caller;
 
-    $name_to_class //= sub {
-        my $name = shift;
-        my @parts = split /_/, $name;
-        return join '' => map { ucfirst(lc($_)) } @parts;
-    };
-
     $top->{autorow} = $base;
 
-    local $@;
-    my $parent = load_class($base) // load_class('DBIx::QuickORM::Row') or die $@;
-    $self->autohook(post_table => sub {
-        my %params = @_;
-        my $autofill = $params{autofill};
-        my $table = $params{table};
-
-        my $postfix = $name_to_class->($table->{name});
-        my $package = "$base\::$postfix";
-
-        local $@;
-        my $loaded = load_class($package);
-
-        my $isa = do { no strict 'refs'; \@{"$package\::ISA"} };
-        push @$isa => $parent unless @$isa;
-
-        my $file = $package;
-        $file =~ s{::}{/};
-        $file .= ".pm";
-        $INC{$file} ||= $caller->[1];
-
-        $table->{row_class} = $package;
-        $table->{row_class_autofill} = $autofill;
-    });
+    $self->autohook(post_table => $self->_autorow_hook($base, $name_to_class, $caller->[1]));
 
     return;
 }

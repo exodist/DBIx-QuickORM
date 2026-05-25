@@ -59,6 +59,37 @@ C<$con> is a L<DBIx::QuickORM::Connection>. It self-heals: it can reconnect in
 place and retry work, preserving its row cache. That is the only object you
 need to keep around.
 
+=head2 OPTIONS
+
+C<quick()> accepts a few optional affordances:
+
+=over 4
+
+=item auto_types => \@type_classes
+
+Type classes (under C<DBIx::QuickORM::Type> unless fully qualified) used to
+auto inflate/deflate matching columns. See L<DBIx::QuickORM::Manual::Types>.
+
+=item dialect => $name
+
+Force a specific dialect instead of detecting it from the DSN/driver.
+
+=item autorow => 0 | 1 | $prefix
+
+Whether to generate a row class per table (with named field and relation
+accessors). Defaults to B<0> (off - you get generic L<DBIx::QuickORM::Row>
+objects). Pass B<1> to enable it under a generated namespace, or pass a
+namespace prefix string (e.g. C<'My::Row'>) to generate classes like
+C<My::Row::Users>. See L<DBIx::QuickORM::Manual::Schema>.
+
+=item row_manager => $class_or_instance
+
+The row manager that provides per-connection row caching/identity. Defaults
+to B<C<'DBIx::QuickORM::RowManager::Cached'>>. See
+L<DBIx::QuickORM::Manual::Caching>.
+
+=back
+
 =head1 FETCH ROWS
 
 A B<handle> is the interface for talking to a table. Get one with
