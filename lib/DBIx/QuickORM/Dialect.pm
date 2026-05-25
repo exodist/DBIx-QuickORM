@@ -100,6 +100,9 @@ sub supports_returning_delete { 0 }
 
 sub supports_type { }
 
+sub datetime_type      { 'DATETIME' }
+sub datetime_formatter { my $self = shift; croak "No datetime formatter is defined for the '" . $self->dialect_name . "' dialect" }
+
 sub dialect_name {
     my $self_or_class = shift;
     my $class = blessed($self_or_class) || $self_or_class;
