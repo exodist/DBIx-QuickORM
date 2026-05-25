@@ -1495,6 +1495,9 @@ You can also compose using databases or schemas you defined previously:
         schema 'myschema1';
     };
 
+Used at the top level. Can contain C<db>, C<schema>, C<handle_class>,
+C<autofill>, plus C<alt>, C<plugin>, C<plugins>, C<meta>, and C<build_class>.
+
 =item C<< alt $VARIANT => sub { ... } >>
 
 Can be used to add variations to any builder:
@@ -1540,6 +1543,9 @@ This works in C<orm()>, C<db()>, C<schema()>, C<table()>, and C<row()> builders.
 cascade, so if you ask for the C<mysql> variant of an ORM, it will also give you
 the C<mysql> variants of the database, schema, tables and rows.
 
+Can be nested under any builder. Can contain whatever the builder it is nested
+under can contain.
+
 =item C<< db $NAME >>
 
 =item C<< db $NAME => sub { ... } >>
@@ -1569,6 +1575,10 @@ Can also be used to tell an ORM which database to use:
         db 'mydb';
         ...
     };
+
+Used at the top level, or nested under C<orm> or C<server>. Can contain
+C<driver>, C<dialect>, C<connect>, C<attributes>, C<creds>, C<dsn>, C<host>,
+C<port>, C<socket>, C<user>, C<pass>, and C<db_name>.
 
 =item C<dialect '+DBIx::QuickORM::Dialect::PostgreSQL'>
 
@@ -1629,6 +1639,8 @@ For interacting with SQLite databases.
 
 =back
 
+Can be nested under C<db> or C<server>.
+
 =item C<driver '+DBD::Pg'>
 
 =item C<driver 'Pg'>
@@ -1651,6 +1663,8 @@ B<NOTE:> DBIx::QuickORM can use either L<DBD::mysql> or L<DBD::MariaDB> to
 connect to any of the MySQL variants. It will default to L<DBD::MariaDB> if it
 is installed and you have not requested L<DBD::mysql> directly.
 
+Can be nested under C<db> or C<server>.
+
 =item C<< attributes \%HASHREF >>
 
 =item C<< attributes(attr => val, ...) >>
@@ -1671,6 +1685,8 @@ Or:
         attributes foo => 1;
     };
 
+Can be nested under C<db> or C<server>.
+
 =item C<host $HOSTNAME>
 
 =item C<hostname $HOSTNAME>
@@ -1681,6 +1697,8 @@ Provide a hostname or IP address for database connections
         host 'mydb.mydomain.com';
     };
 
+Can be nested under C<db> or C<server>.
+
 =item C<port $PORT>
 
 Provide a port number for database connection.
@@ -1689,6 +1707,8 @@ Provide a port number for database connection.
         port 1234;
     };
 
+Can be nested under C<db> or C<server>.
+
 =item C<socket $SOCKET_PATH>
 
 Provide a socket instead of a host+port
@@ -1696,6 +1716,8 @@ Provide a socket instead of a host+port
     db mydb => sub {
         socket '/path/to/db.socket';
     };
+
+Can be nested under C<db> or C<server>.
 
 =item C<user $USERNAME>
 
@@ -1707,6 +1729,8 @@ provide a database username
         user 'bob';
     };
 
+Can be nested under C<db> or C<server>.
+
 =item C<pass $PASSWORD>
 
 =item C<password $PASSWORD>
@@ -1716,6 +1740,8 @@ provide a database password
     db mydb => sub {
         pass 'hunter2'; # Do not store any real passwords in plaintext in code!!!!
     };
+
+Can be nested under C<db> or C<server>.
 
 =item C<creds sub { return \%CREDS }>
 
@@ -1728,6 +1754,8 @@ and you have a method to decrypt and read it returning it as a hash.
     db mydb => sub {
         creds sub { ... };
     };
+
+Can be nested under C<db> or C<server>.
 
 =item C<connect sub { ... }>
 
@@ -1743,6 +1771,8 @@ B<MUST NOT> cache it!
         connect sub { ... };
     };
 
+Can be nested under C<db> or C<server>.
+
 =item C<dsn $DSN>
 
 Specify the DSN used to connect to the database. If not provided then an
@@ -1752,6 +1782,8 @@ available.
     db mydb => sub {
         dsn "dbi:Pg:dbname=foo";
     };
+
+Can be nested under C<db> or C<server>.
 
 =item C<< server $NAME => sub { ... } >>
 
@@ -1790,6 +1822,10 @@ Example:
         ...;
     };
 
+Used at the top level. Can contain C<db> plus the same connection settings a
+C<db> can contain (C<driver>, C<dialect>, C<connect>, C<attributes>, C<creds>,
+C<dsn>, C<host>, C<port>, C<socket>, C<user>, C<pass>).
+
 =item C<< schema $NAME => sub { ... } >>
 
 =item C<< $schema = schema($NAME) >>
@@ -1827,6 +1863,9 @@ it adds it to the ORM class.
         db(...);
     };
 
+Used at the top level, or nested under C<orm>. Can contain C<table>, C<view>,
+C<tables>, C<row_class>, C<sql>, and C<link>.
+
 =item C<< table $NAME => sub { ... } >>
 
 =item C<< table $CLASS >>
@@ -1857,6 +1896,28 @@ appears in the name.  Otherwise it assumes you are defining a new table.
 This means it is not possible to load top-level packages as table classes,
 which is a feature, not a bug.
 
+Can be nested under C<schema>. Can contain C<column>, C<columns>,
+C<primary_key>, C<unique>, C<index>, C<db_name>, C<row_class>, C<sql>, and
+C<link>.
+
+=item C<< view $NAME => sub { ... } >>
+
+=item C<< view $CLASS >>
+
+=item C<< view $CLASS => sub { ... } >>
+
+Used to define a view, or load a view class. Behaves exactly like C<table>
+above, but produces a view instead of a table.
+
+    schema my_schema => sub {
+        view active_users => sub {
+            column id   => sub { ... };
+            column name => sub { ... };
+        };
+    };
+
+Can be nested under C<schema>. Can contain the same things as C<table>.
+
 =item C<tables 'Table::Namespace'>
 
 Used to load all tables in the specified namespace:
@@ -1865,6 +1926,8 @@ Used to load all tables in the specified namespace:
         # Load My::Table::Foo, My::Table::Bar, etc.
         tables 'My::Table';
     };
+
+Can be nested under C<schema>.
 
 =item C<row_class '+My::Row::Class'>
 
@@ -1900,6 +1963,8 @@ In a table class:
         row_class '+My::Row::Class';
     };
 
+Can be nested under C<table> or C<schema>.
+
 =item C<db_name $NAME>
 
 Sometimes you want the ORM to use one name for a table or database, but the
@@ -1919,6 +1984,8 @@ orm from its actual name on the server:
     db theapp => sub {    # Name in the orm
         db_name 'myapp'    # Actual name on the server;
     };
+
+Can be nested under C<table> or C<db>.
 
 =item C<< column NAME => sub { ... } >>
 
@@ -1945,6 +2012,10 @@ Another simple way to do everything above:
 
     column foo => ('not_null', 'identity', \'BIGINT');
 
+Can be nested under C<table>. Can contain C<omit>, C<nullable>, C<not_null>,
+C<identity>, C<affinity>, C<type>, C<sql>, C<default>, C<primary_key>,
+C<unique>, and C<link>.
+
 =item C<omit>
 
 When set on a column, the column will be omitted from C<SELECT>s by default. When
@@ -1959,6 +2030,8 @@ In a non-void context it will return the string C<omit> for use in a column
 specification without a builder.
 
     column bar => omit();
+
+Can be nested under C<column>.
 
 =item C<nullable()>
 
@@ -1990,6 +2063,8 @@ builder.
     column foo => nullable();
     column bar => not_null();
 
+Can be nested under C<column>.
+
 =item C<identity()>
 
 =item C<identity(1)>
@@ -2015,6 +2090,8 @@ is provided.
 
     column foo => identity();
 
+Can be nested under C<column>.
+
 =item C<affinity('string')>
 
 =item C<affinity('numeric')>
@@ -2035,6 +2112,8 @@ is only useful for checking for typos as it will throw an exception if you use
 an invalid affinity type.
 
     column foo => affinity('string');
+
+Can be nested under C<column>.
 
 =item C<< type(\$sql) >>
 
@@ -2065,6 +2144,8 @@ In scalar context this will return the constructed type object.
 
     column foo => type('MyType');
 
+Can be nested under C<column>.
+
 =item C<< sql($sql) >>
 
 =item C<< sql(infix => $sql) >>
@@ -2082,6 +2163,8 @@ Infix will prevent the typical SQL from being generated, the infix will be used
 instead.
 
 If no *fix is specified then C<infix> is assumed.
+
+Can be nested under C<schema>, C<table>, or C<column>.
 
 =item C<default(\$sql)>
 
@@ -2114,6 +2197,8 @@ In the above cases they return:
     (sql_default => "NOW()")
     (perl_default => sub { 123 })
 
+Can be nested under C<column>.
+
 =item C<columns(@names)>
 
 =item C<columns(@names, \%attrs)>
@@ -2122,6 +2207,8 @@ In the above cases they return:
 
 Define multiple columns at a time. If any attrs hashref or sub builder are
 specified they will be applied to B<all> provided column names.
+
+Can be nested under C<table>.
 
 =item C<primary_key>
 
@@ -2147,6 +2234,8 @@ Or to make a single column the primary key:
         };
     };
 
+Can be nested under C<table> or C<column>.
+
 =item C<unique>
 
 =item C<unique(@COLUMNS)>
@@ -2171,6 +2260,53 @@ Or to make a single column unique:
         };
     };
 
+Can be nested under C<table> or C<column>.
+
+=item C<< index $NAME => \@COLUMNS >>
+
+=item C<< index $NAME => \@COLUMNS, \%PARAMS >>
+
+=item C<< my $index = index(...) >>
+
+Define an index on a table. Pass the index name, an arrayref of columns, and an
+optional hashref of extra parameters.
+
+    table mytable => sub {
+        column a => sub { ... };
+        column b => sub { ... };
+
+        index my_idx => ['a', 'b'];
+    };
+
+In a non-void context it returns the index hashref instead of attaching it to
+the table.
+
+Can be nested under C<table>.
+
+=item C<< link \@LOCAL => \@OTHER >>
+
+=item C<< link [$table => \@columns] >>
+
+Define a foreign-key style link/relationship. The exact arguments depend on
+context: under a C<schema> you provide both the local and the foreign side;
+under a C<column> the local side is taken to be the current column and you
+provide only the side being linked to.
+
+    # In a schema, linking two tables:
+    schema my_schema => sub {
+        ...
+        link ['foo', ['foo_id']] => ['bar', ['id']];
+    };
+
+    # In a column, linking just this column:
+    table foo => sub {
+        column bar_id => sub {
+            link ['bar', ['id']];
+        };
+    };
+
+Can be nested under C<schema> or C<column>.
+
 =item C<build_class $CLASS>
 
 Use this to override the class being built by a builder.
@@ -2180,6 +2316,8 @@ Use this to override the class being built by a builder.
 
         ...
     };
+
+Can be nested under any builder.
 
 =item C<my $meta = meta>
 
@@ -2191,6 +2329,8 @@ Get the current builder meta hashref
         # This is what db_name('foo') would do!
         $meta->{name} = 'foo';
     };
+
+Can be nested under any builder.
 
 =item C<< plugin '+My::Plugin' >>
 
@@ -2221,6 +2361,8 @@ Or provide construction args:
     plugin '+My::Plugin' => (foo => 1, bar => 2);
     plugin '+MyPlugin'   => {foo => 1, bar => 2};
 
+Can be used at the top level or nested under any builder.
+
 =item C<< $plugins = plugins() >>
 
 =item C<< plugins '+My::Plugin', 'MyPlugin' => \%ARGS, My::Plugin->new(...), ... >>
@@ -2230,6 +2372,25 @@ used as construction arguments.
 
 Can also be used with no arguments to return an arrayref of all active plugins
 for the current scope.
+
+Can be used at the top level or nested under any builder.
+
+=item C<handle_class '+My::Handle::Class'>
+
+=item C<handle_class 'MyHandleClass'>
+
+Set the default handle class for the ORM. Handles are the objects returned when
+you query the ORM for rows.
+
+If the class name has a plus C<+> it will be stripped off and the class name
+will not be altered further. If there is no C<+> then C<DBIx::QuickORM::Handle>
+is assumed.
+
+    orm my_orm => sub {
+        handle_class '+My::Handle::Class';
+    };
+
+Can be nested under C<orm>.
 
 =item C<< autofill() >>
 
@@ -2270,6 +2431,9 @@ a subref and call them:
         autohook HOOK => sub { ... };           # Run behavior at specific hook points
     };
 
+Can be nested under C<orm>. Can contain C<autotype>, C<autoskip>, C<autorow>,
+C<autoname>, and C<autohook>.
+
 =item C<autotype $TYPE_CLASS>
 
 =item C<autotype 'JSON'>
@@ -2284,11 +2448,15 @@ Load custom L<DBIx::QuickORM::Type> subclasses. If a column is found with the
 right type then the type class will be used to inflate/deflate the values
 automatically.
 
+Can be nested under C<autofill>.
+
 =item C<autoskip table => qw/table1 table2 .../>
 
 =item C<autoskip column => qw/col1 col2 .../>
 
 Skip defining schema entries for the specified tables or columns.
+
+Can be nested under C<autofill>.
 
 =item C<autorow 'My::App::Row'>
 
@@ -2300,6 +2468,8 @@ a F<My/App/Row/TABLE.pm> file it will be loaded as well.
 If you define a C<My::App::Row> class it will be loaded and all table rows will
 use it as a base class. If no such class is found the new classes will use
 L<DBIx::QuickORM::Row> as a base class.
+
+Can be nested under C<autofill>.
 
 =item C<< autoname link_accessor => sub { ... } >>
 
@@ -2363,9 +2533,13 @@ You can also set aliases for links before they are constructed:
         return $alias;
     };
 
+Can be nested under C<autofill>.
+
 =item C<autohook HOOK => sub { my %params = @_; ... }>
 
 See L<DBIx::QuickORM::Schema::Autofill> for a list of hooks and their params.
+
+Can be nested under C<autofill>.
 
 =back
 
