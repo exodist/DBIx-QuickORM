@@ -814,6 +814,12 @@ Get an L<DBIx::QuickORM::Handle> object that operates on this connection. Any
 argument accepted by the C<new()> or C<handle()> methods on
 L<DBIx::QuickORM::Handle> can be provided here as arguments.
 
+B<Note:> unlike C<source()>, C<handle()> does not accept a scalar reference
+(literal SQL) directly; passing one throws. Build the source first and pass
+the object:
+
+    $con->handle($con->source(\$sql))->all;
+
 =cut
 
 sub handle {

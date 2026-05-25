@@ -38,14 +38,18 @@ sub new {
     my $class = shift;
     my ($literal) = @_;
 
-    unless (ref($literal)) {
-        my $sql = $literal;
-        $literal = \$sql;
+    my $sql;
+    if (my $ref = ref($literal)) {
+        croak "'$literal' is not a scalar reference" unless $ref eq 'SCALAR';
+        $sql = $$literal;
+    }
+    else {
+        $sql = $literal;
     }
 
-    croak "'$literal' is not a scalar reference" unless ref($literal) eq 'SCALAR';
-
-    return bless($literal, $class);
+    # Bless a fresh scalar ref; never bless the caller's ref in place (doing so
+    # would turn their \$sql into a LiteralSource behind their back).
+    return bless(\$sql, $class);
 }
 
 # {{{ Role::Source interface

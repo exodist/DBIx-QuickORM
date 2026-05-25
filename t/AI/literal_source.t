@@ -21,12 +21,14 @@ subtest construction => sub {
     is($str->source_db_moniker, "SELECT * FROM users",
         "source_db_moniker returns the SQL verbatim when built from a string");
 
-    # An existing scalar reference is used as-is.
+    # An existing scalar reference is copied, not blessed in place.
     my $sql = "SELECT 1 AS a";
     my $ref = DBIx::QuickORM::LiteralSource->new(\$sql);
     isa_ok($ref, ['DBIx::QuickORM::LiteralSource'], "constructed from a scalar reference");
     is($ref->source_db_moniker, "SELECT 1 AS a",
         "source_db_moniker returns the referenced SQL");
+    ok(!ref($sql), "new() does not bless the caller's scalar ref in place");
+    is($sql, "SELECT 1 AS a", "caller's variable is left untouched");
 
     # Non-scalar references are rejected.
     like(dies { DBIx::QuickORM::LiteralSource->new({}) },
@@ -91,6 +93,15 @@ subtest query_through_connection => sub {
         [sort map { $_->{surname} } @rows],
         ['jones', 'smith'],
         "rows came back from the literal source query",
+    );
+
+    # Documented contract: handle() does NOT accept a scalar ref directly the
+    # way source() does; you must build the source first. (See the POD for
+    # Connection::handle and Handle's constructor args.)
+    like(
+        dies { $con->handle(\$sql) },
+        qr/Not sure what to do with 'SCALAR/,
+        "handle(\\\$sql) throws; build the source first via source(\\\$sql)",
     );
 };
 
