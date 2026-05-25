@@ -4,7 +4,6 @@ use warnings;
 
 our $VERSION = '0.000020';
 
-use List::Util qw/first/;
 use DBIx::QuickORM::Util qw/load_class/;
 
 use Object::HashBase qw{

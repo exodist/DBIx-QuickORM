@@ -6,7 +6,7 @@ our $VERSION = '0.000020';
 
 use Carp qw/croak/;
 
-use base 'Exporter';
+use parent 'Exporter';
 our @EXPORT = qw{
     valid_affinities
     validate_affinity

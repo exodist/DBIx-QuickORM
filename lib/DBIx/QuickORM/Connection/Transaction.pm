@@ -215,7 +215,7 @@ sub rollback {
 
     no warnings 'exiting';
     last QORM_TRANSACTION;
-};
+}
 
 =pod
 
