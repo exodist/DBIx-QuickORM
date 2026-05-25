@@ -144,6 +144,8 @@ sub supports_type {
     return $TYPES{lc($type)};
 }
 
+sub datetime_formatter { 'DateTime::Format::Pg' }
+
 =pod
 
 =item $version = $dialect->db_version

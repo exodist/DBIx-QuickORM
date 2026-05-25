@@ -82,6 +82,8 @@ MySQL family cannot cancel an in-flight async query.
 
 =cut
 
+sub datetime_formatter     { 'DateTime::Format::MySQL' }
+
 sub async_supported        { 1 }
 sub async_cancel_supported { 0 }
 sub async_prepare_args     { my ($self, %params) = @_; $self->dbi_driver eq 'DBD::mysql' ? (async => 1) : (mariadb_async => 1) }

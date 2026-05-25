@@ -94,6 +94,8 @@ sub latest_ver   { 1 }
 sub dbi_driver   { 'DBD::SQLite' }
 sub dialect_name { 'SQLite' }
 
+sub datetime_formatter { 'DateTime::Format::SQLite' }
+
 sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }
 sub supports_returning_delete { 1 }

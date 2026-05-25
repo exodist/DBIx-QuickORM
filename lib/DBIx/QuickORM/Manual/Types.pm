@@ -72,7 +72,7 @@ L<DBIx::QuickORM::Affinity>.
 
 =head1 BUILT-IN TYPES
 
-DBIx::QuickORM ships two type classes.
+DBIx::QuickORM ships three type classes.
 
 =head2 JSON
 
@@ -91,6 +91,27 @@ uses a native C<uuid> type when available, otherwise C<VARCHAR(36)>.
 
 C<< DBIx::QuickORM::Type::UUID->new >> returns a fresh v7 UUID string, which
 makes it convenient as a Perl C<default> for a UUID column.
+
+=head2 DATETIME
+
+L<DBIx::QuickORM::Type::DateTime> handles date/time columns. Its affinity is
+C<string>, and the parse/format and SQL type come from the dialect.
+
+It is B<lazy>: the inflated value is a L<DBIx::QuickORM::Util::Mask> wrapping a
+L<DateTime>, and the DateTime is not built until you actually use it (call a
+method, do arithmetic, etc.). Reading a row and writing it back without
+inspecting the column costs nothing - deflation of an untouched value returns
+the original database string with no parsing.
+
+Stringification always returns the original database string and never builds
+the DateTime, so printing a value is cheap:
+
+    my $dt = $row->field('created');
+    print "$dt\n";        # the db string, e.g. "2026-05-24 12:00:00" - nothing parsed
+    my $year = $dt->year; # builds the DateTime now, then delegates
+
+The mask also keeps the (large) DateTime out of L<Data::Dumper> output and
+L<Carp> stack traces. See L<DBIx::QuickORM::Util::Mask>.
 
 =head1 APPLYING A TYPE TO A COLUMN
 
@@ -119,19 +140,24 @@ Rather than naming a type on every column, register it with C<autotype> in the
 autofill block. The type then applies itself to any matching column the ORM
 introspects, matching on the column's SQL type and on its name.
 
-    autotype 'JSON';    # json/jsonb columns, and columns with "json" in the name
-    autotype 'UUID';    # uuid columns, and columns with "uuid" in the name
+    autotype 'JSON';     # json/jsonb columns, and columns with "json" in the name
+    autotype 'UUID';     # uuid columns, and columns with "uuid" in the name
+    autotype 'DateTime'; # date/time/datetime/timestamp columns (matched by SQL type)
 
-Both built-in types implement C<qorm_register_type>: they claim the SQL types
-they handle (C<json>/C<jsonb>, C<uuid>), and they register a name matcher that
-matches B<any> column whose name (or database name) B<contains> the word,
+Each built-in type implements C<qorm_register_type> to say which columns it
+claims. JSON and UUID match by B<column name>: they register a matcher that
+catches B<any> column whose name (or database name) B<contains> the word,
 case-insensitively - not only a column named exactly C<json> or C<uuid>. So
-C<user_uuid>, C<uuid_pk>, and C<MetaJSON> all match.
+C<user_uuid>, C<uuid_pk>, and C<MetaJSON> all match. That name matcher only
+applies to columns of the relevant affinity (JSON to C<string> columns; UUID
+to C<string> or C<binary> columns).
 
-That name matcher only applies to columns of the relevant affinity (JSON to
-C<string> columns; UUID to C<string> or C<binary> columns), and a recognized
-SQL type takes precedence over a name match. See L<DBIx::QuickORM/autotype>
-for the DSL reference.
+DateTime instead matches by B<SQL type> (C<datetime>/C<timestamp>/
+C<timestamptz>/C<date>/C<time>/C<year>, including variants like C<timestamp
+without time zone>); it does not match on column name.
+
+In all cases a recognized SQL type takes precedence over a name match. See
+L<DBIx::QuickORM/autotype> for the DSL reference.
 
 =head1 WRITING A CUSTOM TYPE
 
