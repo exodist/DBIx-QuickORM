@@ -94,7 +94,7 @@ from). Resolve anything they turn up, then re-run the test suite.
    Common slips: `eval` patterns (always check the return value,
    never raw `$@`), `croak` vs `die`, `//=` for defaults,
    `Time::HiRes::sleep` for sub-second waits,
-   `DBIx::QuickORM::Util::HashBase` slot ordering, no trailing whitespace, and the "named subs in
+   `Object::HashBase` slot ordering, no trailing whitespace, and the "named subs in
    object modules must be methods, not functions" rule (see
    `STYLE_GUIDE.md` "Naming and structure"). Run
    `perl agent_scripts/audit-methods-not-functions lib` and resolve
@@ -257,10 +257,9 @@ guide; walk it before declaring work ready for review.
 The full spec will live in `ARCHITECTURE.md`. Foundational rules an
 agent must internalise before writing any code:
 
-- **`DBIx::QuickORM::Util::HashBase` for objects; `Role::Tiny` for
+- **`Object::HashBase` for objects; `Role::Tiny` for
   roles.** They compose — `HashBase` may be used inside roles and used
-  by consumers of roles that use it. `HashBase` is the distribution's
-  bundled copy of `Object::HashBase`; use that name.
+  by consumers of roles that use it.
 - **`parent` for inheritance, not `base`.**
 - **No `DBIx::Class`.** The row layer is hand-written SQL on `DBI`
   (optionally aided by `SQL::Abstract`).

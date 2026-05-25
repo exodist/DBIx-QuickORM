@@ -13,11 +13,41 @@ with 'DBIx::QuickORM::Role::Type';
 
 use Cpanel::JSON::XS qw/decode_json/;
 
-my $JSON = Cpanel::JSON::XS->new->utf8(1)->convert_blessed(1)->allow_nonref(1);
-sub JSON { $JSON }
+=pod
 
+=encoding UTF-8
+
+=head1 NAME
+
+DBIx::QuickORM::Type::JSON - JSON inflate/deflate type.
+
+=head1 DESCRIPTION
+
+A L<DBIx::QuickORM::Role::Type> implementation that stores Perl data
+structures as JSON. Inflation decodes the stored JSON to a Perl reference;
+deflation encodes a reference back to JSON. Comparison is done on a
+canonical encoding so structurally identical values compare equal.
+
+The affinity is C<string>. C<qorm_sql_type> prefers a native C<jsonb>/
+C<json> column type and falls back to C<longtext>/C<text>.
+
+When registered for autofill (C<qorm_register_type>) this type claims the
+C<json>/C<jsonb> SQL types and any string column whose name contains
+"json".
+
+=cut
+
+# {{{ Shared JSON encoders
+
+my $JSON  = Cpanel::JSON::XS->new->utf8(1)->convert_blessed(1)->allow_nonref(1);
 my $CJSON = Cpanel::JSON::XS->new->utf8(1)->convert_blessed(1)->allow_nonref(1)->canonical(1);
-sub CJSON { $CJSON }
+
+sub JSON  { shift; $JSON }
+sub CJSON { shift; $CJSON }
+
+# }}} Shared JSON encoders
+
+sub qorm_affinity { 'string' }
 
 sub qorm_inflate {
     my $params = parse_conflate_args(@_);
@@ -62,8 +92,6 @@ sub qorm_compare {
     return $a cmp $b;
 }
 
-sub qorm_affinity { 'string' }
-
 sub qorm_sql_type {
     my $self = shift;
     my ($dialect) = @_;
@@ -95,3 +123,37 @@ sub qorm_register_type {
 }
 
 1;
+
+__END__
+
+=head1 SOURCE
+
+The source code repository for DBIx::QuickORM can be found at
+L<https://github.com/exodist/DBIx-QuickORM>.
+
+=head1 MAINTAINERS
+
+=over 4
+
+=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+
+=back
+
+=head1 AUTHORS
+
+=over 4
+
+=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+
+=back
+
+=head1 COPYRIGHT
+
+Copyright Chad Granum E<lt>exodist7@gmail.comE<gt>.
+
+This program is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+See L<https://dev.perl.org/licenses/>
+
+=cut

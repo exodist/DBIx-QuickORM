@@ -6,7 +6,7 @@ our $VERSION = '0.000020';
 
 use Carp qw/croak confess/;
 
-use DBIx::QuickORM::Util::HashBase qw{
+use Object::HashBase qw{
     <id
     +savepoint
 
@@ -29,6 +29,103 @@ use DBIx::QuickORM::Util::HashBase qw{
     no_last
 };
 
+=pod
+
+=encoding UTF-8
+
+=head1 NAME
+
+DBIx::QuickORM::Connection::Transaction - One transaction or savepoint on a
+DBIx::QuickORM connection.
+
+=head1 DESCRIPTION
+
+Represents a single transaction (or savepoint) and the callbacks queued
+against it. C<commit> and C<rollback> record the outcome and break out of the
+enclosing C<QORM_TRANSACTION> loop; C<terminate> records the final result and
+fires the queued success / fail / completion callbacks. An optional finalize
+callback runs when the transaction completes or, as a safety net, when the
+object is destroyed while still pending.
+
+=head1 SYNOPSIS
+
+    QORM_TRANSACTION: {
+        my $txn = DBIx::QuickORM::Connection::Transaction->new(id => $id);
+        $txn->add_success_callback(sub { ... });
+        ...
+        $txn->commit;
+    }
+
+=head1 ATTRIBUTES
+
+=over 4
+
+=item id
+
+The transaction identifier (required).
+
+=item savepoint
+
+True when this represents a savepoint rather than a top-level transaction.
+
+=item on_success
+
+=item on_fail
+
+=item on_completion
+
+Callback queues (arrayrefs, or a single coderef normalized to one) fired by
+C<terminate>. Success or fail callbacks run depending on the outcome,
+followed by completion callbacks in both cases.
+
+=item verbose
+
+When true, C<commit> / C<rollback> warn a trace line. A string longer than
+one character is used as the transaction name in that warning.
+
+=item result
+
+Undef while open; 1 on success, 0 on failure once terminated.
+
+=item errors
+
+The error(s) captured on failure.
+
+=item trace
+
+Arrayref describing where the transaction was started, used in C<throw>.
+
+=item rolled_back
+
+=item committed
+
+The reason / trace recorded when the transaction was rolled back or
+committed.
+
+=item in_destroy
+
+True while finalize runs from C<DESTROY>.
+
+=item finalize
+
+The finalize callback, if set.
+
+=item no_last
+
+When true, C<commit> / C<rollback> skip the C<last QORM_TRANSACTION> jump.
+
+=back
+
+=head1 PUBLIC METHODS
+
+=over 4
+
+=item $bool = $txn->is_savepoint
+
+True when this is a savepoint.
+
+=cut
+
 sub is_savepoint { $_[0]->{+SAVEPOINT} ? 1 : 0 }
 
 sub init {
@@ -43,7 +140,23 @@ sub init {
     $self->{+ON_COMPLETION} = [$self->{+ON_COMPLETION}] if 'CODE' eq ref($self->{+ON_COMPLETION});
 }
 
+=pod
+
+=item $bool = $txn->complete
+
+True once a result has been recorded.
+
+=cut
+
 sub complete { defined $_[0]->{+RESULT} }
+
+=pod
+
+=item $str = $txn->state
+
+Returns C<committed>, C<rolled_back>, C<complete>, or C<active>.
+
+=cut
 
 sub state {
     my $self = shift;
@@ -52,6 +165,22 @@ sub state {
     return 'complete'    if $self->{+RESULT};
     return 'active';
 }
+
+=pod
+
+=item $txn->rollback
+
+=item $txn->rollback($why)
+
+=item $txn->abort
+
+=item $txn->abort($why)
+
+Records the rollback (optionally with a reason), runs finalize when set, and
+breaks out of the enclosing C<QORM_TRANSACTION> loop unless C<no_last> is set.
+C<abort> is an alias for C<rollback>.
+
+=cut
 
 {
     no warnings 'once';
@@ -86,7 +215,18 @@ sub rollback {
 
     no warnings 'exiting';
     last QORM_TRANSACTION;
-};
+}
+
+=pod
+
+=item $txn->commit
+
+=item $txn->commit($why)
+
+Records the commit (optionally with a reason), runs finalize when set, and
+breaks out of the enclosing C<QORM_TRANSACTION> loop unless C<no_last> is set.
+
+=cut
 
 sub commit {
     my $self = shift;
@@ -119,6 +259,17 @@ sub commit {
     last QORM_TRANSACTION;
 }
 
+=pod
+
+=item ($ok, $errors) = $txn->terminate($res, $err)
+
+Records the final result, clears the callback queues and savepoint, then runs
+the success-or-fail callbacks followed by the completion callbacks. Returns a
+list: a boolean for whether all callbacks succeeded, and an arrayref of any
+callback errors (undef when none).
+
+=cut
+
 sub terminate {
     my $self = shift;
     my ($res, $err) = @_;
@@ -147,6 +298,19 @@ sub terminate {
     return ($out, $out_err);
 }
 
+=pod
+
+=item $txn->add_success_callback($cb)
+
+=item $txn->add_fail_callback($cb)
+
+=item $txn->add_completion_callback($cb)
+
+Queue a callback to run from C<terminate> on success, on failure, or in both
+cases respectively.
+
+=cut
+
 sub add_success_callback {
     my $self = shift;
     my ($cb) = @_;
@@ -165,6 +329,15 @@ sub add_completion_callback {
     push @{$self->{+ON_COMPLETION} //= []} => $cb;
 }
 
+=pod
+
+=item $txn->throw($err)
+
+Confesses with C<$err> annotated by where the transaction was started, noting
+when the throw happens during C<DESTROY>.
+
+=cut
+
 sub throw {
     my $self = shift;
     my ($err) = @_;
@@ -176,12 +349,31 @@ sub throw {
     confess $err;
 }
 
+=pod
+
+=item $txn->set_finalize($cb)
+
+Sets the finalize callback.
+
+=cut
+
 sub set_finalize {
     my $self = shift;
     my ($cb) = @_;
 
     $self->{+FINALIZE} = $cb;
 }
+
+=pod
+
+=item $ok = $txn->finalize($ok, $err)
+
+Runs and clears the finalize callback, passing it the transaction, C<$ok>,
+and C<$err>; returns C<$ok>. Croaks when there is no finalize callback set.
+
+=back
+
+=cut
 
 sub finalize {
     my $self = shift;
@@ -200,3 +392,37 @@ sub DESTROY {
 }
 
 1;
+
+__END__
+
+=head1 SOURCE
+
+The source code repository for DBIx::QuickORM can be found at
+L<https://github.com/exodist/DBIx-QuickORM>.
+
+=head1 MAINTAINERS
+
+=over 4
+
+=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+
+=back
+
+=head1 AUTHORS
+
+=over 4
+
+=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+
+=back
+
+=head1 COPYRIGHT
+
+Copyright Chad Granum E<lt>exodist7@gmail.comE<gt>.
+
+This program is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+See L<https://dev.perl.org/licenses/>
+
+=cut

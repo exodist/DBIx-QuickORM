@@ -584,8 +584,7 @@ column-set fingerprint used for keys and uniqueness), `parse_conflate_args`
 (normalizes the flexible argument shapes accepted by type inflate/deflate,
 deriving affinity from the source when absent), and `debug`.
 
-`DBIx::QuickORM::Util::HashBase` is the distribution's bundled, generated
-copy of `Object::HashBase`; it is the object base used throughout (see
+`Object::HashBase` is the object base used throughout (see
 `STYLE_GUIDE.md`).
 
 ---
