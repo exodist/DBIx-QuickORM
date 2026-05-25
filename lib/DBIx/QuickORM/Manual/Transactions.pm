@@ -165,7 +165,22 @@ A L<DBIx::QuickORM::Connection::Transaction> exposes its state:
 
 =item $txn->state
 
-Returns one of C<active>, C<committed>, C<rolled_back>, or C<complete>.
+Returns one of C<active>, C<committed>, or C<rolled_back>. Derived from
+C<result>.
+
+=item $txn->committed
+
+=item $txn->rolled_back
+
+True/false/undef booleans derived from C<result>: C<committed> is true after a
+successful commit, C<rolled_back> is its inverse, and both return undef while
+the transaction is still open.
+
+=item $txn->exception
+
+The exception that forced a rollback, if any. Set when the transaction body
+threw or the object fell out of scope; undef for a normal commit or an explicit
+C<rollback>.
 
 =item $txn->is_savepoint
 

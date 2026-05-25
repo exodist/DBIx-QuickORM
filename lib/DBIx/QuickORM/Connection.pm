@@ -559,8 +559,8 @@ sub txn {
 
         pop @$txns;
 
-        my $rolled_back = $txnx->rolled_back;
-        my $res         = $ok && !$rolled_back;
+        my $aborted = $txnx->aborted;
+        my $res     = $ok && !$aborted;
 
         if ($sp) {
             if   ($res) { $dialect->commit_savepoint(savepoint => $sp) }
@@ -592,6 +592,9 @@ sub txn {
         QORM_TRANSACTION: { $cb->($txn) };
         1;
     };
+
+    # The body threw - record the exception that forced the rollback.
+    $txn->set_exception($@) unless $ok;
 
     $finalize->($txn, $ok, $@);
 

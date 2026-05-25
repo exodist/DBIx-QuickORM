@@ -53,11 +53,11 @@ subtest commit_persists => sub {
 
     ok(!$con->in_txn,      "in_txn false after commit");
     ok(!$con->current_txn, "current_txn cleared after commit");
-    # An implicit commit (action returned normally) records a result but does
-    # not set the explicit 'committed' marker, so state() reports 'complete'.
-    # Both are documented states; the contract is only that it is no longer
-    # 'active' and the result is success.
-    is($txn->state, 'complete', "state transitioned out of active to complete on implicit commit");
+    # state() is derived from result: success records 1, so it reports
+    # 'committed' once the action returns normally.
+    is($txn->state, 'committed', "state transitioned out of active to committed on implicit commit");
+    ok($txn->committed, "committed is true");
+    ok(!$txn->rolled_back, "rolled_back is false");
     is($txn->result, 1, "result is 1 after commit");
 
     is(disk_names(), ['committed'], "row persisted to disk after commit");
