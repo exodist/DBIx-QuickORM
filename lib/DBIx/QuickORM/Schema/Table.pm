@@ -159,7 +159,11 @@ sub column {
 
 =item $new_table = $table->merge($other, %params)
 
-Merge two table objects into a third.
+Merge two table objects into a third. The other table provides the ORM column
+names; columns in this table (typically introspected and keyed by database
+name) are re-keyed onto those ORM names when they refer to the same database
+column, and the primary key is translated to ORM names, so the merged table is
+uniformly ORM-keyed.
 
 =cut
 
@@ -167,11 +171,24 @@ sub merge {
     my $self = shift;
     my ($other, %params) = @_;
 
-    $params{+COLUMNS}     //= merge_hash_of_objs($self->{+COLUMNS}, $other->{+COLUMNS}) if $self->{+COLUMNS}     || $other->{+COLUMNS};
-    $params{+UNIQUE}      //= merge_hash_of_objs($self->{+UNIQUE}, $other->{+UNIQUE})   if $self->{+UNIQUE}      || $other->{+UNIQUE};
-    $params{+LINKS}       //= [@{$self->{+LINKS}}, @{$other->{+LINKS}}]                 if $self->{+LINKS}       || $other->{+LINKS};
-    $params{+INDEXES}     //= [@{$self->{+INDEXES}}, @{$other->{+INDEXES}}]             if $self->{+INDEXES}     || $other->{+INDEXES};
-    $params{+PRIMARY_KEY} //= [@{$self->{+PRIMARY_KEY} // $other->{+PRIMARY_KEY}}]        if $self->{+PRIMARY_KEY} || $other->{+PRIMARY_KEY};
+    my $mine   = $self->{+COLUMNS};
+    my $theirs = $other->{+COLUMNS};
+
+    my %db_to_orm;
+    %db_to_orm = map { $theirs->{$_}->db_name => $_ } keys %$theirs if $theirs;
+
+    if (!$params{+COLUMNS} && ($mine || $theirs)) {
+        $params{+COLUMNS} = merge_hash_of_objs($self->_rekey_columns($mine // {}, \%db_to_orm), $theirs // {});
+    }
+
+    $params{+UNIQUE}  //= merge_hash_of_objs($self->{+UNIQUE}, $other->{+UNIQUE}) if $self->{+UNIQUE}  || $other->{+UNIQUE};
+    $params{+LINKS}   //= [@{$self->{+LINKS}}, @{$other->{+LINKS}}]               if $self->{+LINKS}   || $other->{+LINKS};
+    $params{+INDEXES} //= [@{$self->{+INDEXES}}, @{$other->{+INDEXES}}]           if $self->{+INDEXES} || $other->{+INDEXES};
+
+    if (!$params{+PRIMARY_KEY} && ($self->{+PRIMARY_KEY} || $other->{+PRIMARY_KEY})) {
+        my $pk = $self->{+PRIMARY_KEY} // $other->{+PRIMARY_KEY};
+        $params{+PRIMARY_KEY} = [ map { $db_to_orm{$_} // $_ } @$pk ];
+    }
 
     return blessed($self)->new(%$self, %$other, %params);
 }
@@ -202,6 +219,10 @@ sub clone {
 
 sub init {
     my $self = shift;
+
+    # Drop any db->orm map carried in from a merge/clone; it is rebuilt lazily
+    # from this object's own columns.
+    delete $self->{+DB_TO_ORM};
 
     $self->{+DB_NAME} //= $self->{+NAME};
     $self->{+NAME}    //= $self->{+DB_NAME};
@@ -378,11 +399,31 @@ Resolve a column object by either its ORM name or its database name.
 
 Lazily-built hashref mapping each column's database name to its ORM name.
 
+=item $hashref = $table->_rekey_columns(\%columns, \%db_to_orm)
+
+Return a copy of a columns hashref re-keyed so each column lands under the ORM
+name its database name maps to, falling back to the original key when there is
+no mapping.
+
 =back
 
 =cut
 
 sub _links { delete $_[0]->{+_LINKS} }
+
+sub _rekey_columns {
+    my $self = shift;
+    my ($cols, $db_to_orm) = @_;
+
+    my %out;
+    for my $key (keys %$cols) {
+        my $col = $cols->{$key};
+        my $orm = $db_to_orm->{$col->db_name} // $key;
+        $out{$orm} = $col;
+    }
+
+    return \%out;
+}
 
 sub _db_to_orm { $_[0]->{+DB_TO_ORM} //= { map { $_->db_name => $_->name } values %{$_[0]->{+COLUMNS}} } }
 
