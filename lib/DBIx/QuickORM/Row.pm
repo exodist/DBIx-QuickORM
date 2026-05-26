@@ -11,7 +11,7 @@ use DBIx::QuickORM::Util qw/column_key/;
 use DBIx::QuickORM::Affinity();
 use DBIx::QuickORM::Link();
 
-our $VERSION = '0.000020';
+our $VERSION = '0.000021';
 
 use DBIx::QuickORM::Connection::RowData qw{
     STORED
