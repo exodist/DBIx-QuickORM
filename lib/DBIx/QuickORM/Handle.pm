@@ -2095,7 +2095,7 @@ sub update {
             sub {
                 my $row_sql = $self->sql_builder->qorm_select(%$builder_args, fields => $pk_fields);
                 my ($row_sth, $row_res) = $self->_execute($self->{+CONNECTION}->dbh, $row_sql);
-                $rows = $row_sth->fetchall_arrayref({});
+                $rows = [ map { $self->sql_builder->qorm_row_to_orm($source, $_) } @{$row_sth->fetchall_arrayref({})} ];
                 $sth = $self->_make_sth($sql, on_ready => $finish, no_rows => 1);
             },
             die => "Cannot update without a specific row on a when internal transactions are disabled",

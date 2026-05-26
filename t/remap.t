@@ -56,6 +56,19 @@ do_for_all_dbs {
     $row->refresh;
     is($row->field('my_uuid'), $uuid2, "updated uuid");
     is($row->field('my_json'), {name => 'a2'}, "updated json");
+
+    subtest rowless_pk_update_cache => sub {
+        my $oldid = $row->field('my_id');
+        my $newid = $oldid + 1000;
+
+        ref_is($orm->state_cache_lookup($s->source, [$oldid]), $row, "row is cached under its current (aliased) primary key");
+
+        $s->where({my_id => $oldid})->update({my_id => $newid});
+
+        ok(!$orm->state_cache_lookup($s->source, [$oldid]), "old primary key is no longer cached after a rowless pk change");
+        ref_is($orm->state_cache_lookup($s->source, [$newid]), $row, "the same row moved to the new primary key in the cache");
+        is($row->field('my_id'), $newid, "row identity reflects the new primary key");
+    };
 };
 
 done_testing;
