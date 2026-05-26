@@ -1,9 +1,15 @@
 # Column Aliasing — Follow-ups
 
+**Status: all items below are now implemented on the `column-aliasing` branch.**
+Joins are alias-aware (the croak-guard is removed), cross-source ambiguity is
+handled by qualifying with the alias, and `unique`/`index` column references are
+translated during introspection merge. This file is retained as the record of
+what the follow-up work covered.
+
 Deferred from the initial column-aliasing branch (see
-`2026-05-25-column-aliasing-design.md`). The initial branch ships single-source
-aliasing plus a croak-guard that makes joins over aliased columns fail loudly.
-This file records what a follow-up must handle to lift that guard.
+`2026-05-25-column-aliasing-design.md`). The initial branch shipped single-source
+aliasing plus a croak-guard that made joins over aliased columns fail loudly.
+This file records what the follow-up handled to lift that guard.
 
 ## 1. Joins / multi-source field qualification
 

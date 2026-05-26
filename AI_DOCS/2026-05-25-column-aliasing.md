@@ -62,11 +62,10 @@ name.
   table is uniformly ORM-keyed with introspected metadata filling gaps and the
   user's overrides winning.
 
-- **Joins are guarded, not implemented.** Joins use `alias.field` protos and
-  would need alias-aware translation on top of every primitive; that is deferred
-  (see the follow-ups doc). Until then, building a join over a table with any
-  aliased column croaks with a clear "not yet supported" message rather than
-  silently emitting wrong SQL.
+- **Joins are guarded, not implemented** (initial branch). Joins use
+  `alias.field` protos and need alias-aware translation on top of every
+  primitive; the initial branch croaked over aliased columns rather than
+  emitting wrong SQL. This was lifted in the follow-up below.
 
 ## Rejected alternatives
 
@@ -80,9 +79,22 @@ name.
   is built lazily and dropped in `init`, matching the existing lazy-cache
   pattern for the field lists.
 
-## Out of scope / follow-ups
+## Follow-ups (completed)
 
-Joins, cross-source name ambiguity, and translating `unique`/`index` column
-references under aliasing during introspection merge. Tracked in
-`docs/superpowers/specs/column-aliasing-follow-ups.md`.
+The deferred work has since been implemented on this branch:
+
+- **Joins are alias-aware.** `Join::field_db_name`/`field_orm_name` thread the
+  `alias.` prefix through per-component translation; `fields_to_fetch` emits
+  database names so the flat row is remapped before `fracture`. The croak-guard
+  is removed. A pre-existing bug in `_field_source`'s bare-field branch was
+  fixed, and `has_field` is guarded against unknown protos (the where-walker
+  now calls it with operator keys). Cross-source ambiguity is handled by
+  qualifying with the alias; a bare field resolves to the first component.
+- **`unique`/`index` under introspection merge.** `Schema::Table::merge`
+  translates unique-constraint column lists (and their `column_key` keys) and
+  index column lists through the same `db_to_orm` map used for columns and the
+  primary key. This metadata remains stored-only (not consumed by the query
+  layer), so the translation is for consistency.
+
+Originally tracked in `docs/superpowers/specs/column-aliasing-follow-ups.md`.
 </content>

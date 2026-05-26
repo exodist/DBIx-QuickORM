@@ -627,6 +627,11 @@ database name is what SQL emits.
   metadata fills gaps and whose ORM name and explicit overrides win; the primary
   key is translated to ORM names.
 
-- **Joins (not yet supported).** Joins use `alias.field` protos and do not yet
-  translate aliased names. Building a join over a table with any aliased column
-  croaks rather than emitting incorrect SQL. Lifting this is future work.
+- **Joins.** Joins translate aliased names through their `alias.field` protos:
+  `field_db_name`/`field_orm_name` split the alias, translate the field against
+  that component table, and re-attach the alias; `fields_to_fetch` emits
+  database names in the SELECT so the flat row is remapped back to ORM names by
+  the normal fetch path before it is fractured into per-component rows. Join ON
+  clauses use link columns, which are database names already. A bare (unaliased)
+  field resolves to the first component that has it; qualify with the alias to
+  disambiguate.

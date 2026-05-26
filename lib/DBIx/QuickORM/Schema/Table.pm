@@ -412,7 +412,13 @@ Return a copy of a unique-constraint hashref with each constraint's column list
 =item $arrayref = $table->_retranslate_indexes(\@indexes, \%db_to_orm)
 
 Return a copy of an index list with each index's column list translated from
-database names to ORM names.
+database names to ORM names. Index entries may be arrayrefs of column names or
+hashrefs with a C<columns> arrayref; other shapes pass through.
+
+=item $bool = $table->_has_alias(\%db_to_orm)
+
+True when any database name in the map differs from its ORM name, i.e. real
+aliasing is present.
 
 =back
 
@@ -438,7 +444,7 @@ sub _retranslate_unique {
     my $self = shift;
     my ($unique, $db_to_orm) = @_;
 
-    return $unique unless $unique && %$db_to_orm;
+    return $unique unless $unique && $self->_has_alias($db_to_orm);
 
     my %out;
     for my $key (keys %$unique) {
@@ -458,15 +464,34 @@ sub _retranslate_indexes {
     my $self = shift;
     my ($indexes, $db_to_orm) = @_;
 
-    return $indexes // [] unless $indexes && @$indexes && %$db_to_orm;
+    return $indexes // [] unless $indexes && @$indexes && $self->_has_alias($db_to_orm);
 
     return [
         map {
-            my %spec = %$_;
-            $spec{columns} = [ map { $db_to_orm->{$_} // $_ } @{$spec{columns}} ] if ref($spec{columns}) eq 'ARRAY';
-            \%spec;
+            my $ref = ref($_);
+            if ($ref eq 'ARRAY') {
+                [ map { $db_to_orm->{$_} // $_ } @$_ ];
+            }
+            elsif ($ref eq 'HASH') {
+                my %spec = %$_;
+                $spec{columns} = [ map { $db_to_orm->{$_} // $_ } @{$spec{columns}} ] if ref($spec{columns}) eq 'ARRAY';
+                \%spec;
+            }
+            else {
+                $_;
+            }
         } @$indexes
     ];
+}
+
+sub _has_alias {
+    my $self = shift;
+    my ($db_to_orm) = @_;
+    return 0 unless $db_to_orm;
+    for my $db (keys %$db_to_orm) {
+        return 1 if $db ne $db_to_orm->{$db};
+    }
+    return 0;
 }
 
 sub _db_to_orm { $_[0]->{+DB_TO_ORM} //= { map { $_->db_name => $_->name } values %{$_[0]->{+COLUMNS}} } }
