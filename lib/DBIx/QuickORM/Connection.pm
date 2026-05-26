@@ -5,7 +5,7 @@ use feature qw/state/;
 
 our $VERSION = '0.000020';
 
-use Carp qw/confess croak cluck/;
+use Carp qw/confess croak cluck carp/;
 use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/load_class/;
 
@@ -578,6 +578,18 @@ sub txn {
         }
 
         return if $ok;
+
+        # When the transaction fell out of scope, DESTROY runs this as a safety
+        # net and has already rolled it back. We cannot propagate an exception
+        # from a destructor (Perl turns it into a noisy "(in cleanup)" stack
+        # trace), so warn concisely instead of confessing.
+        if ($txnx->in_destroy) {
+            my $trace = $txnx->trace // [];
+            carp "Transaction started at $trace->[1] line $trace->[2] fell out of scope and was rolled back"
+                if @$trace > 2;
+            return;
+        }
+
         $txnx->throw(join "\n" => @errors);
     };
 

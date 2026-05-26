@@ -46,7 +46,14 @@ do_for_all_dbs {
         subtest scope_end => sub {
             my $txn = $con->txn;
             ok($txn, "got txn object");
-            ok(lives { $txn = undef }, "Can undef rollbacked txn");
+
+            # Falling out of scope without an explicit commit/rollback rolls the
+            # transaction back as a safety net and warns once (no exception, no
+            # stack trace).
+            my $warnings = warnings { $txn = undef };
+            is(@$warnings, 1, "one warning when the txn fell out of scope");
+            like($warnings->[0], qr/fell out of scope and was rolled back/, "warned about the scope-exit rollback");
+
             ok(!$con->in_txn, "Not in a txn anymore");
         };
     };
