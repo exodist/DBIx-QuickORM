@@ -4,8 +4,6 @@ use DBIx::QuickORM;
 use lib 't/lib';
 use DBIx::QuickORM::Test;
 
-skip_all "ORM column names being different from DB names not yet supported";
-
 do_for_all_dbs {
     my $db = shift;
 
@@ -30,11 +28,12 @@ do_for_all_dbs {
     };
 
     my $uuid = DBIx::QuickORM::Type::UUID->new;
-    my $uuid_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($uuid, 'binary');
+    my $uuid_bin = DBIx::QuickORM::Type::UUID->qorm_deflate(value => $uuid, affinity => 'binary');
 
     ok(my $orm = orm('my_orm')->connect, "Got a connection");
-    my $s = $orm->source('example');
+    my $s = $orm->handle('example');
     ok(my $row = $s->insert({my_name => 'a', my_uuid => $uuid, my_json => {name => 'a'}}), "Inserted a row");
+    $row = undef; $row = $s->one(my_name => 'a');
 
     subtest uuid => sub {
         is($row->row_data->{stored}->{my_uuid}, $uuid_bin, "Stored as binary");
@@ -51,7 +50,7 @@ do_for_all_dbs {
     };
 
     my $uuid2 = DBIx::QuickORM::Type::UUID->new;
-    my $uuid2_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($uuid, 'binary');
+    my $uuid2_bin = DBIx::QuickORM::Type::UUID->qorm_deflate(value => $uuid2, affinity => 'binary');
 
     $row->update({my_uuid => $uuid2, my_json => {name => 'a2'}});
     $row->refresh;
