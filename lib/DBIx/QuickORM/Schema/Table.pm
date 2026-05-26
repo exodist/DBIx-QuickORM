@@ -25,6 +25,7 @@ use Object::HashBase qw{
     <indexes
     <primary_key
     +_links
+    +db_to_orm
 };
 
 =pod
@@ -211,9 +212,16 @@ sub init {
     my $cols = $self->{+COLUMNS} //= {};
     croak "The 'columns' attribute must be a hashref${debug}" unless ref($cols) eq 'HASH';
 
+    my %db_to_orm;
     for my $cname (sort keys %$cols) {
         my $cval = $cols->{$cname} or croak "Column '$cname' is empty${debug}";
         croak "Columns '$cname' is not an instance of 'DBIx::QuickORM::Schema::Table::Column', got: '$cval'$debug" unless blessed($cval) && $cval->isa('DBIx::QuickORM::Schema::Table::Column');
+
+        my $db = $cval->db_name;
+        if (defined(my $other = $db_to_orm{$db})) {
+            croak "Columns '$other' and '$cname' both map to database column '$db'${debug}";
+        }
+        $db_to_orm{$db} = $cname;
     }
 
     if (my $pk = $self->{+PRIMARY_KEY}) {
@@ -256,7 +264,19 @@ The table's schema (ORM) name.
 
 =item $bool = $table->has_field($name)
 
-True if the table has a column with the given name.
+True if the table has a column with the given name. Accepts either the column's
+ORM name or its database name.
+
+=item $db_name = $table->field_db_name($name)
+
+The database column name for a field. Accepts either the ORM name or the
+database name and always returns the database name; an unknown name is returned
+unchanged.
+
+=item $orm_name = $table->field_orm_name($name)
+
+The ORM column name for a field. Accepts either the ORM name or the database
+name and always returns the ORM name; an unknown name is returned unchanged.
 
 =cut
 
@@ -266,7 +286,21 @@ sub source_orm_name   { $_[0]->{+NAME} }
 # row_class     # In HashBase at top of file
 # primary_key   # In HashBase at top of file
 
-sub has_field { $_[0]->{+COLUMNS}->{$_[1]} ? 1 : 0 }
+sub has_field { $_[0]->_column($_[1]) ? 1 : 0 }
+
+sub field_db_name {
+    my $self = shift;
+    my ($name) = @_;
+    my $col = $self->_column($name) or return $name;
+    return $col->db_name;
+}
+
+sub field_orm_name {
+    my $self = shift;
+    my ($name) = @_;
+    my $col = $self->_column($name) or return $name;
+    return $col->name;
+}
 
 =pod
 
@@ -300,7 +334,7 @@ no type object.
 sub field_type {
     my $self = shift;
     my ($field) = @_;
-    my $col = $self->{+COLUMNS}->{$field} or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
+    my $col = $self->_column($field) or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
     my $type = $col->type or return undef;
     return undef if ref($type);
     return $type if $type->DOES('DBIx::QuickORM::Role::Type');
@@ -320,7 +354,7 @@ The affinity for a field, optionally for a specific dialect.
 sub field_affinity {
     my $self = shift;
     my ($field, $dialect) = @_;
-    my $col = $self->{+COLUMNS}->{$field} or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
+    my $col = $self->_column($field) or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
     return $col->affinity($dialect);
 }
 
@@ -336,11 +370,32 @@ sub field_affinity {
 
 Internal accessor that fetches and clears the pending raw link definitions.
 
+=item $col_or_undef = $table->_column($name)
+
+Resolve a column object by either its ORM name or its database name.
+
+=item $map = $table->_db_to_orm()
+
+Lazily-built hashref mapping each column's database name to its ORM name.
+
 =back
 
 =cut
 
 sub _links { delete $_[0]->{+_LINKS} }
+
+sub _db_to_orm { $_[0]->{+DB_TO_ORM} //= { map { $_->db_name => $_->name } values %{$_[0]->{+COLUMNS}} } }
+
+sub _column {
+    my $self = shift;
+    my ($name) = @_;
+
+    my $cols = $self->{+COLUMNS};
+    return $cols->{$name} if $cols->{$name};
+
+    my $orm = $self->_db_to_orm->{$name} or return undef;
+    return $cols->{$orm};
+}
 
 1;
 
