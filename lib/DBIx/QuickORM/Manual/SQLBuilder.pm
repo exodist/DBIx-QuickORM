@@ -91,7 +91,7 @@ hashref.
 
 =back
 
-=head2 PROVIDED METHOD
+=head2 PROVIDED METHODS
 
 =over 4
 
@@ -102,6 +102,14 @@ as C<< $row->primary_key_hashref >>, which is the right answer for any builder
 that accepts a plain column/value hashref as a where. Override it if your
 builder's where format differs.
 
+=item $orm_row = $builder->qorm_row_to_orm($source, \%row)
+
+Returns a new hashref with a fetched row's keys remapped from database column
+names back to ORM names for the given source. Unknown keys pass through
+unchanged. The role implements this with C<< $source->field_orm_name >>; the
+handle calls it on rows it fetches so the row layer is uniformly ORM-keyed. See
+L</COLUMN NAME TRANSLATION>.
+
 =back
 
 =head2 OPTIONAL: qorm_upsert
@@ -109,6 +117,49 @@ builder's where format differs.
 The role does not require C<qorm_upsert>, but the handle calls it when you
 upsert. A builder that omits it simply cannot be used for upserts. See
 L</UPSERT> below for the contract.
+
+=head1 COLUMN NAME TRANSLATION
+
+A column can use one name in the ORM and a different name in the database (its
+C<db_name>). Everything a caller touches uses the ORM name; everything in
+generated SQL must use the database name. Translation is the builder's
+responsibility, and the contract is:
+
+=over 4
+
+=item *
+
+B<Emit database names in all generated SQL.> Before handing field names to your
+backend, translate them through the source: insert/update data keys, the field
+list, the returning list, where-clause column references, order-by columns, and
+(for upsert) the conflict and update-set columns. The source provides
+C<< $source->field_db_name($name) >>, which maps either an ORM name or a
+database name to the database name and is idempotent.
+
+=item *
+
+B<Return rows keyed by ORM name.> Fetched rows come back keyed by database
+column name. The handle restores ORM names with C<qorm_row_to_orm> (which uses
+C<< $source->field_orm_name >>), so a builder that follows the standard fetch
+path gets this for free.
+
+=item *
+
+B<Never rewrite literal SQL.> A scalar-ref where, a C<< \['sql', @bind] >>
+literal, or any column name the source does not recognize is passed through
+untouched. Callers who write raw SQL use database names themselves.
+
+=back
+
+When ORM and database names are identical (the common case) every translation
+is an identity, so a builder that ignores aliasing still works for non-aliased
+schemas - but it will emit wrong SQL the moment a column is aliased. The
+shipped SQL::Abstract builder implements the full contract; see
+L</HOW THE SQL::ABSTRACT BUILDER WORKS>.
+
+Because field binds end up labelled with the B<database> name (see
+L</BIND SPECS>), and the source resolves type and affinity by either name, value
+deflation at bind time keeps working without any extra handling.
 
 =head1 THE PARAMETERS A BUILDER RECEIVES
 
@@ -206,6 +257,10 @@ UUID, formatting a DateTime) before binding, and applies binary quoting when
 the affinity is C<binary>. This is why a builder must label each value with its
 field rather than deflating values itself.
 
+The C<field> here is the B<database> column name (what the builder emitted into
+the statement); the source resolves type and affinity by either ORM or database
+name, so deflation works regardless of aliasing. See L</COLUMN NAME TRANSLATION>.
+
 A B<limit> bind carries a raw scalar bound as-is, with no field, no deflation:
 
     {
@@ -285,6 +340,15 @@ C<qorm_where> are generated at compile time from a common template. Each one:
 Pulls C<source> out of the params and resolves it to its db moniker via
 C<< $source->source_db_moniker >> (a blessed source is checked for the Source
 role first; a plain string is passed through, which is handy in tests).
+
+=item *
+
+Translates ORM column names to database names (C<_translate_params>): the
+insert/update data keys, field list, returning list, where-clause, and order-by
+are each rewritten through the source. The where-walker translates a hash key
+only when the source recognizes it as a field, so logic and comparison
+operators pass through untouched and the rule survives new SQL::Abstract
+operators; literal SQL is left alone. See L</COLUMN NAME TRANSLATION>.
 
 =item *
 
@@ -373,19 +437,20 @@ show the bare contract. A where here is a C<< { column => value } >> hashref.
     with 'DBIx::QuickORM::Role::SQLBuilder';
 
     # Build a "col = ? AND col = ?" fragment plus its field binds, starting
-    # placeholders at $next.
+    # placeholders at $next. Column names are translated to database names.
     sub _where_sql {
-        my ($self, $where, $next) = @_;
+        my ($self, $source, $where, $next) = @_;
         return ("", []) unless $where && keys %$where;
 
         my (@parts, @bind);
         for my $field (sort keys %$where) {
-            push @parts => "$field = ?";
+            my $db = $source->field_db_name($field);
+            push @parts => "$db = ?";
             push @bind  => {
                 param => $$next++,
                 value => $where->{$field},
                 type  => 'field',
-                field => $field,
+                field => $db,
             };
         }
 
@@ -400,10 +465,10 @@ show the bare contract. A where here is a C<< { column => value } >> hashref.
         my $fields = $params{fields} or croak "'fields' is required";
 
         my $moniker = $source->source_db_moniker;
-        my $cols    = join(", " => @$fields);
+        my $cols    = join(", " => map { $source->field_db_name($_) } @$fields);
 
         my $param = 1;
-        my ($where_sql, $bind) = $self->_where_sql($params{where}, \$param);
+        my ($where_sql, $bind) = $self->_where_sql($source, $params{where}, \$param);
 
         my $stmt = "SELECT $cols FROM $moniker$where_sql";
 
@@ -416,9 +481,10 @@ show the bare contract. A where here is a C<< { column => value } >> hashref.
     }
 
     # qorm_insert / qorm_update / qorm_delete / qorm_where follow the same
-    # shape: name the source via source_db_moniker, build the statement, emit
-    # one bind spec per placeholder (type => 'field' for column values so the
-    # handle deflates them), and return { statement, bind, source }.
+    # shape: name the source via source_db_moniker, translate column names to
+    # database names via $source->field_db_name, build the statement, emit one
+    # bind spec per placeholder (type => 'field' for column values so the handle
+    # deflates them), and return { statement, bind, source }.
 
     sub qorm_and {
         my ($self, $a, $b) = @_;
@@ -437,6 +503,12 @@ Points the example makes concrete:
 
 Resolve the source through C<source_db_moniker> - never interpolate a source
 object directly.
+
+=item *
+
+Translate column names through C<< $source->field_db_name >> so the SQL uses
+database names; a non-aliased schema makes this a no-op. See
+L</COLUMN NAME TRANSLATION>.
 
 =item *
 
@@ -477,7 +549,8 @@ The shipped SQL::Abstract-backed builder.
 
 =item L<DBIx::QuickORM::Role::Source>
 
-The source interface a builder queries (C<source_db_moniker>, C<primary_key>).
+The source interface a builder queries (C<source_db_moniker>, C<primary_key>,
+C<field_db_name>, C<field_orm_name>).
 
 =item L<DBIx::QuickORM::Handle>
 
