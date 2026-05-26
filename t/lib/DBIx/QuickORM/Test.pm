@@ -135,6 +135,13 @@ sub do_for_all_dbs(&;@) {
         for my $dbi (@{$set->{dbi}}) {
             cull();
             $pr->run(sub {
+                # Re-seed in the forked child. Test2::V0 seeds srand
+                # deterministically (from the date), and fork inherits that
+                # state, so sibling children otherwise produce identical
+                # File::Temp 'DB-QUICK-XXXX' names -> two databases collide on
+                # one temp dir -> initdb / disk I/O failures under concurrency.
+                srand();
+
                 subtest "$set->{name} x DBD::$dbi" => sub {
                     local $CURRENT_QDB = $set->{quickdb};
                     $ENV{$_} = $set->{env}->{$_} for keys %{$set->{env}};
