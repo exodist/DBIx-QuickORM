@@ -10,6 +10,13 @@ use DBIx::QuickORM::Test;
 do_for_all_dbs {
     my $db = shift;
 
+    # DuckDB is an embedded, single-writer engine: a forked child cannot open
+    # the database file the parent already holds, so a forked query deadlocks.
+    if (curdialect() =~ m/duckdb/i) {
+        skip_all "Skipping for duckdb (embedded single-writer; cross-process forked queries are unsupported)...";
+        return;
+    }
+
     db mydb => sub {
         dialect curdialect();
         db_name 'quickdb';
@@ -24,7 +31,7 @@ do_for_all_dbs {
             user $db->username;
             pass $db->password;
         }
-        elsif (curdialect() =~ m/SQLite/) {
+        elsif (curdialect() =~ m/SQLite|DuckDB/) {
             db_name 'quickdb';
             db_name $db->dir . '/quickdb';
         }

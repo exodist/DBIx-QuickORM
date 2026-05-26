@@ -108,12 +108,18 @@ One ~200-line dialect (mostly introspection SQL), small edits to
   `duckdb_constraints()` (DBD::DuckDB returns LIST columns as Perl arrayrefs);
   tables/views via `information_schema.tables` + `table_type`. `build_indexes`
   reports PK + unique only (DuckDB has no stable secondary-index-column fn).
-- **DuckDB is NOT in the `do_for_all_dbs` matrix.** It rejects `SERIAL` and has
-  no implicit auto-increment, so the shared `postgresql.sql`/`sqlite.sql`
-  schemas do not load; and savepoint-based nested-txn tests don't apply.
-  Folding DuckDB into that matrix is a separate task: author per-test
-  `duckdb.sql` schemas (use `CREATE SEQUENCE` + `DEFAULT nextval(...)` for PKs)
-  and make the transaction tests savepoint-aware. Until then DuckDB is covered
-  by the dedicated `t/AI/dialect_duckdb.t`.
+- **DuckDB IS now in the `do_for_all_dbs` matrix** (done as a follow-up). Every
+  test has a `duckdb.sql` schema (PKs via `CREATE SEQUENCE` + `DEFAULT
+  nextval(...)`; `BYTEA`->`BLOB`, `JSONB`->`JSON`; no `SERIAL`). transactions.t
+  guards its nested-savepoint block with `dialect_has_savepoints()`; autofill.t
+  has a `DuckDB` override (type + index names). DuckDB skips async/aside/forked:
+  no async support, and the embedded single-writer engine deadlocks
+  cross-process forked queries. Full suite green across all backends.
+
+  DuckDB concurrency (verified): single-process is fully concurrent (multiple
+  connections, MVCC reads+writes); cross-process is exclusive — a read-write
+  process blocks all others, and the lock wait is an uninterruptible C-level
+  block (Perl `alarm` can't break it), which is why a forked query hangs rather
+  than erroring.
 - **`last_insert_id`** is unsupported by DBD::DuckDB but unused — insert goes
   through the RETURNING path.

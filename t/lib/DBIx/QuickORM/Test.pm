@@ -19,6 +19,7 @@ our @EXPORT = qw{
     debug
 
     do_for_all_dbs
+    dialect_has_savepoints
 };
 
 sub psql     { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'PostgreSQL', @args}) } or diag(clean_err($@)) }
@@ -34,15 +35,16 @@ sub duckdb   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools
 my @STATIC_SETS = (
     {name => 'system_postgresql', ver => '', db => \&psql,   dialect => 'PostgreSQL', dbi => ['Pg'],               quickdb => 'PostgreSQL', env => {}},
     {name => 'sqlite',            ver => '', db => \&sqlite, dialect => 'SQLite',     dbi => ['SQLite'],           quickdb => 'SQLite',     env => {}},
+    {name => 'duckdb',            ver => '', db => \&duckdb, dialect => 'DuckDB',     dbi => ['DuckDB'],           quickdb => 'DuckDB',     env => {}},
     {name => 'system_mysql',      ver => '', db => \&mysql,  dialect => 'MySQL',      dbi => ['mysql', 'MariaDB'], quickdb => 'MySQL',      env => {}},
 );
 
-# NOTE: DuckDB is intentionally NOT in @SETS. It differs enough from the others
-# (no SERIAL / implicit auto-increment, no savepoints) that the shared per-test
-# schema files and savepoint-based nested-transaction tests do not apply. The
-# duckdb() helper (below, exported) provisions a DuckDB via QuickDB for the
-# dedicated t/AI/dialect_duckdb.t. Folding DuckDB into do_for_all_dbs would
-# require per-test duckdb.sql schemas and savepoint-aware tests.
+# The quickdb name of the set currently running under do_for_all_dbs.
+our $CURRENT_QDB;
+
+# DuckDB has no savepoints, so it cannot run the nested-transaction (savepoint)
+# subtests. Tests that exercise nested transactions guard them with this.
+sub dialect_has_savepoints { ($CURRENT_QDB // '') ne 'DuckDB' }
 
 # Maps the engine prefix of a "~/dbs/<engine>-<version>" directory to its driver
 # metadata. 'server' is the binary that must exist under bin/ for the install to
@@ -134,6 +136,7 @@ sub do_for_all_dbs(&;@) {
             cull();
             $pr->run(sub {
                 subtest "$set->{name} x DBD::$dbi" => sub {
+                    local $CURRENT_QDB = $set->{quickdb};
                     $ENV{$_} = $set->{env}->{$_} for keys %{$set->{env}};
                     my $qdb = "DBIx::QuickDB::Driver::$set->{quickdb}";
                     my $have_qdb = eval { require "DBIx/QuickDB/Driver/$set->{quickdb}.pm"; my ($v, $why) = $qdb->viable({load_sql => 1, bootstrap => 1}); $v || die $why } or note $@;

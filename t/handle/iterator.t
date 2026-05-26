@@ -47,7 +47,7 @@ do_for_all_dbs {
     };
 
     # sqlite does not support async
-    unless (curdialect() =~ m/sqlite/i) {
+    unless (curdialect() =~ m/sqlite|duckdb/i) {
         subtest async => sub {
             my $iter = $h->async->iterator;
             sleep 0.2 until $iter->ready;

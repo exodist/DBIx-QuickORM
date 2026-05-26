@@ -5,6 +5,7 @@ use warnings;
 our $VERSION = '0.000020';
 
 use DBD::DuckDB;
+use DBI ();
 
 use Carp qw/croak/;
 use DBIx::QuickORM::Affinity qw/affinity_from_type/;
@@ -115,6 +116,26 @@ sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }
 sub supports_returning_delete { 1 }
 
+# DuckDB binds binary data as BLOB; SQL_BINARY (the base default) makes
+# DBD::DuckDB try duckdb_bind_varchar, which fails on binary bytes.
+sub quote_binary_data { DBI::SQL_BLOB() }
+
+# DuckDB native types. Returns the native type name for a supported logical
+# type, undef otherwise (used by type modules to pick an affinity).
+my %NATIVE_TYPE = (
+    uuid      => 'UUID',
+    json      => 'JSON',
+    jsonb     => 'JSON',
+    timestamp => 'TIMESTAMP',
+    blob      => 'BLOB',
+);
+sub supports_type {
+    my $self = shift;
+    my ($type) = @_;
+    return undef unless defined $type;
+    return $NATIVE_TYPE{lc($type)};
+}
+
 sub async_supported        { 0 }
 sub async_cancel_supported { 0 }
 sub async_prepare_args     { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
@@ -166,7 +187,18 @@ sub start_txn    { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->d
 sub commit_txn   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->do("COMMIT");            $self->{+IN_TXN} = 0 }
 sub rollback_txn { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->do("ROLLBACK");          $self->{+IN_TXN} = 0 }
 
-sub in_txn { $_[0]->{+IN_TXN} ? 1 : 0 }
+# Our own transactions use raw BEGIN/COMMIT/ROLLBACK and do not flip DBI's
+# AutoCommit, so consult our flag first; then fall back to DBI's view to detect
+# a transaction started externally (e.g. a raw $dbh->begin_work).
+sub in_txn {
+    my $self = shift;
+    my %params = @_;
+    return 1 if $self->{+IN_TXN};
+    my $dbh = $params{dbh} // $self->dbh;
+    return 1 if $dbh->{BegunWork};
+    return 0 if $dbh->{AutoCommit};
+    return 1;
+}
 
 sub create_savepoint   { croak "Dialect '" . $_[0]->dialect_name . "' does not support savepoints (nested transactions)" }
 sub commit_savepoint   { croak "Dialect '" . $_[0]->dialect_name . "' does not support savepoints (nested transactions)" }
@@ -201,8 +233,9 @@ sub dsn {
 ###############################################################################
 
 my %TABLE_TYPES = (
-    'BASE TABLE' => 'DBIx::QuickORM::Schema::Table',
-    'VIEW'       => 'DBIx::QuickORM::Schema::View',
+    'BASE TABLE'      => 'DBIx::QuickORM::Schema::Table',
+    'LOCAL TEMPORARY' => 'DBIx::QuickORM::Schema::Table',
+    'VIEW'            => 'DBIx::QuickORM::Schema::View',
 );
 
 =pod
@@ -233,7 +266,7 @@ sub build_tables_from_db {
 
     my %tables;
     while (my ($tname, $type) = $sth->fetchrow_array) {
-        my $table = {name => $tname, db_name => $tname, is_temp => 0};
+        my $table = {name => $tname, db_name => $tname, is_temp => ($type eq 'LOCAL TEMPORARY' ? 1 : 0)};
         my $class = $TABLE_TYPES{$type} // 'DBIx::QuickORM::Schema::Table';
         $params{autofill}->hook(pre_table => {table => $table, class => \$class});
 
@@ -335,6 +368,10 @@ sub build_columns_from_db {
         $col->{db_name} = $res->{name};
         $col->{order}   = $res->{cid} + 1;
 
+        # A PK column defaulting from a sequence is database-generated.
+        $col->{identity} = 1
+            if $res->{pk} && defined($res->{dflt_value}) && $res->{dflt_value} =~ /nextval/i;
+
         my $type = $res->{type};
         $type =~ s/\(.*$//;
         $col->{type} = \$type;
@@ -356,9 +393,10 @@ sub build_columns_from_db {
 
 =item $indexes = $dialect->build_indexes_from_db($table, %params)
 
-Returns an arrayref of index specs. DuckDB does not expose secondary-index
-columns through a stable function, so this reports the primary key and unique
-constraints (the indexes the ORM cares about for key/link detection).
+Returns an arrayref of index specs. Primary-key and unique indexes come from
+C<duckdb_constraints()>; named secondary indexes (with their columns and unique
+flag) come from C<duckdb_indexes()> (the C<expressions> column gives the column
+list).
 
 =back
 
@@ -370,6 +408,9 @@ sub build_indexes_from_db {
 
     my $dbh = $self->{+DBH};
 
+    my %out;
+
+    # Primary key and unique constraints.
     my $sth = $dbh->prepare(<<'    EOT');
         SELECT constraint_type, constraint_column_names
           FROM duckdb_constraints()
@@ -377,14 +418,38 @@ sub build_indexes_from_db {
            AND constraint_type IN ('PRIMARY KEY', 'UNIQUE')
     EOT
     $sth->execute($table);
-
-    my %out;
-    my $n = 0;
     while (my $row = $sth->fetchrow_hashref) {
         my $cols = $row->{constraint_column_names} // [];
         my $is_pk = $row->{constraint_type} eq 'PRIMARY KEY';
         my $name = $is_pk ? "${table}:pk" : "${table}:uniq:" . column_key(@$cols);
         $out{$name} = {name => $name, columns => [@$cols], unique => 1};
+    }
+
+    # Named secondary indexes. 'expressions' is an arrayref of the indexed
+    # column names.
+    $sth = $dbh->prepare(<<'    EOT');
+        SELECT index_name, is_unique, expressions
+          FROM duckdb_indexes()
+         WHERE table_name = ?
+    EOT
+    $sth->execute($table);
+    while (my $row = $sth->fetchrow_hashref) {
+        my $name = $row->{index_name} // next;
+        next if exists $out{$name};
+
+        # 'expressions' is usually an arrayref of column names, but DuckDB
+        # sometimes renders it as a string like q{['"name"']}; handle both.
+        my $expr = $row->{expressions};
+        my @cols;
+        if (ref($expr) eq 'ARRAY') {
+            @cols = @$expr;
+        }
+        elsif (defined $expr) {
+            @cols = $expr =~ /"([^"]+)"/g;             # quoted identifiers
+            @cols = $expr =~ /([A-Za-z_]\w*)/g unless @cols;  # bare identifiers
+        }
+
+        $out{$name} = {name => $name, columns => \@cols, unique => $row->{is_unique} ? 1 : 0};
     }
 
     return [map { $params{autofill}->hook(index => {index => $out{$_}, table_name => $table}); $out{$_} } sort keys %out];

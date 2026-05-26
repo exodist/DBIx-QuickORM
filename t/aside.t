@@ -10,8 +10,8 @@ use DBIx::QuickORM::Test;
 do_for_all_dbs {
     my $db = shift;
 
-    if (curdialect() =~ m/sqlite/i) {
-        skip_all "Skipping for sqlite...";
+    if (curdialect() =~ m/sqlite|duckdb/i) {
+        skip_all "Skipping for sqlite/duckdb (no async aside support)...";
         return;
     }
 
