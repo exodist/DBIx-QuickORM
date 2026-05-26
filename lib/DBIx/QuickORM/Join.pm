@@ -97,12 +97,27 @@ sub source_orm_name { 'JOIN' }
 sub primary_key    { }
 sub fields_to_omit { }
 
-sub field_db_name  { my ($self, $name) = @_; return $name }
-sub field_orm_name { my ($self, $name) = @_; return $name }
-
 sub fields_list_all {
     my $self = shift;
     croak "Not Supported";
+}
+
+sub field_db_name {
+    my $self = shift;
+    my ($proto) = @_;
+    my ($from, $t, $field) = $self->_field_source($proto, no_fatal => 1);
+    return $proto unless $t;
+    my $db = $t->field_db_name($field);
+    return defined($from) ? "$from.$db" : $db;
+}
+
+sub field_orm_name {
+    my $self = shift;
+    my ($proto) = @_;
+    my ($from, $t, $field) = $self->_field_source($proto, no_fatal => 1);
+    return $proto unless $t;
+    my $orm = $t->field_orm_name($field);
+    return defined($from) ? "$from.$orm" : $orm;
 }
 
 # }}} Role::Source interface
@@ -118,47 +133,12 @@ sub init {
     $self->{+LOOKUP}     //= {};
     $self->{+COMPONENTS} //= {};
 
-    $self->_assert_no_aliased_columns($self->{+PRIMARY_SOURCE});
-
     my $first = $self->{+JOIN_AS}++;
     push @{$self->{+ORDER}}                                            => $first;
     push @{$self->{+LOOKUP}->{$self->{+PRIMARY_SOURCE}->source_db_moniker}} => $first;
     $self->{+COMPONENTS}->{$first} = {table => $self->{+PRIMARY_SOURCE}, as => $first};
 
     $self->{+ROW_CLASS} //= 'DBIx::QuickORM::Join::Row';
-}
-
-=pod
-
-=head1 PRIVATE METHODS
-
-=over 4
-
-=item $join->_assert_no_aliased_columns($table)
-
-Croak if a component table has any column whose ORM name differs from its
-database name. Joins do not yet translate aliased column names, so allowing
-such a table would silently emit incorrect SQL.
-
-=back
-
-=cut
-
-sub _assert_no_aliased_columns {
-    my $self = shift;
-    my ($table) = @_;
-
-    return unless $table && $table->can('columns');
-
-    for my $col ($table->columns) {
-        next unless $col->can('db_name');
-        next if $col->name eq $col->db_name;
-
-        my $tname = $table->can('source_orm_name') ? $table->source_orm_name : "$table";
-        croak "Joins over tables with aliased columns are not yet supported (table '$tname' column '" . $col->name . "' maps to database column '" . $col->db_name . "')";
-    }
-
-    return;
 }
 
 =pod
@@ -280,17 +260,20 @@ sub _field_source {
     my ($proto, %params) = @_;
     my ($field, $from) = reverse split /\./, $proto;
 
-    if ($from) {
-        my $c = $self->{+COMPONENTS}->{$from} or croak "'$from' is not an alias in this join";
-        my $t = $c->{table};
-        return ($from, $t, $field);
+    if (defined $from) {
+        my $c = $self->{+COMPONENTS}->{$from};
+        unless ($c) {
+            return undef if $params{no_fatal};
+            croak "'$from' is not an alias in this join";
+        }
+        return ($from, $c->{table}, $field);
     }
 
     for my $alias (@{$self->{+ORDER}}) {
-        my $c = $self->{+COMPONENTS}->{$from};
+        my $c = $self->{+COMPONENTS}->{$alias};
         my $t = $c->{table};
         next unless $t->has_field($field);
-        return ($from, $t, $field);
+        return ($alias, $t, $field);
     }
 
     return undef if $params{no_fatal};
@@ -328,6 +311,7 @@ sub has_field {
     my $self = shift;
     my ($proto) = @_;
     my ($from, $t, $field) = $self->_field_source($proto, no_fatal => 1);
+    return 0 unless $t;
     return $t->has_field($field);
 }
 
@@ -348,7 +332,7 @@ sub fields_to_fetch {
     for my $as (@{$self->{+ORDER}}) {
         my $c = $self->{+COMPONENTS}->{$as};
         my $t = $c->{table};
-        push @fields => map { qq{$as.$_ AS "$as.$_"} } @{$t->fields_to_fetch};
+        push @fields => map { my $db = $t->field_db_name($_); qq{$as.$db AS "$as.$db"} } @{$t->fields_to_fetch};
     }
 
     return join(', ' => @fields);
@@ -474,7 +458,6 @@ sub _join {
     }
 
     my $joined = $self->schema->table($link->other_table);
-    $self->_assert_no_aliased_columns($joined);
 
     push @{$self->{+ORDER}} => $as;
 
