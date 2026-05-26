@@ -180,9 +180,9 @@ sub merge {
         $params{+COLUMNS} = merge_hash_of_objs($self->_rekey_columns($mine // {}, $db_to_orm), $theirs // {});
     }
 
-    $params{+UNIQUE}  //= merge_hash_of_objs($self->{+UNIQUE}, $other->{+UNIQUE}) if $self->{+UNIQUE}  || $other->{+UNIQUE};
-    $params{+LINKS}   //= [@{$self->{+LINKS}}, @{$other->{+LINKS}}]               if $self->{+LINKS}   || $other->{+LINKS};
-    $params{+INDEXES} //= [@{$self->{+INDEXES}}, @{$other->{+INDEXES}}]           if $self->{+INDEXES} || $other->{+INDEXES};
+    $params{+UNIQUE}  //= merge_hash_of_objs($self->_retranslate_unique($self->{+UNIQUE}, $db_to_orm), $other->{+UNIQUE}) if $self->{+UNIQUE} || $other->{+UNIQUE};
+    $params{+LINKS}   //= [@{$self->{+LINKS}}, @{$other->{+LINKS}}]                                                      if $self->{+LINKS} || $other->{+LINKS};
+    $params{+INDEXES} //= [@{$self->_retranslate_indexes($self->{+INDEXES}, $db_to_orm)}, @{$other->{+INDEXES} // []}]   if $self->{+INDEXES} || $other->{+INDEXES};
 
     if (!$params{+PRIMARY_KEY} && ($self->{+PRIMARY_KEY} || $other->{+PRIMARY_KEY})) {
         my $pk = $self->{+PRIMARY_KEY} // $other->{+PRIMARY_KEY};
@@ -404,6 +404,16 @@ Return a copy of a columns hashref re-keyed so each column lands under the ORM
 name its database name maps to, falling back to the original key when there is
 no mapping.
 
+=item $hashref = $table->_retranslate_unique(\%unique, \%db_to_orm)
+
+Return a copy of a unique-constraint hashref with each constraint's column list
+(and its C<column_key> key) translated from database names to ORM names.
+
+=item $arrayref = $table->_retranslate_indexes(\@indexes, \%db_to_orm)
+
+Return a copy of an index list with each index's column list translated from
+database names to ORM names.
+
 =back
 
 =cut
@@ -422,6 +432,41 @@ sub _rekey_columns {
     }
 
     return \%out;
+}
+
+sub _retranslate_unique {
+    my $self = shift;
+    my ($unique, $db_to_orm) = @_;
+
+    return $unique unless $unique && %$db_to_orm;
+
+    my %out;
+    for my $key (keys %$unique) {
+        my $val = $unique->{$key};
+        unless (ref($val) eq 'ARRAY') {
+            $out{$key} = $val;
+            next;
+        }
+        my @orm = map { $db_to_orm->{$_} // $_ } @$val;
+        $out{column_key(@orm)} = \@orm;
+    }
+
+    return \%out;
+}
+
+sub _retranslate_indexes {
+    my $self = shift;
+    my ($indexes, $db_to_orm) = @_;
+
+    return $indexes // [] unless $indexes && @$indexes && %$db_to_orm;
+
+    return [
+        map {
+            my %spec = %$_;
+            $spec{columns} = [ map { $db_to_orm->{$_} // $_ } @{$spec{columns}} ] if ref($spec{columns}) eq 'ARRAY';
+            \%spec;
+        } @$indexes
+    ];
 }
 
 sub _db_to_orm { $_[0]->{+DB_TO_ORM} //= { map { $_->db_name => $_->name } values %{$_[0]->{+COLUMNS}} } }

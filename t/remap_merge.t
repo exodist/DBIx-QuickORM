@@ -18,6 +18,8 @@ my $introspected = DBIx::QuickORM::Schema::Table->new(
         uuid => $C->new(name => 'uuid', db_name => 'uuid', order => 2,                nullable => 0, affinity => 'binary'),
     },
     primary_key => ['id'],
+    unique      => {'uuid' => ['uuid']},
+    indexes     => [{name => 'example_uuid_idx', columns => ['uuid'], unique => 1}],
 );
 
 my $user = DBIx::QuickORM::Schema::Table->new(
@@ -46,5 +48,16 @@ is($merged->field_orm_name('my_id'), 'my_id', "field_orm_name is idempotent on O
 
 ok($merged->has_field('id'),    "has_field accepts the database name");
 ok($merged->has_field('my_id'), "has_field accepts the ORM name");
+
+subtest unique_and_index_translation => sub {
+    my $unique = $merged->unique;
+    is([sort keys %$unique], ['my_uuid'], "unique constraint re-keyed to ORM column_key");
+    is($unique->{my_uuid}, ['my_uuid'], "unique constraint columns translated to ORM names");
+
+    my $indexes = $merged->indexes;
+    is(scalar(@$indexes), 1, "one index preserved");
+    is($indexes->[0]->{columns}, ['my_uuid'], "index columns translated to ORM names");
+    is($indexes->[0]->{name}, 'example_uuid_idx', "index name preserved");
+};
 
 done_testing;
