@@ -124,7 +124,7 @@ sub do_for_all_dbs(&;@) {
     my %only = map { $_ => 1 } @_;
     require Parallel::Runner;
     my $pr = Parallel::Runner->new(
-        $ENV{DBIXQORM_TEST_CONCURRENCY} // ($ENV{USER} eq 'exodist' ? 16 : 4),
+        $ENV{DBIXQORM_TEST_CONCURRENCY} // 4,
         iteration_callback => \&cull,
     );
 
