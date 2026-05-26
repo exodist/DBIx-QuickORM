@@ -45,6 +45,24 @@ The abstract source kind: C<TABLE>, C<VIEW>, C<JOIN>, or C<LITERAL>.
 
 =item $bool = $source->has_field($field)
 
+=item $db_name = $source->field_db_name($field)
+
+The database name for a field, given either its ORM or database name. Idempotent
+and used by the SQL builder to emit database names; an unknown field is returned
+unchanged.
+
+=item $orm_name = $source->field_orm_name($field)
+
+The ORM name for a field, given either its ORM or database name. Idempotent and
+used to remap fetched result keys back to ORM names; an unknown field is
+returned unchanged.
+
+=item $bool = $source->source_has_aliases
+
+True when the source has any column whose ORM name differs from its database
+name. Lets the SQL and row layers skip name translation entirely when there is
+nothing to translate.
+
 =item $fields = $source->fields_to_fetch
 
 =item $fields = $source->fields_to_omit

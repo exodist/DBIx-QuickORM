@@ -591,3 +591,54 @@ deriving affinity from the source when absent), and `debug`.
 
 This document reflects the implementation at version `0.000020`. Append
 deviation addenda below as the architecture evolves.
+
+## Addendum: Column name aliasing (ORM name ≠ DB name)
+
+A column may use one name in the ORM and a different name in the database. The
+ORM name is the canonical user-facing identity and the in-memory key; the
+database name is what SQL emits.
+
+- **Schema.** `Schema::Table::Column` carries both `name` (ORM) and `db_name`,
+  each defaulting to the other (mirroring `Schema::Table`). `Schema::Table`
+  stores columns keyed by ORM name, validates `db_name` uniqueness within a
+  table, and resolves columns by either name. The source interface gains
+  `field_db_name` / `field_orm_name` (both idempotent; unknown names pass
+  through), and `has_field` / `field_type` / `field_affinity` accept either
+  name.
+
+- **SQL builder boundary.** Name translation happens only in the SQL builder.
+  Builders must emit database names in all generated SQL — translating
+  insert/update data keys, select field lists, returning lists, upsert
+  conflict/set columns, where-clauses, and order-by from ORM names via the
+  source — and callers restore ORM names on fetched rows via `qorm_row_to_orm`.
+  The where-clause walker translates a hash key only when the source recognizes
+  it as a field, so logic/comparison operators pass through and the rule
+  survives new `SQL::Abstract` operators. Literal SQL a caller passes is never
+  rewritten.
+
+- **Read path.** `RowManager::parse_params` remaps fetched rows (database names
+  → ORM names) for every row-creating path; `data_only` select paths remap at
+  the fetch site. Type deflate continues to work unchanged because field
+  lookups accept the database names carried on binds.
+
+- **Skip when nothing diverges.** Each source exposes a cached
+  `source_has_aliases` (true only when some column's ORM name differs from its
+  database name; a join ORs its components). The per-query outbound translation
+  (`_translate_params`) and the per-row inbound remaps (`parse_params`,
+  `qorm_row_to_orm`) short-circuit when it is false, so a schema with no aliases
+  pays effectively nothing for the feature.
+
+- **Introspection.** The database stays canonical. `Schema::Table::merge`
+  reconciles an introspected column (keyed by database name) with a user column
+  by matching `db_name`, producing one ORM-keyed column whose database-derived
+  metadata fills gaps and whose ORM name and explicit overrides win; the primary
+  key is translated to ORM names.
+
+- **Joins.** Joins translate aliased names through their `alias.field` protos:
+  `field_db_name`/`field_orm_name` split the alias, translate the field against
+  that component table, and re-attach the alias; `fields_to_fetch` emits
+  database names in the SELECT so the flat row is remapped back to ORM names by
+  the normal fetch path before it is fractured into per-component rows. Join ON
+  clauses use link columns, which are database names already. A bare (unaliased)
+  field resolves to the first component that has it; qualify with the alias to
+  disambiguate.

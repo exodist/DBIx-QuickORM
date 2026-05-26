@@ -1849,7 +1849,7 @@ sub _insert {
             if ($builder_args->{returning}) {
                 $row_data = {
                     %$data,
-                    %{$sth->fetchrow_hashref},
+                    %{$self->sql_builder->qorm_row_to_orm($self->{+SOURCE}, $sth->fetchrow_hashref)},
                 };
             }
             elsif($has_pk) {
@@ -2095,7 +2095,7 @@ sub update {
             sub {
                 my $row_sql = $self->sql_builder->qorm_select(%$builder_args, fields => $pk_fields);
                 my ($row_sth, $row_res) = $self->_execute($self->{+CONNECTION}->dbh, $row_sql);
-                $rows = $row_sth->fetchall_arrayref({});
+                $rows = [ map { $self->sql_builder->qorm_row_to_orm($source, $_) } @{$row_sth->fetchall_arrayref({})} ];
                 $sth = $self->_make_sth($sql, on_ready => $finish, no_rows => 1);
             },
             die => "Cannot update without a specific row on a when internal transactions are disabled",
@@ -2137,11 +2137,15 @@ sub _do_select {
     my $builder_args = $self->_builder_args;
 
     my $sql = $self->sql_builder->qorm_select(%$builder_args);
+    my $builder = $self->sql_builder;
     return $self->_make_sth(
         $sql,
         on_ready => sub {
             my ($dbh, $sth) = @_;
-            return sub { $sth->fetchrow_hashref };
+            return sub {
+                my $fetched = $sth->fetchrow_hashref or return undef;
+                return $builder->qorm_row_to_orm($source, $fetched);
+            };
         },
         @_,
     );
@@ -2269,7 +2273,10 @@ sub all {
 
     my $sth = $self->_do_select();
 
-    return @{$sth->sth->fetchall_arrayref({})} if $self->{+DATA_ONLY};
+    if ($self->{+DATA_ONLY}) {
+        my $builder = $self->sql_builder;
+        return map { $builder->qorm_row_to_orm($self->{+SOURCE}, $_) } @{$sth->sth->fetchall_arrayref({})};
+    }
 
     my @out;
     while (my $fetched = $sth->next) {

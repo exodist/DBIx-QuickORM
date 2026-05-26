@@ -52,6 +52,11 @@ relationships, ...) to their DBIx::QuickORM equivalents.
 Use the DSL to compose schemas, tables, columns, and whole ORMs - including
 defining tables in their own files and advanced composition.
 
+=item L<DBIx::QuickORM::Manual::Aliasing>
+
+Give a database, table, or column a different name in the ORM than it has in
+the database.
+
 =item L<DBIx::QuickORM::Manual::Querying>
 
 Fetch, create, update, and delete rows with handles: where clauses, ordering,

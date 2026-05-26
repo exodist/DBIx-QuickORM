@@ -24,6 +24,7 @@ use Object::HashBase qw{
     <type
     <created
     <compiled
+    +db_name
 };
 
 =pod
@@ -60,7 +61,11 @@ where the other column's values win.
 
 =item name
 
-The column name.
+The column's ORM (schema) name. Defaults to C<db_name>.
+
+=item db_name
+
+The column's name in the database. Defaults to C<name>.
 
 =item sql_default
 
@@ -106,10 +111,14 @@ Cached compiled form of the column.
 
 =cut
 
-sub name { $_[0]->{+NAME} }
+sub name    { $_[0]->{+NAME}    //= $_[0]->{+DB_NAME} }
+sub db_name { $_[0]->{+DB_NAME} //= $_[0]->{+NAME} }
 
 sub init {
     my $self = shift;
+
+    $self->{+DB_NAME} //= $self->{+NAME};
+    $self->{+NAME}    //= $self->{+DB_NAME};
 
     my $debug = $self->{+CREATED} ? " (defined in $self->{+CREATED})" : "";
 
@@ -125,7 +134,11 @@ sub init {
 
 =item $name = $col->name
 
-The column name.
+The column's ORM (schema) name.
+
+=item $name = $col->db_name
+
+The column's name in the database.
 
 =item $affinity = $col->affinity($dialect)
 
