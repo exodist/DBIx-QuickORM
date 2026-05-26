@@ -1,5 +1,8 @@
 {{$NEXT}}
 
+    Documentation:
+    - Add Manual::SQLBuilder, documenting the SQL builder contract and how to write a custom builder.
+
 0.000020  2026-05-25 22:18:44-07:00 America/Los_Angeles
 
     Features:

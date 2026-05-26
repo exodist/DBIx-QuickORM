@@ -83,6 +83,11 @@ How the per-connection row cache keeps one copy of each row in memory.
 
 The connection lifecycle: reconnecting, fork safety, and the ORM's connection.
 
+=item L<DBIx::QuickORM::Manual::SQLBuilder>
+
+Replace the SQL builder: the builder contract, the statement/bind structure,
+how the SQL::Abstract builder works, and how to write your own.
+
 =item L<DBIx::QuickORM::Manual::Recipes>
 
 A hub of focused recipes for specific tasks.
