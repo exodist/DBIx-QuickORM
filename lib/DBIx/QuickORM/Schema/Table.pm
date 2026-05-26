@@ -244,6 +244,13 @@ sub init {
             croak "Columns '$other' and '$cname' both map to database column '$db'${debug}";
         }
         $db_to_orm{$db} = $cname;
+
+        # A column's database name must not collide with a different column's
+        # ORM name, or lookups (which resolve ORM name first) would silently
+        # shadow this column's database name.
+        if ($db ne $cname && $cols->{$db}) {
+            croak "Column '$cname' has database name '$db', which is also the ORM name of another column${debug}";
+        }
     }
 
     if (my $pk = $self->{+PRIMARY_KEY}) {

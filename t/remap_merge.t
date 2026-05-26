@@ -49,6 +49,36 @@ is($merged->field_orm_name('my_id'), 'my_id', "field_orm_name is idempotent on O
 ok($merged->has_field('id'),    "has_field accepts the database name");
 ok($merged->has_field('my_id'), "has_field accepts the ORM name");
 
+subtest name_collisions => sub {
+    like(
+        dies {
+            DBIx::QuickORM::Schema::Table->new(
+                name    => 't',
+                columns => {
+                    a => $C->new(name => 'a', db_name => 'x', order => 1, affinity => 'string'),
+                    b => $C->new(name => 'b', db_name => 'x', order => 2, affinity => 'string'),
+                },
+            );
+        },
+        qr/both map to database column 'x'/,
+        "two columns mapping to the same database name croaks",
+    );
+
+    like(
+        dies {
+            DBIx::QuickORM::Schema::Table->new(
+                name    => 't',
+                columns => {
+                    foo => $C->new(name => 'foo', db_name => 'bar', order => 1, affinity => 'string'),
+                    bar => $C->new(name => 'bar', db_name => 'baz', order => 2, affinity => 'string'),
+                },
+            );
+        },
+        qr/database name 'bar', which is also the ORM name of another column/,
+        "a db_name colliding with another column's ORM name croaks",
+    );
+};
+
 subtest source_has_aliases => sub {
     ok($merged->source_has_aliases, "merged (aliased) table reports aliases");
     ok($user->source_has_aliases,   "user table with aliased columns reports aliases");
