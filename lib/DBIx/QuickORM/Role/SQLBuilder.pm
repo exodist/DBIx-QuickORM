@@ -87,6 +87,7 @@ sub qorm_row_to_orm {
     my ($source, $row) = @_;
 
     return $row unless $source && $source->can('field_orm_name');
+    return $row if $source->can('source_has_aliases') && !$source->source_has_aliases;
 
     return { map { $source->field_orm_name($_) => $row->{$_} } keys %$row };
 }

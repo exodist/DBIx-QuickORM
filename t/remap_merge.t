@@ -49,6 +49,18 @@ is($merged->field_orm_name('my_id'), 'my_id', "field_orm_name is idempotent on O
 ok($merged->has_field('id'),    "has_field accepts the database name");
 ok($merged->has_field('my_id'), "has_field accepts the ORM name");
 
+subtest source_has_aliases => sub {
+    ok($merged->source_has_aliases, "merged (aliased) table reports aliases");
+    ok($user->source_has_aliases,   "user table with aliased columns reports aliases");
+
+    my $plain = DBIx::QuickORM::Schema::Table->new(
+        name        => 'plain',
+        columns     => {id => $C->new(name => 'id', db_name => 'id', order => 1, affinity => 'numeric')},
+        primary_key => ['id'],
+    );
+    ok(!$plain->source_has_aliases, "table with no aliased columns reports none");
+};
+
 subtest unique_and_index_translation => sub {
     my $unique = $merged->unique;
     is([sort keys %$unique], ['my_uuid'], "unique constraint re-keyed to ORM column_key");

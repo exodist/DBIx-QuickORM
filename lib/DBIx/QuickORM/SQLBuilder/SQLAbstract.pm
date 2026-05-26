@@ -322,6 +322,8 @@ sub _translate_params {
     my $self = shift;
     my ($source, $params) = @_;
 
+    return unless $source->source_has_aliases;
+
     $params->{insert}    = $self->_translate_data($source, $params->{insert})     if $params->{insert};
     $params->{update}    = $self->_translate_data($source, $params->{update})     if $params->{update};
     $params->{fields}    = $self->_translate_fields($source, $params->{fields})   if $params->{fields};

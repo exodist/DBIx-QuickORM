@@ -621,6 +621,13 @@ database name is what SQL emits.
   the fetch site. Type deflate continues to work unchanged because field
   lookups accept the database names carried on binds.
 
+- **Skip when nothing diverges.** Each source exposes a cached
+  `source_has_aliases` (true only when some column's ORM name differs from its
+  database name; a join ORs its components). The per-query outbound translation
+  (`_translate_params`) and the per-row inbound remaps (`parse_params`,
+  `qorm_row_to_orm`) short-circuit when it is false, so a schema with no aliases
+  pays effectively nothing for the feature.
+
 - **Introspection.** The database stays canonical. `Schema::Table::merge`
   reconciles an introspected column (keyed by database name) with a user column
   by matching `db_name`, producing one ORM-keyed column whose database-derived

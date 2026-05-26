@@ -64,6 +64,10 @@ subtest field_orm_name => sub {
     is($join->field_orm_name('b.bar_id'), 'b.bar_pid',  "qualified database name -> qualified ORM name (bar)");
 };
 
+subtest source_has_aliases => sub {
+    ok($join->source_has_aliases, "join over aliased component tables reports aliases");
+};
+
 subtest has_field => sub {
     ok($join->has_field('a.foo_pid'), "has_field accepts a qualified ORM name");
     ok($join->has_field('b.bar_foo'), "has_field accepts a qualified ORM name on the joined table");

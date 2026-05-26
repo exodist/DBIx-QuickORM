@@ -120,6 +120,14 @@ sub field_orm_name {
     return defined($from) ? "$from.$orm" : $orm;
 }
 
+sub source_has_aliases {
+    my $self = shift;
+    for my $as (@{$self->{+ORDER}}) {
+        return 1 if $self->{+COMPONENTS}->{$as}->{table}->source_has_aliases;
+    }
+    return 0;
+}
+
 # }}} Role::Source interface
 
 sub init {

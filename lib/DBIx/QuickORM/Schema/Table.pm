@@ -26,6 +26,7 @@ use Object::HashBase qw{
     <primary_key
     +_links
     +db_to_orm
+    +has_aliases
 };
 
 =pod
@@ -219,9 +220,10 @@ sub clone {
 sub init {
     my $self = shift;
 
-    # Drop any db->orm map carried in from a merge/clone; it is rebuilt lazily
+    # Drop derived caches carried in from a merge/clone; they are rebuilt lazily
     # from this object's own columns.
     delete $self->{+DB_TO_ORM};
+    delete $self->{+HAS_ALIASES};
 
     $self->{+DB_NAME} //= $self->{+NAME};
     $self->{+NAME}    //= $self->{+DB_NAME};
@@ -298,6 +300,11 @@ unchanged.
 The ORM column name for a field. Accepts either the ORM name or the database
 name and always returns the ORM name; an unknown name is returned unchanged.
 
+=item $bool = $table->source_has_aliases()
+
+True when any column's ORM name differs from its database name. Cached. Lets
+callers skip name translation entirely when there is nothing to translate.
+
 =cut
 
 sub source_db_moniker { $_[0]->{+DB_NAME} }
@@ -307,6 +314,8 @@ sub source_orm_name   { $_[0]->{+NAME} }
 # primary_key   # In HashBase at top of file
 
 sub has_field { $_[0]->_column($_[1]) ? 1 : 0 }
+
+sub source_has_aliases { $_[0]->{+HAS_ALIASES} //= (grep { $_->name ne $_->db_name } values %{$_[0]->{+COLUMNS}}) ? 1 : 0 }
 
 sub field_db_name {
     my $self = shift;
