@@ -118,12 +118,47 @@ sub init {
     $self->{+LOOKUP}     //= {};
     $self->{+COMPONENTS} //= {};
 
+    $self->_assert_no_aliased_columns($self->{+PRIMARY_SOURCE});
+
     my $first = $self->{+JOIN_AS}++;
     push @{$self->{+ORDER}}                                            => $first;
     push @{$self->{+LOOKUP}->{$self->{+PRIMARY_SOURCE}->source_db_moniker}} => $first;
     $self->{+COMPONENTS}->{$first} = {table => $self->{+PRIMARY_SOURCE}, as => $first};
 
     $self->{+ROW_CLASS} //= 'DBIx::QuickORM::Join::Row';
+}
+
+=pod
+
+=head1 PRIVATE METHODS
+
+=over 4
+
+=item $join->_assert_no_aliased_columns($table)
+
+Croak if a component table has any column whose ORM name differs from its
+database name. Joins do not yet translate aliased column names, so allowing
+such a table would silently emit incorrect SQL.
+
+=back
+
+=cut
+
+sub _assert_no_aliased_columns {
+    my $self = shift;
+    my ($table) = @_;
+
+    return unless $table && $table->can('columns');
+
+    for my $col ($table->columns) {
+        next unless $col->can('db_name');
+        next if $col->name eq $col->db_name;
+
+        my $tname = $table->can('source_orm_name') ? $table->source_orm_name : "$table";
+        croak "Joins over tables with aliased columns are not yet supported (table '$tname' column '" . $col->name . "' maps to database column '" . $col->db_name . "')";
+    }
+
+    return;
 }
 
 =pod
@@ -438,13 +473,16 @@ sub _join {
         }
     }
 
+    my $joined = $self->schema->table($link->other_table);
+    $self->_assert_no_aliased_columns($joined);
+
     push @{$self->{+ORDER}} => $as;
 
     push @{$self->{+LOOKUP}->{$link->other_table}} => $as;
 
     $self->{+COMPONENTS}->{$as} = {
         as    => $as,
-        table => $self->schema->table($link->other_table),
+        table => $joined,
         link  => $link,
         from  => $from,
         type  => $type,
