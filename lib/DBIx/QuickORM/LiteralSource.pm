@@ -98,8 +98,8 @@ sub has_field      { }
 sub primary_key    { }
 sub row_class      { }
 
-sub field_db_name  { $_[1] }
-sub field_orm_name { $_[1] }
+sub field_db_name  { my ($self, $name) = @_; return $name }
+sub field_orm_name { my ($self, $name) = @_; return $name }
 
 # }}} Role::Source interface
 

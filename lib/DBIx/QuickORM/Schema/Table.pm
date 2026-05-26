@@ -174,11 +174,10 @@ sub merge {
     my $mine   = $self->{+COLUMNS};
     my $theirs = $other->{+COLUMNS};
 
-    my %db_to_orm;
-    %db_to_orm = map { $theirs->{$_}->db_name => $_ } keys %$theirs if $theirs;
+    my $db_to_orm = $theirs ? $other->_db_to_orm : {};
 
     if (!$params{+COLUMNS} && ($mine || $theirs)) {
-        $params{+COLUMNS} = merge_hash_of_objs($self->_rekey_columns($mine // {}, \%db_to_orm), $theirs // {});
+        $params{+COLUMNS} = merge_hash_of_objs($self->_rekey_columns($mine // {}, $db_to_orm), $theirs // {});
     }
 
     $params{+UNIQUE}  //= merge_hash_of_objs($self->{+UNIQUE}, $other->{+UNIQUE}) if $self->{+UNIQUE}  || $other->{+UNIQUE};
@@ -187,7 +186,7 @@ sub merge {
 
     if (!$params{+PRIMARY_KEY} && ($self->{+PRIMARY_KEY} || $other->{+PRIMARY_KEY})) {
         my $pk = $self->{+PRIMARY_KEY} // $other->{+PRIMARY_KEY};
-        $params{+PRIMARY_KEY} = [ map { $db_to_orm{$_} // $_ } @$pk ];
+        $params{+PRIMARY_KEY} = [ map { $db_to_orm->{$_} // $_ } @$pk ];
     }
 
     return blessed($self)->new(%$self, %$other, %params);

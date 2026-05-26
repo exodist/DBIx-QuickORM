@@ -53,7 +53,19 @@ add join-specific tests:
 - Multi-alias of the same table within one join.
 - Row-fracture correctness with aliased columns.
 
-## 4. Other surfaces to re-audit when lifting the guard
+## 4. Unique / index column references under introspection merge
+
+`Schema::Table::merge` re-keys columns and translates the primary key to ORM
+names, but does not translate the column references inside `unique` constraints
+or `index` definitions. For a non-aliased schema this is a no-op; for an
+aliased column that participates in a unique constraint or index discovered via
+introspection, those references stay in database names. This does not croak
+(init does not validate unique/index column names against the column set), but
+it is incomplete. When implementing, translate the `unique` keys
+(`column_key`-fingerprinted) and index column lists through the same
+`db_to_orm` map `merge` already builds.
+
+## 5. Other surfaces to re-audit when lifting the guard
 
 - Any query surface added after the initial branch must be checked for the same
   ORM→DB / DB→ORM obligation (the SQLBuilder contract documents this).

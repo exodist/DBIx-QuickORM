@@ -97,8 +97,8 @@ sub source_orm_name { 'JOIN' }
 sub primary_key    { }
 sub fields_to_omit { }
 
-sub field_db_name  { $_[1] }
-sub field_orm_name { $_[1] }
+sub field_db_name  { my ($self, $name) = @_; return $name }
+sub field_orm_name { my ($self, $name) = @_; return $name }
 
 sub fields_list_all {
     my $self = shift;
