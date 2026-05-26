@@ -76,6 +76,7 @@ print STDERR "\n";
     my @mods = qw{
         Class::XSAccessor
         Cpanel::JSON::XS
+        DBD::DuckDB
         DBD::MariaDB
         DBD::Pg
         DBD::SQLite

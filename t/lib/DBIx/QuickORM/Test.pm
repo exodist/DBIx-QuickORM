@@ -15,6 +15,7 @@ our @EXPORT = qw{
     mariadb
     percona
     sqlite
+    duckdb
     debug
 
     do_for_all_dbs
@@ -26,6 +27,7 @@ sub mysqlcom { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools
 sub mariadb  { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'MariaDB',    @args}) } or diag(clean_err($@)) }
 sub percona  { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'Percona',    @args}) } or diag(clean_err($@)) }
 sub sqlite   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'SQLite',     @args}) } or diag(clean_err($@)) }
+sub duckdb   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'DuckDB',     @args}) } or diag(clean_err($@)) }
 
 # Static sets that do not live under ~/dbs: the system-installed servers and
 # sqlite. These are always offered (and skipped at runtime if unavailable).
@@ -34,6 +36,13 @@ my @STATIC_SETS = (
     {name => 'sqlite',            ver => '', db => \&sqlite, dialect => 'SQLite',     dbi => ['SQLite'],           quickdb => 'SQLite',     env => {}},
     {name => 'system_mysql',      ver => '', db => \&mysql,  dialect => 'MySQL',      dbi => ['mysql', 'MariaDB'], quickdb => 'MySQL',      env => {}},
 );
+
+# NOTE: DuckDB is intentionally NOT in @SETS. It differs enough from the others
+# (no SERIAL / implicit auto-increment, no savepoints) that the shared per-test
+# schema files and savepoint-based nested-transaction tests do not apply. The
+# duckdb() helper (below, exported) provisions a DuckDB via QuickDB for the
+# dedicated t/AI/dialect_duckdb.t. Folding DuckDB into do_for_all_dbs would
+# require per-test duckdb.sql schemas and savepoint-aware tests.
 
 # Maps the engine prefix of a "~/dbs/<engine>-<version>" directory to its driver
 # metadata. 'server' is the binary that must exist under bin/ for the install to

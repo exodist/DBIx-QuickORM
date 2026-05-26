@@ -336,6 +336,7 @@ sub _dialect_for_driver {
     return 'SQLite'     if $driver =~ m/^SQLite$/i;
     return 'PostgreSQL' if $driver =~ m/^Pg/i;
     return 'MySQL'      if $driver =~ m/^(?:mysql|MariaDB)$/i;
+    return 'DuckDB'     if $driver =~ m/^DuckDB$/i;
     return undef;
 }
 
@@ -1657,6 +1658,12 @@ For interacting with the Community Edition of MySQL.
 =item L<SQLite|DBIx::QuickORM::Dialect::SQLite>
 
 For interacting with SQLite databases.
+
+=item L<DuckDB|DBIx::QuickORM::Dialect::DuckDB>
+
+For interacting with DuckDB databases. DuckDB is embedded (like SQLite) and
+supports C<RETURNING> on all DML, but does B<not> support savepoints, so
+nested transactions are unavailable.
 
 =back
 

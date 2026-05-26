@@ -1,7 +1,12 @@
 # DuckDB dialect — investigation (branch `duckdb`)
 
-Status: **investigation only, no code written yet.** Decision pending on
-savepoint/nested-transaction handling before implementing.
+Status: **IMPLEMENTED** (branch `duckdb`). `lib/DBIx/QuickORM/Dialect/DuckDB.pm`
+added, registered in `_dialect_for_driver`, covered by
+`t/AI/dialect_duckdb.t` (provisions DuckDB via DBIx::QuickDB 0.000042's DuckDB
+driver). Savepoints croak (nested txns unsupported). See "Implementation
+notes" at the bottom.
+
+The original investigation follows.
 
 ## Verdict
 
@@ -86,3 +91,29 @@ or `:memory:`, no server) — architecturally closest to the SQLite dialect, so
 
 One ~200-line dialect (mostly introspection SQL), small edits to
 `DBIx/QuickORM.pm` + `dist.ini`, one direct-DBI test file. Moderate.
+
+## Implementation notes (what actually shipped on this branch)
+
+- **Transactions use raw SQL, not `begin_work`.** DBD::DuckDB 0.16 has a bug:
+  `begin_work`/`commit` works repeatedly, but after a `$dbh->rollback` the next
+  `begin_work` dies with "cannot start a transaction within a transaction" —
+  DBI's `rollback` doesn't clear DuckDB's engine transaction state. Manual
+  `BEGIN TRANSACTION` / `COMMIT` / `ROLLBACK` via `$dbh->do` is reliable across
+  sequential commits and rollbacks. So `start_txn`/`commit_txn`/`rollback_txn`
+  issue those statements and the dialect tracks its own `in_txn` flag (DBI's
+  `AutoCommit` stays at its default and does not reflect the manual txn).
+- **Savepoints croak** ("does not support savepoints"). Nested ORM `txn`s go
+  through `create_savepoint` and therefore croak; top-level txns work.
+- **Introspection:** columns via `pragma_table_info`; PK/unique/FK via
+  `duckdb_constraints()` (DBD::DuckDB returns LIST columns as Perl arrayrefs);
+  tables/views via `information_schema.tables` + `table_type`. `build_indexes`
+  reports PK + unique only (DuckDB has no stable secondary-index-column fn).
+- **DuckDB is NOT in the `do_for_all_dbs` matrix.** It rejects `SERIAL` and has
+  no implicit auto-increment, so the shared `postgresql.sql`/`sqlite.sql`
+  schemas do not load; and savepoint-based nested-txn tests don't apply.
+  Folding DuckDB into that matrix is a separate task: author per-test
+  `duckdb.sql` schemas (use `CREATE SEQUENCE` + `DEFAULT nextval(...)` for PKs)
+  and make the transaction tests savepoint-aware. Until then DuckDB is covered
+  by the dedicated `t/AI/dialect_duckdb.t`.
+- **`last_insert_id`** is unsupported by DBD::DuckDB but unused — insert goes
+  through the RETURNING path.
