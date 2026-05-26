@@ -37,7 +37,7 @@ do_for_all_dbs {
     is($row3->stored_data->{xxx}, 'booger', "Fetched 'xxx' database set value");
 
     # sqlite does not support async
-    unless (curdialect() =~ m/sqlite/i) {
+    unless (curdialect() =~ m/sqlite|duckdb/i) {
         subtest async => sub {
             my $h = $orm->handle('example')->async->auto_refresh;
             my $row4 = $h->insert({name => 'd'});

@@ -103,6 +103,12 @@ do_for_all_dbs {
         ok($row_b->is_valid, "Row is valid");
         ok($row_b->is_stored, "Row is in storage");
 
+        # Nested transactions are implemented via savepoints; skip on dialects
+        # (DuckDB) that do not support them.
+      SKIP: {
+        skip "Dialect does not support savepoints (nested transactions)", 12
+            unless dialect_has_savepoints();
+
         my $row_c;
         $con->txn(sub {
             $con->txn(sub {
@@ -144,6 +150,7 @@ do_for_all_dbs {
             qr/This row is invalid/,
             "Cannot use an invalid row"
         );
+      }
     };
 
     subtest rollback => sub {

@@ -15,9 +15,11 @@ our @EXPORT = qw{
     mariadb
     percona
     sqlite
+    duckdb
     debug
 
     do_for_all_dbs
+    dialect_has_savepoints
 };
 
 sub psql     { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'PostgreSQL', @args}) } or diag(clean_err($@)) }
@@ -26,14 +28,23 @@ sub mysqlcom { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools
 sub mariadb  { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'MariaDB',    @args}) } or diag(clean_err($@)) }
 sub percona  { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'Percona',    @args}) } or diag(clean_err($@)) }
 sub sqlite   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'SQLite',     @args}) } or diag(clean_err($@)) }
+sub duckdb   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'DuckDB',     @args}) } or diag(clean_err($@)) }
 
 # Static sets that do not live under ~/dbs: the system-installed servers and
 # sqlite. These are always offered (and skipped at runtime if unavailable).
 my @STATIC_SETS = (
     {name => 'system_postgresql', ver => '', db => \&psql,   dialect => 'PostgreSQL', dbi => ['Pg'],               quickdb => 'PostgreSQL', env => {}},
     {name => 'sqlite',            ver => '', db => \&sqlite, dialect => 'SQLite',     dbi => ['SQLite'],           quickdb => 'SQLite',     env => {}},
+    {name => 'duckdb',            ver => '', db => \&duckdb, dialect => 'DuckDB',     dbi => ['DuckDB'],           quickdb => 'DuckDB',     env => {}},
     {name => 'system_mysql',      ver => '', db => \&mysql,  dialect => 'MySQL',      dbi => ['mysql', 'MariaDB'], quickdb => 'MySQL',      env => {}},
 );
+
+# The quickdb name of the set currently running under do_for_all_dbs.
+our $CURRENT_QDB;
+
+# DuckDB has no savepoints, so it cannot run the nested-transaction (savepoint)
+# subtests. Tests that exercise nested transactions guard them with this.
+sub dialect_has_savepoints { ($CURRENT_QDB // '') ne 'DuckDB' }
 
 # Maps the engine prefix of a "~/dbs/<engine>-<version>" directory to its driver
 # metadata. 'server' is the binary that must exist under bin/ for the install to
@@ -113,7 +124,7 @@ sub do_for_all_dbs(&;@) {
     my %only = map { $_ => 1 } @_;
     require Parallel::Runner;
     my $pr = Parallel::Runner->new(
-        $ENV{DBIXQORM_TEST_CONCURRENCY} // ($ENV{USER} eq 'exodist' ? 16 : 4),
+        $ENV{DBIXQORM_TEST_CONCURRENCY} // 4,
         iteration_callback => \&cull,
     );
 
@@ -125,6 +136,7 @@ sub do_for_all_dbs(&;@) {
             cull();
             $pr->run(sub {
                 subtest "$set->{name} x DBD::$dbi" => sub {
+                    local $CURRENT_QDB = $set->{quickdb};
                     $ENV{$_} = $set->{env}->{$_} for keys %{$set->{env}};
                     my $qdb = "DBIx::QuickDB::Driver::$set->{quickdb}";
                     my $have_qdb = eval { require "DBIx/QuickDB/Driver/$set->{quickdb}.pm"; my ($v, $why) = $qdb->viable({load_sql => 1, bootstrap => 1}); $v || die $why } or note $@;
