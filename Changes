@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+0.000021  2026-05-27 20:30:06-07:00 America/Los_Angeles
+
     Features:
     - Detect database-generated columns (stored or virtual GENERATED ALWAYS AS) at autofill time across SQLite, PostgreSQL, MySQL/MariaDB, and DuckDB. Generated columns are readable on fetch but excluded from INSERT/UPDATE: handle-level insert/upsert/update silently drop them, row->field and row->update croak.
 
