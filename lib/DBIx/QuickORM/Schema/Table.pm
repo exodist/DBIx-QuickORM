@@ -307,6 +307,12 @@ unchanged.
 The ORM column name for a field. Accepts either the ORM name or the database
 name and always returns the ORM name; an unknown name is returned unchanged.
 
+=item $bool = $table->field_is_generated($name)
+
+True if the named field is a database-generated column (C<GENERATED ALWAYS>,
+stored or virtual). Accepts either the ORM or database name. Unknown names
+return false.
+
 =item $bool = $table->source_has_aliases()
 
 True when any column's ORM name differs from its database name. Cached. Lets
@@ -336,6 +342,13 @@ sub field_orm_name {
     my ($name) = @_;
     my $col = $self->_column($name) or return $name;
     return $col->name;
+}
+
+sub field_is_generated {
+    my $self = shift;
+    my ($name) = @_;
+    my $col = $self->_column($name) or return 0;
+    return $col->generated ? 1 : 0;
 }
 
 =pod

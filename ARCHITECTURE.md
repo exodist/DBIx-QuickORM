@@ -210,12 +210,19 @@ its columns (with omitted columns excluded from the default fetch set).
 
 ### `DBIx::QuickORM::Schema::Table::Column`
 
-Holds `name`, `order`, `nullable`, `identity`, `omit`, `sql_default`,
-`perl_default`, `type`, and `affinity`. `type` is either a `SCALAR` ref
-holding a raw SQL type string, or a type object consuming `Role::Type`.
-`affinity($dialect)` is computed lazily and cached: from the SQL type string
-via `affinity_from_type` (validated), or from the type object via
-`qorm_affinity`.
+Holds `name`, `order`, `nullable`, `identity`, `generated`, `omit`,
+`sql_default`, `perl_default`, `type`, and `affinity`. `type` is either a
+`SCALAR` ref holding a raw SQL type string, or a type object consuming
+`Role::Type`. `affinity($dialect)` is computed lazily and cached: from the
+SQL type string via `affinity_from_type` (validated), or from the type
+object via `qorm_affinity`.
+
+`generated` is true for database-computed columns (stored or virtual
+`GENERATED ALWAYS AS` columns). Generated columns participate in fetches
+(they appear in `fields_to_fetch` and in RETURNING lists), but the row and
+handle layers refuse to write them: the handle silently drops them from
+`INSERT` / `UPDATE` data hashes, and the row's `field` setter and `update`
+croak. Detection happens at autofill time in each dialect — see §8.
 
 ### `DBIx::QuickORM::Schema::View`
 
@@ -309,8 +316,9 @@ A "source" is anything queryable. `Role::Source` requires
 `source_db_moniker` (SQL table name / `table AS alias` / literal SQL),
 `source_orm_name` (`'TABLE'`, `'VIEW'`, `'JOIN'`, `'LITERAL'`), `row_class`,
 `primary_key`, `field_type`, `field_affinity`, `has_field`,
-`fields_to_fetch`, `fields_to_omit`, `fields_list_all`. It provides
-`cachable` (true when the source has a non-empty primary key).
+`field_is_generated`, `fields_to_fetch`, `fields_to_omit`,
+`fields_list_all`. It provides `cachable` (true when the source has a
+non-empty primary key).
 
 Implementations:
 
