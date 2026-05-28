@@ -2,7 +2,7 @@ package DBIx::QuickORM::Schema::Autofill;
 use strict;
 use warnings;
 
-our $VERSION = '0.000022';
+our $VERSION = '0.000023';
 
 use DBIx::QuickORM::Util qw/load_class/;
 
