@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+0.000022  2026-05-28 13:26:49-07:00 America/Los_Angeles
+
     Bug fixes:
     - SQLite dialect now queries sqlite_master/sqlite_temp_master instead of the modern sqlite_schema/sqlite_temp_schema aliases (which require SQLite 3.33+, 2020). Bump DBD::SQLite minimum to 1.64, which embeds SQLite 3.31.1 and is the first version with pragma_table_xinfo's `hidden` flag for GENERATED columns (relied on by generated-column detection added in 0.000021).
 
