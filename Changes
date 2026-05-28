@@ -1,5 +1,8 @@
 {{$NEXT}}
 
+    Features:
+    - Detect database-generated columns (stored or virtual GENERATED ALWAYS AS) at autofill time across SQLite, PostgreSQL, MySQL/MariaDB, and DuckDB. Generated columns are readable on fetch but excluded from INSERT/UPDATE: handle-level insert/upsert/update silently drop them, row->field and row->update croak.
+
     Documentation:
     - Add Manual::SQLBuilder, documenting the SQL builder contract and how to write a custom builder.
 

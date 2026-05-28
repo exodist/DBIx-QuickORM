@@ -120,6 +120,14 @@ sub field_orm_name {
     return defined($from) ? "$from.$orm" : $orm;
 }
 
+sub field_is_generated {
+    my $self = shift;
+    my ($proto) = @_;
+    my (undef, $t, $field) = $self->_field_source($proto, no_fatal => 1);
+    return 0 unless $t;
+    return $t->field_is_generated($field);
+}
+
 sub source_has_aliases {
     my $self = shift;
     for my $as (@{$self->{+ORDER}}) {

@@ -57,6 +57,12 @@ The ORM name for a field, given either its ORM or database name. Idempotent and
 used to remap fetched result keys back to ORM names; an unknown field is
 returned unchanged.
 
+=item $bool = $source->field_is_generated($field)
+
+True if the named field is a database-generated column (stored or virtual
+C<GENERATED>). Used by the row and SQL layers to keep generated columns out of
+C<INSERT> / C<UPDATE> column lists. Unknown fields return false.
+
 =item $bool = $source->source_has_aliases
 
 True when the source has any column whose ORM name differs from its database

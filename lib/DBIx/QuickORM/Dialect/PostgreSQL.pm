@@ -335,6 +335,10 @@ sub build_columns_from_db {
         $col->{identity} //= 1 if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/identity/ } keys %$res;
         $col->{identity} //= 1 if $res->{column_default} && $res->{column_default} =~ m/^nextval\(/;
 
+        # is_generated is 'ALWAYS' for stored generated columns and 'NEVER'
+        # otherwise; _col_field_to_bool treats 'NEVER' as false.
+        $col->{generated} = 1 if $self->_col_field_to_bool($res->{is_generated});
+
         $col->{affinity} //= affinity_from_type($res->{udt_name}) // affinity_from_type($res->{data_type});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/character/ } keys %$res;
         $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/numeric/ } keys %$res;

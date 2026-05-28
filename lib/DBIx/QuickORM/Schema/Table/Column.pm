@@ -20,6 +20,7 @@ use Object::HashBase qw{
     <order
     <nullable
     <identity
+    <generated
     +affinity
     <type
     <created
@@ -90,6 +91,13 @@ True if the column accepts NULL.
 =item identity
 
 True if the column is an identity / auto-increment column.
+
+=item generated
+
+True if the column's value is computed by the database (a stored or virtual
+C<GENERATED> column). Generated columns are readable on fetch but are excluded
+from C<INSERT> and C<UPDATE> column lists, and setting one via the row layer
+croaks.
 
 =item affinity
 

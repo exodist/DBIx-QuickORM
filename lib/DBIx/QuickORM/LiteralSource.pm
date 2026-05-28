@@ -101,6 +101,8 @@ sub row_class      { }
 sub field_db_name  { my ($self, $name) = @_; return $name }
 sub field_orm_name { my ($self, $name) = @_; return $name }
 
+sub field_is_generated { 0 }
+
 sub source_has_aliases { 0 }
 
 # }}} Role::Source interface
