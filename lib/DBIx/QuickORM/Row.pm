@@ -525,7 +525,10 @@ sub _fields {
         next unless $hr;
 
         for my $field (keys %$hr) {
-            $out{$field} //= $self->$meth($hr, $field);
+            # An exists check, not //=, so a pending undef (staged NULL) is
+            # not masked by a defined stored value.
+            next if exists $out{$field};
+            $out{$field} = $self->$meth($hr, $field);
         }
     }
 
