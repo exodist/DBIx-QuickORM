@@ -62,6 +62,12 @@ and savepoints via the SQLite driver, and reports SQLite's feature set
 Feature flags and constants describing the SQLite dialect. SQLite does not
 support async queries.
 
+=item $stype = $dialect->supports_type($type)
+
+Returns SQLite's native storage type name for a supported logical type, or
+nothing. SQLite has no native JSON type; JSON-ish types fall back to C<TEXT>
+via C<supports_type('text')>.
+
 =item $dialect->async_prepare_args
 
 =item $dialect->async_ready
@@ -85,6 +91,23 @@ sub dbi_driver   { 'DBD::SQLite' }
 sub dialect_name { 'SQLite' }
 
 sub datetime_formatter { 'DateTime::Format::SQLite' }
+
+# SQLite's real storage types. There is no native JSON type; types like JSON
+# fall back to TEXT via supports_type('text').
+my %TYPES = (
+    text    => 'TEXT',
+    integer => 'INTEGER',
+    int     => 'INTEGER',
+    real    => 'REAL',
+    blob    => 'BLOB',
+    numeric => 'NUMERIC',
+);
+sub supports_type {
+    my $self = shift;
+    my ($type) = @_;
+    return undef unless defined $type;
+    return $TYPES{lc($type)};
+}
 
 sub supports_returning_update { 1 }
 sub supports_returning_insert { 1 }

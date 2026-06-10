@@ -130,6 +130,31 @@ sub dialect_name { 'MySQL' }
 
 =pod
 
+=item $stype = $dialect->supports_type($type)
+
+Returns the native type name for a supported logical type (e.g. C<json>),
+or nothing. MariaDB stores C<JSON> as an alias for C<LONGTEXT> but accepts
+the keyword.
+
+=cut
+
+my %TYPES = (
+    json      => 'JSON',
+    text      => 'TEXT',
+    longtext  => 'LONGTEXT',
+    blob      => 'BLOB',
+    datetime  => 'DATETIME',
+    timestamp => 'TIMESTAMP',
+);
+sub supports_type {
+    my $self = shift;
+    my ($type) = @_;
+    return undef unless defined $type;
+    return $TYPES{lc($type)};
+}
+
+=pod
+
 =back
 
 =cut

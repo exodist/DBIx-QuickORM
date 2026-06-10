@@ -130,17 +130,24 @@ sub rollback_savepoint { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $
 
 =item $stype = $dialect->supports_type($type)
 
-Returns the native type name for a supported logical type (e.g. C<uuid>),
-or nothing.
+Returns the native type name for a supported logical type (e.g. C<uuid>,
+C<jsonb>), or nothing. Note: C<json> requires PostgreSQL 9.2+ and C<jsonb>
+9.4+.
 
 =cut
 
 my %TYPES = (
-    uuid => 'UUID',
+    uuid        => 'UUID',
+    json        => 'JSON',
+    jsonb       => 'JSONB',
+    text        => 'TEXT',
+    timestamp   => 'TIMESTAMP',
+    timestamptz => 'TIMESTAMPTZ',
 );
 sub supports_type {
     my $self = shift;
     my ($type) = @_;
+    return undef unless defined $type;
     return $TYPES{lc($type)};
 }
 
