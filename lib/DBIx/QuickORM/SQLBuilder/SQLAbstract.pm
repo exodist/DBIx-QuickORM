@@ -145,8 +145,10 @@ BEGIN {
 =item $sql = $builder->qorm_upsert(source => $source, insert => \%data, ...)
 
 Build an insert and append the dialect's upsert/conflict clause keyed on the
-source's primary key, with the non-key fields as the update set. Croaks if the
-source has no primary key.
+source's primary key, with the non-key fields as the update set. When every
+field belongs to the primary key a no-op assignment is used as the update set
+so the statement stays valid and still returns the row on conflict. Croaks if
+the source has no primary key.
 
 =cut
 
@@ -185,7 +187,17 @@ sub qorm_upsert {
             param => $counter++,
         };
     }
-    $conf .= " " . join(', ' => @inject) if @inject;
+    # When every field is part of the primary key there is nothing to update
+    # on conflict, but the conflict clause still needs an assignment (and
+    # 'DO NOTHING' would suppress the RETURNING row). Inject a no-op
+    # assignment instead. The MySQL-family clause ('ON DUPLICATE KEY UPDATE')
+    # needs VALUES() so MySQL still reports the row via last_insert_id.
+    unless (@inject) {
+        my $col = $pk_db->[0];
+        push @inject => $conf =~ m/ON DUPLICATE KEY UPDATE/i ? "$col = VALUES($col)" : "$col = $col";
+    }
+
+    $conf .= " " . join(', ' => @inject);
 
     $sql->{statement} = "$statement $conf $returning";
 
