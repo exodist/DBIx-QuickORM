@@ -64,4 +64,18 @@ subtest reconnect_rebuilds_dialect => sub {
     ok(!(grep { $_ eq 'post-reconnect-rollback' } @{raw_names()}), "rolled back row really was rolled back on the new handle");
 };
 
+subtest reconnect_guards => sub {
+    my $con = connect_orm();
+
+    my $txn = $con->txn();
+    my $err = dies { $con->reconnect };
+    like($err, qr/Cannot reconnect while there are active ORM-managed transactions/, "reconnect croaks with an open managed transaction");
+    $txn->rollback;
+
+    # Simulate a previously failed reconnect that left no dbh behind.
+    delete $con->{dbh};
+    ok(lives { $con->reconnect }, "reconnect survives a missing dbh from a prior failed reconnect");
+    ok($con->dbh->ping, "fresh dbh works");
+};
+
 done_testing;

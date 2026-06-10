@@ -386,16 +386,32 @@ sub aside_dbh { $_[0]->{+ORM}->db->new_dbh }
 
 =item $con->reconnect
 
-Used to reconnect after forking.
+Disconnect the current dbh (if any) and establish a fresh one, typically after
+a fork or a lost connection. Croaks if any ORM-managed transactions are open.
+Any in-progress async query is abandoned (it ran on the old handle), and the
+aside/forked query registries are cleared; those queries keep their own
+private connections but are no longer tracked by this connection.
 
 =cut
 
 sub reconnect {
     my $self = shift;
 
-    my $dbh = delete $self->{+DBH};
-    $dbh->{InactiveDestroy} = 1 unless $self->{+PID} == $$;
-    $dbh->disconnect;
+    croak "Cannot reconnect while there are active ORM-managed transactions"
+        if @{$self->{+TRANSACTIONS} // []};
+
+    if (my $dbh = delete $self->{+DBH}) {
+        $dbh->{InactiveDestroy} = 1 unless $self->{+PID} == $$;
+        $dbh->disconnect;
+    }
+
+    # The old handle is gone, so an in-progress async query on it can never
+    # complete. Aside/forked queries hold their own private connections, but
+    # they belong to the pre-reconnect (possibly pre-fork) state, so stop
+    # tracking them.
+    delete $self->{+IN_ASYNC};
+    $self->{+ASIDES} = {};
+    $self->{+FORKS}  = {};
 
     $self->{+PID} = $$;
     $self->{+DBH} = $self->{+ORM}->db->new_dbh;
