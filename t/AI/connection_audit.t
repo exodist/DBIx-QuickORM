@@ -89,4 +89,24 @@ subtest source_no_fatal => sub {
     like($err, qr/Could not find the 'no_such_table' table in the schema/, "unknown table croaks without no_fatal");
 };
 
+subtest blessed_manager_validation => sub {
+    my $con = connect_orm();
+    my $orm = $con->orm;
+
+    require DBIx::QuickORM::Connection;
+
+    my $err = dies { DBIx::QuickORM::Connection->new(orm => $orm, manager => bless({}, 'My::Test::NotAManager')) };
+    like($err, qr/does not subclass 'DBIx::QuickORM::RowManager'/, "a blessed manager that is not a RowManager croaks");
+
+    require DBIx::QuickORM::RowManager::Cached;
+    my $manager = DBIx::QuickORM::RowManager::Cached->new(connection => $con);
+    my $con2;
+    ok(lives { $con2 = DBIx::QuickORM::Connection->new(orm => $orm, manager => $manager) }, "a real RowManager instance is accepted") or diag $@;
+    ref_is($con2->manager, $manager, "the provided manager instance is used");
+    ref_is($manager->connection, $con2, "the manager was re-pointed at the new connection");
+
+    require Scalar::Util;
+    ok(Scalar::Util::isweak($manager->{connection}), "the manager's connection reference is weak (no cycle)");
+};
+
 done_testing;

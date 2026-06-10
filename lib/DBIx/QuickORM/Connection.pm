@@ -186,7 +186,15 @@ sub init {
     my $txns = $self->{+TRANSACTIONS} = [];
     my $manager = $self->{+MANAGER} // 'DBIx::QuickORM::RowManager::Cached';
     if (blessed($manager)) {
+        croak "Manager '$manager' does not subclass 'DBIx::QuickORM::RowManager'"
+            unless $manager->DOES('DBIx::QuickORM::RowManager');
+
         $manager->set_connection($self);
+
+        # The HashBase setter stores a strong reference, which would create a
+        # connection <-> manager cycle; the manager holds its connection weakly.
+        weaken($manager->{DBIx::QuickORM::RowManager::CONNECTION()});
+
         $manager->set_transactions($txns);
     }
     else {
