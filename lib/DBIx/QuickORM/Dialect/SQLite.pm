@@ -322,13 +322,16 @@ sub table_has_autoinc {
     my ($table) = @_;
 
     croak "A table name is required" unless $table;
-    my $dbh = $self->{+DBH};
 
-    my $sth = $dbh->prepare(qq{SELECT 1 FROM sqlite_master WHERE tbl_name=? AND sql LIKE "\%AUTOINCREMENT\%"});
-    $sth->execute($table);
-    my ($res) = $sth->fetchrow_array;
+    my $ddl = $self->_table_ddl($table) // return 0;
 
-    return $res ? 1 : 0;
+    # AUTOINCREMENT is only valid as part of a column definition's PRIMARY KEY
+    # constraint, so match that grammar in the table's own CREATE TABLE DDL.
+    # Matching the bare word against every sqlite_master row for the table
+    # would false-positive on triggers (separate rows, excluded by the
+    # type='table' filter in _table_ddl) and on comments or string literals
+    # (stripped by _strip_sql_noise).
+    return $self->_strip_sql_noise($ddl) =~ m/\bPRIMARY\s+KEY(?:\s+(?:ASC|DESC))?(?:\s+ON\s+CONFLICT\s+\w+)?\s+AUTOINCREMENT\b/i ? 1 : 0;
 }
 
 =pod
@@ -355,7 +358,10 @@ sub build_columns_from_db {
     my $sth = $dbh->prepare("SELECT * FROM pragma_table_xinfo(?)");
     $sth->execute($table);
 
-    my $has_autoinc = $self->table_has_autoinc($table);
+    # A rowid-alias column auto-assigns on insert (with or without
+    # AUTOINCREMENT, which only changes rowid allocation policy), matching the
+    # identity semantics of the other engines.
+    my $identity_col = $self->_rowid_alias_column($table);
 
     my (%columns, @links);
     while (my $res = $sth->fetchrow_hashref) {
@@ -369,7 +375,7 @@ sub build_columns_from_db {
         $col->{name}    = $res->{name};
         $col->{db_name} = $res->{name};
         $col->{order}   = $res->{cid} + 1;
-        $col->{identity}  = 1 if $has_autoinc && $res->{pk};
+        $col->{identity}  = 1 if defined($identity_col) && $res->{name} eq $identity_col;
         $col->{generated} = 1 if $hidden >= 2;
 
         my $type = $res->{type};
@@ -439,8 +445,6 @@ sub build_indexes_from_db {
 
 Returns the primary-key column names for a table, ordered by key position.
 
-=back
-
 =cut
 
 sub _primary_key {
@@ -456,6 +460,82 @@ sub _primary_key {
     }
 
     return @out;
+}
+
+=pod
+
+=item $ddl_or_undef = $dialect->_table_ddl($table)
+
+The stored C<CREATE TABLE> statement for the named table (permanent or temp),
+or undef when the table does not exist.
+
+=cut
+
+sub _table_ddl {
+    my $self = shift;
+    my ($table) = @_;
+
+    my $dbh = $self->dbh;
+
+    my ($ddl) = $dbh->selectrow_array("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", undef, $table);
+    ($ddl) = $dbh->selectrow_array("SELECT sql FROM sqlite_temp_master WHERE type = 'table' AND name = ?", undef, $table) unless defined $ddl;
+
+    return $ddl;
+}
+
+=pod
+
+=item $sql = $dialect->_strip_sql_noise($sql)
+
+Returns the SQL with string literals replaced by empty strings and comments
+removed, so keyword matching cannot false-positive on either.
+
+=cut
+
+sub _strip_sql_noise {
+    my $self = shift;
+    my ($sql) = @_;
+
+    # One left-to-right pass so a quote inside a comment (or a comment marker
+    # inside a string) cannot derail the other rule.
+    $sql =~ s{('(?:[^']|'')*')|(--[^\n]*)|(/\*.*?\*/)}{defined $1 ? "''" : " "}ges;
+
+    return $sql;
+}
+
+=pod
+
+=item $col_or_undef = $dialect->_rowid_alias_column($table)
+
+The name of the column that aliases SQLite's rowid, or undef if the table has
+none. The alias rule: a rowid table (no C<WITHOUT ROWID>) with a single-column
+primary key whose declared type is exactly C<INTEGER> (C<INT>, C<BIGINT>, etc.
+do not alias). Not handled: the obscure C<x INTEGER PRIMARY KEY DESC>
+column-definition form, which SQLite does not treat as an alias.
+
+=back
+
+=cut
+
+sub _rowid_alias_column {
+    my $self = shift;
+    my ($table) = @_;
+
+    my $sth = $self->dbh->prepare("SELECT name, type FROM pragma_table_xinfo(?) WHERE pk > 0 AND (hidden IS NULL OR hidden < 2)");
+    $sth->execute($table);
+
+    my @pk;
+    while (my $row = $sth->fetchrow_hashref()) {
+        push @pk => $row;
+    }
+
+    return undef unless @pk == 1;
+    return undef unless uc($pk[0]->{type} // '') eq 'INTEGER';
+
+    my $ddl = $self->_table_ddl($table);
+    return undef if defined($ddl) && $self->_strip_sql_noise($ddl) =~ m/\bWITHOUT\s+ROWID\b/i;
+
+    return $pk[0]->{name};
 }
 
 ###############################################################################
