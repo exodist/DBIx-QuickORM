@@ -1928,6 +1928,10 @@ sub _insert {
     croak "No data provided to insert" unless $data;
     croak "Refusing to insert an empty row" unless keys %$data;
 
+    # Defaults are added and generated columns removed below; work on a copy
+    # so the caller's hashref (or the row's pending data) is never mutated.
+    $data = { %$data };
+
     my $source  = $self->{+SOURCE};
     my $dialect = $self->dialect;
 
@@ -1951,7 +1955,7 @@ sub _insert {
 
     if ($has_pk && @$has_pk > 1 && !$has_ret) {
         croak "Database-Auto-Generated compound primary keys are not supported for databases that do not support 'returning on insert' functionality"
-            if grep { !$data->{$_} } @$has_pk;
+            if grep { !defined $data->{$_} } @$has_pk;
     }
 
     $builder_args->{insert} = $data;
@@ -2186,7 +2190,7 @@ sub update {
 
     croak "Changes may not be empty" unless keys %$changes;
     my $do_cache          = $pk_fields && @$pk_fields && $con->state_does_cache;
-    my $changes_pk_fields = $pk_fields ? (grep { $changes->{$_} } @$pk_fields) : ();
+    my $changes_pk_fields = $pk_fields ? (grep { exists $changes->{$_} } @$pk_fields) : ();
 
     my $sql = $self->sql_builder->qorm_update(%$builder_args, update => $changes);
 
