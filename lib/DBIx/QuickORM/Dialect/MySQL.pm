@@ -318,7 +318,9 @@ sub db_vendor {
         return 'Community' if $val =~ m/Community/i;
     }
 
-    my $sth = $dbh->prepare('SHOW VARIABLES LIKE "%version%"');
+    # Single quotes: under ANSI_QUOTES mode double quotes denote identifiers,
+    # not string literals.
+    my $sth = $dbh->prepare("SHOW VARIABLES LIKE '%version%'");
     $sth->execute();
 
     while (my @vals = $sth->fetchrow_array) {
