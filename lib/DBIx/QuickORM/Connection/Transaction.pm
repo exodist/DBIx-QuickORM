@@ -395,8 +395,10 @@ sub set_finalize {
 
 =item $ok = $txn->finalize($ok, $err)
 
-Runs and clears the finalize callback, passing it the transaction, C<$ok>,
-and C<$err>; returns C<$ok>. Croaks when there is no finalize callback set.
+Runs the finalize callback, passing it the transaction, C<$ok>, and C<$err>;
+returns C<$ok>. The callback is cleared only after it returns successfully, so
+a refused finalization (for example a commit attempted while an async query is
+active) can be retried later. Croaks when there is no finalize callback set.
 
 =back
 
@@ -405,8 +407,9 @@ and C<$err>; returns C<$ok>. Croaks when there is no finalize callback set.
 sub finalize {
     my $self = shift;
     my ($ok, $err) = @_;
-    my $cb = delete $self->{+FINALIZE} or croak "Nothing to finalize!";
+    my $cb = $self->{+FINALIZE} or croak "Nothing to finalize!";
     $cb->($self, $ok, $err);
+    delete $self->{+FINALIZE};
     return $ok;
 }
 

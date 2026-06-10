@@ -570,14 +570,18 @@ sub txn {
     my $finalize = sub {
         my ($txnx, $ok, @errors) = @_;
 
-        return if $ran++;
+        return if $ran;
 
+        # Guards must run before the one-shot state is consumed so a failed
+        # commit/rollback (e.g. during an active async query) leaves the
+        # transaction recoverable by a later commit/rollback.
         $txnx->throw("Cannot stop a transaction while there is an active async query")
             if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
 
         $txnx->throw("Internal Error: Transaction stack mismatch")
             unless @$txns && (($txnx->in_destroy && !$txns->[-1]) || $txns->[-1] == $txnx);
 
+        $ran++;
         pop @$txns;
 
         my $aborted = $txnx->aborted;

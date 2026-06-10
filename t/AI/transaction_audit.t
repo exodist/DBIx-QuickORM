@@ -67,4 +67,40 @@ subtest auto_retry_txn_forms => sub {
     like($err, qr/Not sure what to do with second argument/, "bad second argument croaks");
 };
 
+{
+    package My::Test::FakeAsync;
+    sub new { my ($class, %p) = @_; return bless {%p}, $class }
+    sub done { $_[0]->{done} }
+    sub set_done { $_[0]->{done} = $_[1] }
+}
+
+subtest failed_commit_is_recoverable => sub {
+    my $con = connect_orm();
+
+    my $txn = $con->txn();
+    $con->handle('things')->insert({name => 'wedge'});
+
+    my $fake = My::Test::FakeAsync->new(done => 0);
+    $con->{in_async} = $fake;
+
+    my $err = dies { $txn->commit };
+    like($err, qr/Cannot stop a transaction while there is an active async query/, "commit during an active async query throws");
+
+    ok(!$txn->complete, "transaction is still open after the failed commit");
+    is(scalar(@{$con->transactions}), 1, "transaction is still on the stack");
+
+    $fake->set_done(1);
+
+    ok(lives { $txn->rollback }, "rollback still works after the async query completes") or diag $@;
+    ok($txn->complete, "transaction is complete after rollback");
+    ok($txn->rolled_back, "transaction rolled back");
+    is(scalar(@{$con->transactions}), 0, "transaction stack is clean");
+    ok(!$con->dialect->in_txn, "no transaction left open on the database");
+
+    my $dbh = DBI->connect($dsn, '', '', {RaiseError => 1, PrintError => 0});
+    my ($count) = $dbh->selectrow_array("SELECT COUNT(*) FROM things WHERE name = 'wedge'");
+    $dbh->disconnect;
+    is($count, 0, "the insert really was rolled back");
+};
+
 done_testing;
