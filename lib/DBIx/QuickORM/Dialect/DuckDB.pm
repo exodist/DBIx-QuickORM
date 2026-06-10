@@ -266,6 +266,8 @@ sub build_tables_from_db {
 
     my %tables;
     while (my ($tname, $type) = $sth->fetchrow_array) {
+        next if $params{autofill}->skip(table => $tname);
+
         my $table = {name => $tname, db_name => $tname, is_temp => ($type eq 'LOCAL TEMPORARY' ? 1 : 0)};
         my $class = $TABLE_TYPES{$type} // 'DBIx::QuickORM::Schema::Table';
         $params{autofill}->hook(pre_table => {table => $table, class => \$class});
@@ -362,6 +364,8 @@ sub build_columns_from_db {
 
     my %columns;
     while (my $res = $sth->fetchrow_hashref) {
+        next if $params{autofill}->skip(column => ($table, $res->{name}));
+
         my $col = {};
 
         $params{autofill}->hook(pre_column => {column => $col, table_name => $table, column_info => $res});

@@ -208,6 +208,7 @@ sub build_tables_from_db {
 
         while (my ($tname, $type, $temp) = $sth->fetchrow_array) {
             next if $tname =~ m/^sqlite_/;
+            next if $params{autofill}->skip(table => $tname);
 
             my $table = {name => $tname, db_name => $tname, is_temp => $temp};
             my $class = $TABLE_TYPES{lc($type)} // 'DBIx::QuickORM::Schema::Table';
@@ -367,6 +368,8 @@ sub build_columns_from_db {
     while (my $res = $sth->fetchrow_hashref) {
         my $hidden = $res->{hidden} // 0;
         next if $hidden == 1;    # hidden virtual-table columns are not part of the ORM schema
+
+        next if $params{autofill}->skip(column => ($table, $res->{name}));
 
         my $col = {};
 
