@@ -516,44 +516,18 @@ sub txn {
 
     my @caller = caller;
 
-    my $txns = $self->{+TRANSACTIONS};
-
     my $cb = (@_ && ref($_[0]) eq 'CODE') ? shift : undef;
     my %params = @_;
     $cb //= $params{action};
 
-    croak "Cannot start a transaction while there is an active async query" if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
+    $self->_txn_guards(\%params);
 
-    unless ($params{force}) {
-        unless ($params{ignore_aside}) {
-            my $count = grep { $_ && !$_->done } values %{$self->{+ASIDES} // {}};
-            croak "Cannot start a transaction while there is an active aside query (unless you use ignore_aside => 1, or force => 1)" if $count;
-        }
+    my $txns = $self->{+TRANSACTIONS};
 
-        unless ($params{ignore_forks}) {
-            my $count = grep { $_ && !$_->done } values %{$self->{+FORKS} // {}};
-            croak "Cannot start a transaction while there is an active forked query (unless you use ignore_forks => 1, or force => 1)" if $count;
-        }
-    }
-
-    my $id = $self->{+_TXN_COUNTER}++;
-
-    my $dialect = $self->dialect;
-
-    my $sp;
-    if (@$txns) {
-        $sp = "SAVEPOINT_${$}_" . $self->{+_SAVEPOINT_COUNTER}++;
-        $dialect->create_savepoint(savepoint => $sp);
-    }
-    elsif ($self->dialect->in_txn) {
-        croak "A transaction is already open, but it is not controlled by DBIx::QuickORM";
-    }
-    else {
-        $dialect->start_txn;
-    }
+    my $sp = $self->_txn_begin;
 
     my $txn = DBIx::QuickORM::Connection::Transaction->new(
-        id            => $id,
+        id            => $self->{+_TXN_COUNTER}++,
         savepoint     => $sp,
         trace         => \@caller,
         on_fail       => $params{on_fail},
@@ -561,78 +535,12 @@ sub txn {
         on_completion => $params{on_completion},
     );
 
-    # With an empty stack the new txn is its own root, but it has no parent;
-    # on_parent_* callbacks are documented as no-ops in that case. Stack
-    # entries are weak references, so check definedness before using them.
-    my $parent = @$txns ? $txns->[-1] : undef;
-    my $root   = @$txns ? $txns->[0]  : $txn;
-
-    if ($parent) {
-        $parent->add_fail_callback($params{'on_parent_fail'})             if $params{on_parent_fail};
-        $parent->add_success_callback($params{'on_parent_success'})       if $params{on_parent_success};
-        $parent->add_completion_callback($params{'on_parent_completion'}) if $params{on_parent_completion};
-    }
-
-    if ($root) {
-        $root->add_fail_callback($params{'on_root_fail'})             if $params{on_root_fail};
-        $root->add_success_callback($params{'on_root_success'})       if $params{on_root_success};
-        $root->add_completion_callback($params{'on_root_completion'}) if $params{on_root_completion};
-    }
+    $self->_txn_attach_relative_callbacks($txn, \%params);
 
     push @{$txns} => $txn;
     weaken($txns->[-1]);
 
-    my $ran = 0;
-    my $finalize = sub {
-        my ($txnx, $ok, @errors) = @_;
-
-        return if $ran;
-
-        # Guards must run before the one-shot state is consumed so a failed
-        # commit/rollback (e.g. during an active async query) leaves the
-        # transaction recoverable by a later commit/rollback.
-        $txnx->throw("Cannot stop a transaction while there is an active async query")
-            if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
-
-        $txnx->throw("Internal Error: Transaction stack mismatch")
-            unless @$txns && (($txnx->in_destroy && !$txns->[-1]) || $txns->[-1] == $txnx);
-
-        $ran++;
-        pop @$txns;
-
-        my $aborted = $txnx->aborted;
-        my $res     = $ok && !$aborted;
-
-        if ($sp) {
-            if   ($res) { $dialect->commit_savepoint(savepoint => $sp) }
-            else        { $dialect->rollback_savepoint(savepoint => $sp) }
-        }
-        else {
-            if   ($res) { $dialect->commit_txn }
-            else        { $dialect->rollback_txn }
-        }
-
-        my ($ok2, $err2) = $txnx->terminate($res, \@errors);
-        unless ($ok2) {
-            $ok = 0;
-            push @errors => @$err2;
-        }
-
-        return if $ok;
-
-        # When the transaction fell out of scope, DESTROY runs this as a safety
-        # net and has already rolled it back. We cannot propagate an exception
-        # from a destructor (Perl turns it into a noisy "(in cleanup)" stack
-        # trace), so warn concisely instead of confessing.
-        if ($txnx->in_destroy) {
-            my $trace = $txnx->trace // [];
-            carp "Transaction started at $trace->[1] line $trace->[2] fell out of scope and was rolled back"
-                if @$trace > 2;
-            return;
-        }
-
-        $txnx->throw(join "\n" => @errors);
-    };
+    my $finalize = $self->_txn_finalizer($sp);
 
     unless($cb) {
         $txn->set_no_last(1);
@@ -1096,6 +1004,171 @@ sub _build_dialect {
 
     my $db = $self->{+ORM}->db;
     return $db->dialect->new(dbh => $self->{+DBH}, db_name => $db->db_name);
+}
+
+=pod
+
+=item $con->_txn_guards(\%params)
+
+Croaks when starting a transaction is not currently allowed (active async,
+aside, or forked queries). C<force>, C<ignore_aside>, and C<ignore_forks>
+params relax the aside/fork checks.
+
+=cut
+
+sub _txn_guards {
+    my $self = shift;
+    my ($params) = @_;
+
+    croak "Cannot start a transaction while there is an active async query" if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
+
+    return if $params->{force};
+
+    unless ($params->{ignore_aside}) {
+        my $count = grep { $_ && !$_->done } values %{$self->{+ASIDES} // {}};
+        croak "Cannot start a transaction while there is an active aside query (unless you use ignore_aside => 1, or force => 1)" if $count;
+    }
+
+    unless ($params->{ignore_forks}) {
+        my $count = grep { $_ && !$_->done } values %{$self->{+FORKS} // {}};
+        croak "Cannot start a transaction while there is an active forked query (unless you use ignore_forks => 1, or force => 1)" if $count;
+    }
+
+    return;
+}
+
+=pod
+
+=item $savepoint_or_undef = $con->_txn_begin
+
+Issues the database-side transaction start: a savepoint (returning its name)
+when a managed transaction is already open, otherwise a real C<BEGIN>
+(returning undef). Croaks when an unmanaged transaction is already open.
+
+=cut
+
+sub _txn_begin {
+    my $self = shift;
+
+    my $dialect = $self->dialect;
+
+    if (@{$self->{+TRANSACTIONS}}) {
+        my $sp = "SAVEPOINT_${$}_" . $self->{+_SAVEPOINT_COUNTER}++;
+        $dialect->create_savepoint(savepoint => $sp);
+        return $sp;
+    }
+
+    croak "A transaction is already open, but it is not controlled by DBIx::QuickORM" if $dialect->in_txn;
+
+    $dialect->start_txn;
+    return undef;
+}
+
+=pod
+
+=item $con->_txn_attach_relative_callbacks($txn, \%params)
+
+Attaches C<on_parent_*> callbacks to the current innermost transaction and
+C<on_root_*> callbacks to the outermost one. Called before C<$txn> is pushed
+onto the stack.
+
+=cut
+
+sub _txn_attach_relative_callbacks {
+    my $self = shift;
+    my ($txn, $params) = @_;
+
+    my $txns = $self->{+TRANSACTIONS};
+
+    # With an empty stack the new txn is its own root, but it has no parent;
+    # on_parent_* callbacks are documented as no-ops in that case. Stack
+    # entries are weak references, so check definedness before using them.
+    my $parent = @$txns ? $txns->[-1] : undef;
+    my $root   = @$txns ? $txns->[0]  : $txn;
+
+    if ($parent) {
+        $parent->add_fail_callback($params->{'on_parent_fail'})             if $params->{on_parent_fail};
+        $parent->add_success_callback($params->{'on_parent_success'})       if $params->{on_parent_success};
+        $parent->add_completion_callback($params->{'on_parent_completion'}) if $params->{on_parent_completion};
+    }
+
+    if ($root) {
+        $root->add_fail_callback($params->{'on_root_fail'})             if $params->{on_root_fail};
+        $root->add_success_callback($params->{'on_root_success'})       if $params->{on_root_success};
+        $root->add_completion_callback($params->{'on_root_completion'}) if $params->{on_root_completion};
+    }
+
+    return;
+}
+
+=pod
+
+=item $cb = $con->_txn_finalizer($savepoint_or_undef)
+
+Builds the one-shot finalize callback that pops the transaction off the
+stack, commits or rolls back (savepoint or real transaction), and fires the
+transaction's callbacks via C<terminate>.
+
+=cut
+
+sub _txn_finalizer {
+    my $self = shift;
+    my ($sp) = @_;
+
+    my $txns    = $self->{+TRANSACTIONS};
+    my $dialect = $self->dialect;
+
+    my $ran = 0;
+    return sub {
+        my ($txnx, $ok, @errors) = @_;
+
+        return if $ran;
+
+        # Guards must run before the one-shot state is consumed so a failed
+        # commit/rollback (e.g. during an active async query) leaves the
+        # transaction recoverable by a later commit/rollback.
+        $txnx->throw("Cannot stop a transaction while there is an active async query")
+            if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
+
+        $txnx->throw("Internal Error: Transaction stack mismatch")
+            unless @$txns && (($txnx->in_destroy && !$txns->[-1]) || $txns->[-1] == $txnx);
+
+        $ran++;
+        pop @$txns;
+
+        my $aborted = $txnx->aborted;
+        my $res     = $ok && !$aborted;
+
+        if ($sp) {
+            if   ($res) { $dialect->commit_savepoint(savepoint => $sp) }
+            else        { $dialect->rollback_savepoint(savepoint => $sp) }
+        }
+        else {
+            if   ($res) { $dialect->commit_txn }
+            else        { $dialect->rollback_txn }
+        }
+
+        my ($ok2, $err2) = $txnx->terminate($res, \@errors);
+        unless ($ok2) {
+            $ok = 0;
+            push @errors => @$err2;
+        }
+
+        return if $ok;
+
+        # When the transaction fell out of scope, DESTROY runs this as a safety
+        # net and has already rolled it back. We cannot propagate an exception
+        # from a destructor (Perl turns it into a noisy "(in cleanup)" stack
+        # trace), so warn concisely instead of confessing.
+        if ($txnx->in_destroy) {
+            my $trace = $txnx->trace // [];
+            carp "Transaction started at $trace->[1] line $trace->[2] fell out of scope and was rolled back"
+                if @$trace > 2;
+            return;
+        }
+
+        $txnx->throw(join "\n" => @errors);
+    };
 }
 
 =pod
