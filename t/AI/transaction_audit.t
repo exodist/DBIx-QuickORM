@@ -103,4 +103,33 @@ subtest failed_commit_is_recoverable => sub {
     is($count, 0, "the insert really was rolled back");
 };
 
+subtest on_parent_callbacks => sub {
+    my $con = connect_orm();
+
+    my %fired;
+    my $ok = eval {
+        $con->txn(
+            on_parent_fail       => sub { $fired{parent_fail}++ },
+            on_parent_completion => sub { $fired{parent_completion}++ },
+            on_root_fail         => sub { $fired{root_fail}++ },
+            on_root_completion   => sub { $fired{root_completion}++ },
+            action               => sub { die "boom\n" },
+        );
+        1;
+    };
+    ok(!$ok, "root transaction failed");
+    is(\%fired, {root_fail => 1, root_completion => 1}, "on_parent_* are no-ops without a parent, on_root_* fire on self");
+
+    %fired = ();
+    $con->txn(sub {
+        $con->txn(
+            on_parent_success    => sub { $fired{parent_success}++ },
+            on_parent_completion => sub { $fired{parent_completion}++ },
+            action               => sub { 1 },
+        );
+        is(\%fired, {}, "parent callbacks have not fired before the parent completes");
+    });
+    is(\%fired, {parent_success => 1, parent_completion => 1}, "on_parent_* attach to the real parent when nested");
+};
+
 done_testing;

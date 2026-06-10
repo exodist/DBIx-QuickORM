@@ -554,14 +554,23 @@ sub txn {
         on_completion => $params{on_completion},
     );
 
-    my ($root, $parent) = @$txns ? (@{$txns}[0,-1]) : ($txn, $txn);
+    # With an empty stack the new txn is its own root, but it has no parent;
+    # on_parent_* callbacks are documented as no-ops in that case. Stack
+    # entries are weak references, so check definedness before using them.
+    my $parent = @$txns ? $txns->[-1] : undef;
+    my $root   = @$txns ? $txns->[0]  : $txn;
 
-    $parent->add_fail_callback($params{'on_parent_fail'})             if $params{on_parent_fail};
-    $parent->add_success_callback($params{'on_parent_success'})       if $params{on_parent_success};
-    $parent->add_completion_callback($params{'on_parent_completion'}) if $params{on_parent_completion};
-    $root->add_fail_callback($params{'on_root_fail'})                 if $params{on_root_fail};
-    $root->add_success_callback($params{'on_root_success'})           if $params{on_root_success};
-    $root->add_completion_callback($params{'on_root_completion'})     if $params{on_root_completion};
+    if ($parent) {
+        $parent->add_fail_callback($params{'on_parent_fail'})             if $params{on_parent_fail};
+        $parent->add_success_callback($params{'on_parent_success'})       if $params{on_parent_success};
+        $parent->add_completion_callback($params{'on_parent_completion'}) if $params{on_parent_completion};
+    }
+
+    if ($root) {
+        $root->add_fail_callback($params{'on_root_fail'})             if $params{on_root_fail};
+        $root->add_success_callback($params{'on_root_success'})       if $params{on_root_success};
+        $root->add_completion_callback($params{'on_root_completion'}) if $params{on_root_completion};
+    }
 
     push @{$txns} => $txn;
     weaken($txns->[-1]);
