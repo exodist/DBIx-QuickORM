@@ -109,4 +109,19 @@ subtest blessed_manager_validation => sub {
     ok(Scalar::Util::isweak($manager->{connection}), "the manager's connection reference is weak (no cycle)");
 };
 
+subtest auto_retry_terminal_failure => sub {
+    my $con = connect_orm();
+
+    my $calls = 0;
+    my ($err, $warnings);
+    $warnings = warns {
+        $err = dies { $con->auto_retry(2, sub { $calls++; die "always fails\n" }) };
+    };
+
+    is($calls, 3, "auto_retry attempted count + 1 times");
+    is($warnings, 2, "warned for each retry, but not for the terminal failure");
+    like($err, qr/auto_retry did not succeed \(attempted 3 times\)/, "terminal croak reports the attempt count");
+    like($err, qr/always fails/, "terminal croak includes the last exception");
+};
+
 done_testing;

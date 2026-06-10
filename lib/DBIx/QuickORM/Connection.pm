@@ -800,15 +800,17 @@ sub auto_retry {
 
     croak "Cannot use auto_retry inside a transaction" if $self->in_txn;
 
-    my ($ok, $out);
-    for (0 .. $count) {
+    my ($ok, $out, $err);
+    for my $attempt (0 .. $count) {
         $ok = eval { $out = $cb->(); 1 };
         last if $ok;
-        warn "Error encountered in auto-retry, will retry...\n Exception was: $@\n";
+        $err = $@;
+        last if $attempt == $count;
+        warn "Error encountered in auto-retry, will retry...\n Exception was: $err\n";
         $self->reconnect unless $self->{+DBH} && $self->{+DBH}->ping;
     }
 
-    croak "auto_retry did not succeed (attempted " . ($count + 1) . " times)"
+    croak "auto_retry did not succeed (attempted " . ($count + 1) . " times). Last exception: $err"
         unless $ok;
 
     return $out;
