@@ -800,8 +800,17 @@ handle; its destructor must not signal or reap the owner's child process or
 release the owner's fork slot, so those operations no-op outside the owning
 process.
 
-Known remaining gap: a forked write with caching still runs its
-cache-maintenance callback inside the child (where the updated cache is
-discarded), rather than streaming the affected rows back so the parent
-maintains its own cache at reap. Forked writes are currently limited to a
-bound row; fixing the parent-side maintenance is tracked as follow-up work.
+A forked write maintains the parent's row cache in the parent, not the child
+(whose updated cache is discarded). The write's cache-maintenance callback is
+passed to the forked handle as `on_finish` rather than `on_ready`: the child
+just executes the statement and streams `result`/`done`, and the handle runs
+`on_finish` once, in the owning process, at reap — after confirming the child
+finished cleanly (`set_done` drives the stream to its terminal frame when
+nothing else did). A handle carrying an `on_finish` reports `cancel_on_destroy`
+false, so its destructor waits for the child to finish rather than signalling
+it mid-write. Forked writes are limited to a bound row: the parent maintains
+the cache from the bound row's data, so no rows need streaming back, and a bulk
+forked write (no bound row) croaks. If the child errors or its stream is
+truncated, `on_finish` is skipped and the reap warns. Insert already followed
+the streaming model — the child streams the inserted row and the parent's
+`Row::Async` proxy applies `state_insert_row` when it materializes.
