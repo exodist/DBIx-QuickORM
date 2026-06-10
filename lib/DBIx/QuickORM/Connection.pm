@@ -1,11 +1,10 @@
 package DBIx::QuickORM::Connection;
 use strict;
 use warnings;
-use feature qw/state/;
 
 our $VERSION = '0.000023';
 
-use Carp qw/confess croak cluck carp/;
+use Carp qw/confess croak carp/;
 use Scalar::Util qw/blessed weaken/;
 use DBIx::QuickORM::Util qw/load_class/;
 
@@ -533,7 +532,7 @@ sub txn {
 
         unless ($params{ignore_forks}) {
             my $count = grep { $_ && !$_->done } values %{$self->{+FORKS} // {}};
-            croak "Cannot start a transaction while there is an active forked query (unless you use ignore_forked => 1, or force => 1)" if $count;
+            croak "Cannot start a transaction while there is an active forked query (unless you use ignore_forks => 1, or force => 1)" if $count;
         }
     }
 
