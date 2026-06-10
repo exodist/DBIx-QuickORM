@@ -112,7 +112,7 @@ BEGIN {
             my $param = 1;
             @bind = map { my ($f, $v) = @{$_}; +{param => $param++, value => $v, type => 'field', field => $f} } @bind;
 
-            if (my $limit = $params{limit}) {
+            if (defined(my $limit = $params{limit})) {
                 $stmt .= " LIMIT ?";
                 push @bind => {param => $param++, value => $limit, type => 'limit'};
             }
@@ -199,7 +199,7 @@ sub _insert_args {
     my $self = shift;
     my ($params) = @_;
 
-    confess "insert() with a 'limit' clause is not currently supported"     if $params->{limit};
+    confess "insert() with a 'limit' clause is not currently supported"     if defined $params->{limit};
     confess "insert() with an 'order_by' clause is not currently supported" if $params->{order_by};
 
     my $values = $params->{insert} // croak "'insert' is required";
@@ -214,7 +214,7 @@ sub _delete_args {
     my $self = shift;
     my ($params) = @_;
 
-    confess "delete() with a 'limit' clause is not currently supported"     if $params->{limit};
+    confess "delete() with a 'limit' clause is not currently supported"     if defined $params->{limit};
     confess "delete() with an 'order_by' clause is not currently supported" if $params->{order_by};
 
     my $where = $params->{where} // undef;

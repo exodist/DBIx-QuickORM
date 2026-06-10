@@ -2031,7 +2031,7 @@ sub update {
     $con->pid_and_async_check;
 
     croak "update() with data_only set is not currently supported"        if $self->{+DATA_ONLY};
-    croak "update() with a 'limit' clause is not currently supported"     if $self->{+LIMIT};
+    croak "update() with a 'limit' clause is not currently supported"     if defined $self->{+LIMIT};
     croak "update() with an 'order_by' clause is not currently supported" if $self->{+ORDER_BY};
 
     # A bound row normally provides the WHERE clause via its primary key. With

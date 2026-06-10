@@ -175,6 +175,10 @@ subtest limit => sub {
 
     # Plain SELECT ... LIMIT (no WHERE) is legal, alone and with ORDER BY.
     is(scalar($base->limit(2)->data_only->all), 2, "limit without a WHERE caps the row count");
+
+    # LIMIT 0 is a real limit, not "no limit".
+    is($base->limit(0)->limit, 0, "limit(0) is stored");
+    is([$base->limit(0)->data_only->all], [], "limit(0) returns zero rows");
     is(
         [map { $_->{first_name} } $base->order_by('first_name')->limit(2)->data_only->all],
         ['al', 'bob'],
