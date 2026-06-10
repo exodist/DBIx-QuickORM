@@ -101,6 +101,29 @@ subtest argument_shape_parsing => sub {
     my $by_hash = $con->handle('people', {surname => 'smith'});
     is($by_hash->where, {surname => 'smith'}, "hashref argument becomes the WHERE clause");
 
+    # A table name BEFORE the connection still resolves (resolution is
+    # deferred until all arguments are consumed).
+    require DBIx::QuickORM::Handle;
+    my $reversed = DBIx::QuickORM::Handle->new('people', $con);
+    is($reversed->source->source_db_moniker, 'people', "table-name positional before the connection resolves");
+
+    like(
+        dies { DBIx::QuickORM::Handle->new('people') },
+        qr/Cannot resolve 'people' as a table name without a connection/,
+        "a table name with no connection croaks cleanly"
+    );
+
+    like(
+        dies { $con->handle('people', undef) },
+        qr/Received an undefined argument/,
+        "an undef argument croaks instead of silently ending argument parsing"
+    );
+
+    # A falsy-but-defined argument ('0') does not end argument parsing.
+    my $zero = $con->handle('people', 0, {surname => 'smith'});
+    is($zero->limit, 0, "a falsy integer argument is still parsed (limit 0)");
+    is($zero->where, {surname => 'smith'}, "arguments after a falsy argument are still parsed");
+
     # Arrayref => order_by.
     my $by_array = $con->handle('people', {}, ['first_name']);
     is($by_array->order_by, ['first_name'], "arrayref argument becomes the ORDER BY");

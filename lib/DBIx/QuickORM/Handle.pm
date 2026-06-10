@@ -727,11 +727,16 @@ sub handle {
     $flags{unknown_arg}    = sub { croak "$_[1] is not a recognized handle-attribute or table name" };
     $flags{row_and_where}  = sub { croak "Cannot provide both a 'where' and a 'row'" };
     $flags{row_and_source} = sub { croak "Cannot provide both a 'source' and a 'row'" };
-    $flags{bad_override}   = sub { my ($self, $key, @args) = @_; croak "Handle already has a '$key' set (" . (map { defined($_) ? ( (blessed($_) && $_->can('display')) ? $_->display : "'$_'" ) : 'undef'} @args) . ")" };
+    $flags{bad_override}   = sub { my ($self, $key, @args) = @_; croak "Handle already has a '$key' set (" . join(', ' => map { defined($_) ? ( (blessed($_) && $_->can('display')) ? $_->display : "'$_'" ) : 'undef'} @args) . ")" };
     $flags{allow_override} = 1;
 
     my %set;
-    while (my $arg = shift @_) {
+    my @deferred_tables;
+    while (@_) {
+        my $arg = shift @_;
+
+        croak "Received an undefined argument" unless defined $arg;
+
         if (my $ref = ref($arg)) {
             if (my $class = blessed($arg)) {
                 if ($arg->DOES('DBIx::QuickORM::Role::Source')) {
@@ -865,13 +870,31 @@ sub handle {
             next;
         }
 
-        if (my $src = $clone->{+CONNECTION}->source($arg, no_fatal => 1)) {
-            $flags{bad_override}->($clone, SOURCE() => $clone->{+SOURCE}, $src) if $clone->{+SOURCE} && !$flags{allow_override};
-            $clone->{+SOURCE} = $src;
+        # A bare string is a table name, which needs a connection to resolve.
+        # The connection may appear later in the argument list, so defer
+        # resolution until all arguments have been consumed.
+        push @deferred_tables => $arg;
+    }
+
+    for my $arg (@deferred_tables) {
+        my $con = $clone->{+CONNECTION} or croak "Cannot resolve '$arg' as a table name without a connection";
+
+        my $src = $con->source($arg, no_fatal => 1);
+        unless ($src) {
+            $flags{unknown_arg}->($clone, $arg);
             next;
         }
 
-        $flags{unknown_arg}->($clone, $arg, \@_);
+        if ($set{+ROW} && $clone->{+ROW}) {
+            my $s2 = $clone->{+ROW}->source;
+            $flags{row_and_source}->($clone) unless $src == $s2;
+        }
+        else {
+            $flags{bad_override}->($clone, SOURCE() => $clone->{+SOURCE}, $src) if $clone->{+SOURCE} && !$flags{allow_override};
+            $clone->{+SOURCE} = $src;
+        }
+
+        $set{+SOURCE}++;
     }
 
     my $new = bless($clone, $class);
