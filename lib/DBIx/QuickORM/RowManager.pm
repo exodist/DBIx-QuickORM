@@ -101,14 +101,15 @@ sub uncache { }
 
 =item $row = $mgr->cache_lookup(source => $source, ...)
 
-Look up a row in the cache by its parsed parameters. Returns the cached row
-or undef.
+Look up a row in the cache. The row may be identified by fetched data, a
+primary key, or a row object; fetched data is not required. Returns the
+cached row or undef.
 
 =cut
 
 sub cache_lookup {
     my $self = shift;
-    return $self->do_lookup($self->parse_params({@_}));
+    return $self->do_cache_lookup(($self->parse_params({@_}, fetched => 1))[0 .. 4]);
 }
 
 =pod
@@ -128,16 +129,18 @@ sub do_cache_lookup {
 
 =pod
 
-=item $mgr->invalidate(source => $source, ...)
+=item $mgr->invalidate(source => $source, row => $row, ...)
 
 Mark a row's data invalid, both on any passed-in row and on the cached copy,
-recording a reason (defaulting to the caller's file and line).
+recording a reason (defaulting to the caller's file and line). The row can
+be identified by a row object, fetched data, or a primary key; none of them
+is individually required.
 
 =cut
 
 sub invalidate {
     my $self = shift;
-    my ($source, $fetched, $old_pk, $new_pk, $row, $params) = $self->parse_params({@_});
+    my ($source, $fetched, $old_pk, $new_pk, $row, $params) = $self->parse_params({@_}, fetched => 1);
 
     my $reason = $params->{reason};
     unless ($reason) {
@@ -194,17 +197,21 @@ sub _vivify {
 
 =item $row = $mgr->vivify(source => $source, ...)
 
-Return an existing matching row, or create a new row with the fetched data
-as its pending (unsaved) state.
+Create a new row with the fetched data as its pending (unsaved) state.
+Vivification assumes the row does not exist yet; if the data carries a
+primary key matching a row that is already loaded this croaks rather than
+silently discarding the supplied data.
 
 =cut
 
 sub vivify {
     my $self = shift;
     my ($source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
-    $row //= $self->_vivify($source, $self->_state(pending => $fetched));
 
-    return $row;
+    croak "A row with this primary key is already loaded; vivify would discard the supplied data. Fetch the row and update it, or use the connection's find_or_insert or update_or_insert helpers instead"
+        if $row;
+
+    return $self->_vivify($source, $self->_state(pending => $fetched));
 }
 
 =pod
