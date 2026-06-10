@@ -1945,6 +1945,12 @@ sub delete {
 
     croak "Cannot delete rows using a handle with data_only set" if $self->{+DATA_ONLY};
 
+    # A bound row normally provides the WHERE clause via its primary key. With
+    # no primary key there is no WHERE at all and the delete would hit every
+    # row in the table.
+    croak "Cannot delete a row bound to a handle when its table has no primary key (no WHERE clause can be derived)"
+        if $self->{+ROW} && !$self->_has_pk;
+
     my $con = $self->{+CONNECTION};
     $con->pid_and_async_check;
 
@@ -2032,6 +2038,12 @@ sub update {
     croak "update() with data_only set is not currently supported"        if $self->{+DATA_ONLY};
     croak "update() with a 'limit' clause is not currently supported"     if $self->{+LIMIT};
     croak "update() with an 'order_by' clause is not currently supported" if $self->{+ORDER_BY};
+
+    # A bound row normally provides the WHERE clause via its primary key. With
+    # no primary key there is no WHERE at all and the update would hit every
+    # row in the table.
+    croak "Cannot update a row bound to a handle when its table has no primary key (no WHERE clause can be derived)"
+        if $self->{+ROW} && !$self->_has_pk;
 
     my $row = $self->{+ROW};
     if ($changes) {
