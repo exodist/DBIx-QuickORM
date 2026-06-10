@@ -4,7 +4,7 @@ use warnings;
 
 our $VERSION = '0.000023';
 
-use Carp qw/croak confess/;
+use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 
 use Object::HashBase qw{
@@ -155,7 +155,9 @@ sub dsn {
 =item $dbh = $db->new_dbh
 
 Returns a new DBI handle, using the C<connect> callback when present or
-C<< DBI->connect >> with the resolved DSN and credentials otherwise.
+C<< DBI->connect >> with the resolved DSN and credentials otherwise. Croaks if
+the connection attempt throws or fails to produce a handle (possible when
+C<RaiseError> is disabled or the callback misbehaves).
 
 =back
 
@@ -163,22 +165,28 @@ C<< DBI->connect >> with the resolved DSN and credentials otherwise.
 
 sub new_dbh {
     my $self = shift;
-    my (%params) = @_;
 
     my $attrs = $self->attributes;
 
     my $dbh;
-    eval {
+    my $ok = eval {
         if ($self->{+CONNECT}) {
             $dbh = $self->{+CONNECT}->();
         }
         else {
             require DBI;
-            $dbh = DBI->connect($self->dsn, $self->user, $self->pass, $self->attributes);
+            $dbh = DBI->connect($self->dsn, $self->user, $self->pass, $attrs);
         }
 
         1;
-    } or confess $@;
+    };
+    my $err = $@;
+    croak $err unless $ok;
+
+    unless (blessed($dbh)) {
+        my $reason = $DBI::errstr // 'connect did not return a handle';
+        croak "Could not connect to the database: $reason";
+    }
 
     $dbh->{AutoInactiveDestroy} = 1 if $attrs->{AutoInactiveDestroy};
 
