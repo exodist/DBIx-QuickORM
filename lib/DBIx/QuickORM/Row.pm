@@ -177,16 +177,18 @@ sub clone {
 
 =item $row = $row->check_sync
 
-Croak if the row is out of sync (refreshed while it had pending changes)
-or was fetched outside the current transaction stack; otherwise return the
-row.
+Croak if the row is out of sync (a refresh changed stored values underneath
+pending changes) and the class tracks desync (C<track_desync> is true, the
+default for this class), or if the row's state predates the current
+transaction stack; otherwise return the row. Use C<discard> or
+C<force_sync> to resolve a desynced row.
 
 =back
 
 =cut
 
 sub check_sync {
-    croak <<"    EOT" if $_[0]->row_data->{+DESYNC} && !$_[0]->track_desync;
+    croak <<"    EOT" if $_[0]->row_data->{+DESYNC} && $_[0]->track_desync;
 
 This row is out of sync, this means it was refreshed while it had pending
 changes and the data retrieved from the database does not match what was in
@@ -237,6 +239,11 @@ Drop pending changes and clear desync flags.
 Apply changes to the pending data and save the row. Croaks when a change
 names a field the row does not have, or one owned by the database (a
 generated column).
+
+Updating a field clears that field's desync flag, so an update is an
+explicit overwrite of a conflicting value. If a B<different> field is still
+desynced the save will croak; resolving the full conflict (via C<discard>,
+C<force_sync>, or updating every desynced field) is required first.
 
 =item $row->delete
 
