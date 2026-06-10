@@ -11,7 +11,10 @@ use List::Util qw/mesh/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw{debug};
 
+use POSIX();
+use Scope::Guard();
 use Atomic::Pipe();
+use Cpanel::JSON::XS();
 
 use DBIx::QuickORM::STH();
 use DBIx::QuickORM::STH::Fork();
@@ -214,7 +217,7 @@ C<fields> with C<omit>.
 =item $omit = $h->_normalize_omit($omit, $pk_fields)
 
 Coerce an C<omit> specification into a hashref and reject attempts to omit
-primary key fields.
+primary key fields. Returns undef when the specification is empty.
 
 =item $builder = $h->_sql_builder
 
@@ -260,16 +263,13 @@ sub init {
         croak "Cannot mix 'omit' and a non-arrayref field specification ('$fields')" if ref($fields) ne 'ARRAY';
 
         my $pk_fields = $source->primary_key;
-        if ($omit = $self->_normalize_omit($self->{+OMIT}, $pk_fields)) {
-            if ($pk_fields || $omit) {
-                my %seen;
-                $fields = [grep { !$seen{$_}++ && !($omit && $omit->{$_}) } @{$pk_fields // []}, @$fields];
-            }
-
-            $self->{+FIELDS} = $fields;
-
-            if ($omit) { $self->{+OMIT} = $omit }
-            else       { delete $self->{+OMIT} }
+        if ($omit = $self->_normalize_omit($omit, $pk_fields)) {
+            my %seen;
+            $self->{+FIELDS} = [grep { !$seen{$_}++ && !$omit->{$_} } @{$pk_fields // []}, @$fields];
+            $self->{+OMIT}   = $omit;
+        }
+        else {
+            delete $self->{+OMIT};
         }
     }
 }
@@ -287,6 +287,8 @@ sub _normalize_omit {
     elsif (!$r)           { $omit =    {$omit => 1}                   } # Turn single into hash
     else                  { croak "$omit is not a valid 'omit' value" } # oops
     #>>>
+
+    return undef unless keys %$omit;
 
     $pk_fields //= $self->{+SOURCE}->primary_key or return $omit;
 
@@ -1547,7 +1549,7 @@ sub _make_forked_sth {
     my ($sth, $res) = $self->_execute($dbh, $sql);
     $wh->write_message($json->encode({result => $res}));
 
-    eval {
+    my $ok = eval {
         if (my $on_ready = $params{on_ready}) {
             if (my $fetch = $on_ready->($dbh, $sth, $res, $sql)) {
                 while (my $row = $fetch->()) {
@@ -1558,7 +1560,15 @@ sub _make_forked_sth {
 
         undef $wh;
         1;
-    } or do { warn $@; $guard->dismiss(); POSIX::_exit(1) };
+    };
+    my $err = $@;
+
+    unless ($ok) {
+        warn $err;
+        $guard->dismiss();
+        POSIX::_exit(1);
+    }
+
     $guard->dismiss();
     POSIX::_exit(0);
 }
