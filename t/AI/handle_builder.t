@@ -101,11 +101,11 @@ subtest argument_shape_parsing => sub {
     my $by_hash = $con->handle('people', {surname => 'smith'});
     is($by_hash->where, {surname => 'smith'}, "hashref argument becomes the WHERE clause");
 
-    # Arrayref => order_by (needs a where present to be legal).
+    # Arrayref => order_by.
     my $by_array = $con->handle('people', {}, ['first_name']);
     is($by_array->order_by, ['first_name'], "arrayref argument becomes the ORDER BY");
 
-    # Integer => limit (needs a where present to be legal).
+    # Integer => limit.
     my $by_int = $con->handle('people', {}, 10);
     is($by_int->limit, 10, "integer argument becomes the LIMIT");
 
@@ -160,17 +160,26 @@ subtest order_by_shapes => sub {
     is($w->order_by(['surname', 'first_name'])->order_by, ['surname', 'first_name'],
         "order_by accepts an arrayref verbatim");
 
-    # order_by/limit require a WHERE or row first because the source has a
-    # primary key.
-    like(dies { my $h = $base->order_by('surname') },
-        qr/where clause or row before specifying an order_by/,
-        "order_by without a WHERE/row croaks");
+    # Plain SELECT ... ORDER BY (no WHERE) is legal.
+    is(
+        [map { $_->{first_name} } $base->order_by('first_name')->data_only->all],
+        ['al', 'bob', 'cy'],
+        "order_by without a WHERE sorts the whole table"
+    );
 };
 
 subtest limit => sub {
     my $w = $base->where({});
     is($w->limit(2)->limit, 2, "limit stores the integer");
     is(scalar($w->limit(2)->data_only->all), 2, "limit actually caps the row count");
+
+    # Plain SELECT ... LIMIT (no WHERE) is legal, alone and with ORDER BY.
+    is(scalar($base->limit(2)->data_only->all), 2, "limit without a WHERE caps the row count");
+    is(
+        [map { $_->{first_name} } $base->order_by('first_name')->limit(2)->data_only->all],
+        ['al', 'bob'],
+        "order_by + limit without a WHERE work together"
+    );
 };
 
 subtest fields => sub {

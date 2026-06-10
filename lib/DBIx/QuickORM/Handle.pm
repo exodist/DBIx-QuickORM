@@ -248,11 +248,6 @@ sub init {
         $self->{+WHERE} = $self->sql_builder->qorm_where_for_row($row) if $self->_has_pk;
     }
 
-    if ($self->_has_pk && !$self->{+WHERE}) {
-        croak "You must provide a where clause or row before specifying a limit"     if $self->{+LIMIT};
-        croak "You must provide a where clause or row before specifying an order_by" if $self->{+ORDER_BY};
-    }
-
     my $fields = $self->{+FIELDS} //= $source->fields_to_fetch;
 
     if (my $omit = $self->{+OMIT}) {
