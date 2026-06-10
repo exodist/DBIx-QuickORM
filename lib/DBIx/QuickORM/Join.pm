@@ -80,7 +80,7 @@ Arrayref of component aliases in join order.
 
 =item lookup
 
-Hashref mapping a table's db moniker to the aliases it has been joined as.
+Hashref mapping a table's ORM name to the aliases it has been joined as.
 
 =item components
 
@@ -150,8 +150,8 @@ sub init {
     $self->{+COMPONENTS} //= {};
 
     my $first = $self->{+JOIN_AS}++;
-    push @{$self->{+ORDER}}                                            => $first;
-    push @{$self->{+LOOKUP}->{$self->{+PRIMARY_SOURCE}->source_db_moniker}} => $first;
+    push @{$self->{+ORDER}}                                                => $first;
+    push @{$self->{+LOOKUP}->{$self->{+PRIMARY_SOURCE}->source_orm_name}} => $first;
     $self->{+COMPONENTS}->{$first} = {table => $self->{+PRIMARY_SOURCE}, as => $first};
 
     $self->{+ROW_CLASS} //= 'DBIx::QuickORM::Join::Row';
@@ -495,7 +495,7 @@ sub _join {
 
     push @{$self->{+ORDER}} => $as;
 
-    push @{$self->{+LOOKUP}->{$link ? $link->other_table : $joined->source_orm_name}} => $as;
+    push @{$self->{+LOOKUP}->{$joined->source_orm_name}} => $as;
 
     $self->{+COMPONENTS}->{$as} = {
         as    => $as,
