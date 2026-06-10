@@ -169,7 +169,7 @@ sub init {
 
     $self->{+DBH} = $db->new_dbh;
 
-    $self->{+DIALECT} = $db->dialect->new(dbh => $self->{+DBH}, db_name => $db->db_name);
+    $self->{+DIALECT} = $self->_build_dialect;
 
     $self->{+DEFAULT_INTERNAL_TXN} //= 1;
 
@@ -399,6 +399,11 @@ sub reconnect {
 
     $self->{+PID} = $$;
     $self->{+DBH} = $self->{+ORM}->db->new_dbh;
+
+    # The dialect holds its own copy of the dbh and issues all transaction
+    # control statements (BEGIN/COMMIT/savepoints). It must be rebuilt so it
+    # does not keep operating on the dead handle.
+    $self->{+DIALECT} = $self->_build_dialect;
 }
 
 #####################
@@ -1023,6 +1028,40 @@ sub state_cache_lookup {
 ########################
 # }}} STATE OPERATIONS #
 ########################
+
+#######################
+# {{{ PRIVATE METHODS #
+#######################
+
+=pod
+
+=head1 PRIVATE METHODS
+
+=over 4
+
+=item $dialect = $con->_build_dialect
+
+Construct a fresh dialect instance bound to the current C<dbh>. Used at init
+time and again by C<reconnect> so the dialect never operates on a dead handle.
+
+=cut
+
+sub _build_dialect {
+    my $self = shift;
+
+    my $db = $self->{+ORM}->db;
+    return $db->dialect->new(dbh => $self->{+DBH}, db_name => $db->db_name);
+}
+
+=pod
+
+=back
+
+=cut
+
+#######################
+# }}} PRIVATE METHODS #
+#######################
 
 1;
 
