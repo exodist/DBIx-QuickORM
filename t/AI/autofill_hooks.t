@@ -1,8 +1,62 @@
 use Test2::V0;
 
-# Autofill hook behavior, exercised directly through Autofill->hook.
+# Autofill hook behavior, exercised directly through Autofill->hook. Every
+# callback registered for a hook receives the running value under the hook's
+# seed key, and its return value feeds the next callback, so multiple hooks
+# compose instead of the last one blindly winning.
 
 use DBIx::QuickORM::Schema::Autofill;
+
+subtest pipeline_composes => sub {
+    my $autofill = DBIx::QuickORM::Schema::Autofill->new(
+        hooks => {
+            field_accessor => [
+                sub { my %p = @_; return "get_$p{name}" },
+                sub { my %p = @_; return uc($p{name}) },
+            ],
+        },
+    );
+
+    my $out = $autofill->hook(field_accessor => {table => undef, name => 'foo', field => 'foo', column => undef}, 'foo');
+    is($out, 'GET_FOO', "both field_accessor hooks applied, in registration order");
+};
+
+subtest single_hook_unchanged => sub {
+    my $autofill = DBIx::QuickORM::Schema::Autofill->new(
+        hooks => {
+            field_accessor => [sub { my %p = @_; return "get_$p{name}" }],
+        },
+    );
+
+    my $out = $autofill->hook(field_accessor => {table => undef, name => 'foo', field => 'foo', column => undef}, 'foo');
+    is($out, 'get_foo', "single hook behaves as before");
+};
+
+subtest seed_defaults_from_args => sub {
+    my $autofill = DBIx::QuickORM::Schema::Autofill->new(
+        hooks => {
+            primary_key => [sub { my %p = @_; return [@{$p{primary_key}}, 'extra'] }],
+        },
+    );
+
+    my $out = $autofill->hook(primary_key => {primary_key => ['id'], table_name => 'foo'});
+    is($out, ['id', 'extra'], "seed taken from the hook's seed key in the args when not passed explicitly");
+};
+
+subtest no_hooks_returns_seed => sub {
+    my $autofill = DBIx::QuickORM::Schema::Autofill->new(hooks => {});
+    is($autofill->hook(field_accessor => {name => 'foo'}, 'foo'), 'foo', "explicit seed returned untouched");
+    is($autofill->hook(table => {table => {name => 'foo'}}), {name => 'foo'}, "arg-derived seed returned untouched");
+};
+
+subtest invalid_hook_croaks => sub {
+    my $autofill = DBIx::QuickORM::Schema::Autofill->new(hooks => {});
+    like(
+        dies { $autofill->hook(bogus => {}) },
+        qr/'bogus' is not a valid hook/,
+        "unknown hook name croaks",
+    );
+};
 
 subtest tables_hook => sub {
     ok(DBIx::QuickORM::Schema::Autofill->new->is_valid_hook('tables'), "'tables' is a registered hook");
