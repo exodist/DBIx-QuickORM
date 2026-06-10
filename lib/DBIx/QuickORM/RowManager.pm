@@ -101,14 +101,15 @@ sub uncache { }
 
 =item $row = $mgr->cache_lookup(source => $source, ...)
 
-Look up a row in the cache by its parsed parameters. Returns the cached row
-or undef.
+Look up a row in the cache. The row may be identified by fetched data, a
+primary key, or a row object; fetched data is not required. Returns the
+cached row or undef.
 
 =cut
 
 sub cache_lookup {
     my $self = shift;
-    return $self->do_lookup($self->parse_params({@_}));
+    return $self->do_cache_lookup(($self->parse_params({@_}, fetched => 1))[0 .. 4]);
 }
 
 =pod

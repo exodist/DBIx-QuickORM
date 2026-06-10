@@ -47,6 +47,23 @@ subtest insert_or_save_with_no_data_croaks => sub {
     );
 };
 
+subtest cache_lookup => sub {
+    my $row = $h->insert({name => 'findme', color => 'teal'});
+    my $pk  = $row->field('gadget_id');
+
+    my $manager = $con->manager;
+    my $source  = $con->source('gadgets');
+
+    my $hit = $manager->cache_lookup(source => $source, fetched => {gadget_id => $pk, name => 'findme'});
+    ref_is($hit, $row, "cache_lookup found the cached row by fetched data");
+
+    $hit = $manager->cache_lookup(source => $source, old_primary_key => [$pk]);
+    ref_is($hit, $row, "cache_lookup found the cached row by primary key alone");
+
+    my $miss = $manager->cache_lookup(source => $source, old_primary_key => [999_999]);
+    ok(!$miss, "cache_lookup returns undef on a miss");
+};
+
 subtest vivify_of_loaded_row_croaks => sub {
     my $row = $h->insert({name => 'loaded', color => 'red'});
     my $pk  = $row->field('gadget_id');
