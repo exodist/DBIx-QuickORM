@@ -201,16 +201,7 @@ date data.
 
     EOT
 
-    croak <<"    EOT" if $_[0]->connection->current_txn && !$_[0]->row_data->{+TRANSACTION};
-
-This row was fetched outside of the current transaction stack. The row has not
-been refreshed since the new transaction stack started, meaning the data is
-likely stale and unreliable. The row should be refreshed before making changes.
-You can do this with a call to ->refresh().
-
-    EOT
-
-    return $_[0];
+    return $_[0]->_check_stale;
 }
 
 #####################
@@ -243,7 +234,9 @@ Drop pending changes and clear desync flags.
 
 =item $row = $row->update(%changes)
 
-Apply changes to the pending data and save the row.
+Apply changes to the pending data and save the row. Croaks when a change
+names a field the row does not have, or one owned by the database (a
+generated column).
 
 =item $row->delete
 
@@ -303,13 +296,22 @@ sub update {
     $self->check_pk;
 
     my $source = $self->source;
-    my $row_data = $self->row_data;
     for my $field (keys %$changes) {
+        croak "This row does not have a '$field' field" unless $source->has_field($field);
         croak "Cannot set field '$field': it is a database-generated column"
             if $source->field_is_generated($field);
+    }
 
-        $row_data->{+PENDING}->{$field} = $changes->{$field};
-        delete $row_data->{+DESYNC}->{$field} if $row_data->{+DESYNC};
+    $self->_check_stale;
+
+    # Stage the changes against the current transaction so a rollback
+    # discards them along with the transaction's frame.
+    $self->{+ROW_DATA}->change_state({TRANSACTION() => $self->connection->current_txn, PENDING() => {%$changes}});
+
+    my $row_data = $self->row_data;
+    if (my $desync = $row_data->{+DESYNC}) {
+        delete $desync->{$_} for keys %$changes;
+        delete $row_data->{+DESYNC} unless keys %$desync;
     }
 
     $self->save();
@@ -336,6 +338,10 @@ sub update {
 
 Get (or, with a value, set) a single field. C<field> returns the inflated
 value; C<raw_field> returns the deflated/raw value.
+
+Setting a field stages the change against the current transaction (when one
+is open), so rolling back that transaction or savepoint discards the staged
+change.
 
 Setting a field whose column is database-generated (C<GENERATED ALWAYS>,
 stored or virtual) croaks: the database owns the value, so the ORM refuses to
@@ -407,6 +413,11 @@ sub field_is_desynced {
 
 =over 4
 
+=item $row = $row->_check_stale
+
+Croak when a transaction is open but this row's state predates the current
+transaction stack; such a row must be refreshed before changes are staged.
+
 =item $val = $row->_field($view_method, $name)
 
 =item $row->_field($view_method, $name => $value)
@@ -433,6 +444,22 @@ Return the deflated/raw value of C<$name> from data hash C<$from>.
 
 =cut
 
+sub _check_stale {
+    my $self = shift;
+
+    return $self unless $self->connection->current_txn;
+    return $self if $self->row_data->{+TRANSACTION};
+
+    croak <<"    EOT";
+
+This row was fetched outside of the current transaction stack. The row has not
+been refreshed since the new transaction stack started, meaning the data is
+likely stale and unreliable. The row should be refreshed before making changes.
+You can do this with a call to ->refresh().
+
+    EOT
+}
+
 sub _field {
     my $self  = shift;
     my $meth  = shift;
@@ -447,7 +474,12 @@ sub _field {
             if $self->source->field_is_generated($field);
 
         $self->check_pk if $row_data->{+STORED};    # We can set a field if the row has not been inserted yet, or if it has a pk
-        $row_data->{+PENDING}->{$field} = shift;
+        $self->_check_stale;
+
+        # Stage the edit against the current transaction so a rollback
+        # discards it along with the transaction's frame.
+        $self->{+ROW_DATA}->change_state({TRANSACTION() => $self->connection->current_txn, PENDING() => {$field => shift}});
+        $row_data = $self->row_data;
     }
 
     return $self->$meth($row_data->{+PENDING}, $field) if $row_data->{+PENDING} && exists $row_data->{+PENDING}->{$field};

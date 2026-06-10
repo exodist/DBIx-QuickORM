@@ -150,4 +150,70 @@ subtest commit_chain_merges_step_by_step => sub {
     ok($row->is_valid, "row still valid");
 };
 
+subtest pending_edit_during_savepoint_rolls_back => sub {
+    my $row = $h->insert({name => 'pending_sp', size => 7});
+
+    my $outer = $con->txn;
+    $row->refresh;
+
+    my $sp = $con->txn;
+    $row->field(name => 'staged');
+    ok($row->has_pending, "edit staged inside the savepoint");
+    is($row->field('name'), 'staged', "staged value visible");
+    $sp->rollback;
+
+    ok(!$row->has_pending, "savepoint rollback discarded the staged edit");
+    is($row->field('name'), 'pending_sp', "field reads the stored value again");
+
+    $outer->rollback;
+};
+
+subtest pending_edit_in_outer_txn_survives_savepoint_rollback => sub {
+    my $row = $h->insert({name => 'pending_outer', size => 8});
+
+    my $outer = $con->txn;
+    $row->refresh;
+    $row->field(name => 'outer_edit');
+
+    my $sp = $con->txn;
+    $sp->rollback;
+
+    ok($row->has_pending, "outer-transaction edit survived the savepoint rollback");
+    is($row->field('name'), 'outer_edit', "staged value still visible");
+
+    $outer->rollback;
+    ok(!$row->has_pending, "outer rollback discarded the edit");
+    is($row->field('name'), 'pending_outer', "back to the stored value");
+};
+
+subtest pending_edit_no_txn_unchanged => sub {
+    my $row = $h->insert({name => 'no_txn', size => 9});
+
+    $row->field(name => 'edited');
+    ok($row->has_pending, "edit staged with no transaction open");
+    is($row->field('name'), 'edited', "staged value visible");
+    is($row->stored_field('name'), 'no_txn', "stored value unchanged");
+
+    $row->discard;
+    ok(!$row->has_pending, "discard removed the staged edit");
+};
+
+subtest update_during_savepoint_rolls_back => sub {
+    my $row = $h->insert({name => 'upd_sp', size => 10});
+    my $pk  = $row->field('widget_id');
+
+    my $outer = $con->txn;
+    $row->refresh;
+
+    my $sp = $con->txn;
+    $row->update({name => 'upd_inner'});
+    is($row->field('name'), 'upd_inner', "update applied inside savepoint");
+    $sp->rollback;
+
+    is($row->field('name'), 'upd_sp', "savepoint rollback reverted the update in memory");
+
+    $outer->rollback;
+    is(db_value(name => $pk), 'upd_sp', "database reverted as well");
+};
+
 done_testing;
