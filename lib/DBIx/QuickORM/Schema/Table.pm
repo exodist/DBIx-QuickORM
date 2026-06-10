@@ -28,6 +28,9 @@ use Object::HashBase qw{
     +db_to_orm
     +has_aliases
     <primary_key_override
+    +fields_to_fetch
+    +fields_to_omit
+    +fields_list_all
 };
 
 =pod
@@ -234,6 +237,9 @@ sub init {
     # from this object's own columns.
     delete $self->{+DB_TO_ORM};
     delete $self->{+HAS_ALIASES};
+    delete $self->{+FIELDS_TO_FETCH};
+    delete $self->{+FIELDS_TO_OMIT};
+    delete $self->{+FIELDS_LIST_ALL};
 
     $self->{+DB_NAME} //= $self->{+NAME};
     $self->{+NAME}    //= $self->{+DB_NAME};
@@ -278,12 +284,6 @@ sub init {
 # {{{ Role::Source interface
 
 with 'DBIx::QuickORM::Role::Source';
-
-use Object::HashBase qw{
-    +fields_to_fetch
-    +fields_to_omit
-    +fields_list_all
-};
 
 =pod
 
