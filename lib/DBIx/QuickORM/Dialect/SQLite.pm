@@ -74,7 +74,8 @@ SQLite does not support async queries; these C<croak>.
 
 =item $version = $dialect->db_version
 
-The installed C<DBD::SQLite> version.
+The version of the SQLite library itself (not the C<DBD::SQLite> module
+version).
 
 =cut
 
@@ -96,7 +97,7 @@ sub async_ready            { croak "Dialect '" . $_[0]->dialect_name . "' does n
 sub async_result           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 
-sub db_version { my $self = shift; DBD::SQLite->VERSION }
+sub db_version { my $self = shift; $self->dbh->{sqlite_version} }
 
 # }}} Feature flags, version info, and async stubs
 
