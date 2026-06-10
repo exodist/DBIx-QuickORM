@@ -264,14 +264,16 @@ sub dsn {
 =item $sql = $dialect->upsert_statement($pk)
 
 Returns the SQL fragment implementing an upsert keyed on the given primary
-key columns.
+key columns. Column names are quoted so reserved-word or mixed-case columns
+work.
 
 =cut
 
 sub upsert_statement {
     my $self = shift;
     my ($pk) = @_;
-    return "ON CONFLICT(" . join(", " => @$pk). ") DO UPDATE SET";
+    my $dbh = $self->dbh;
+    return "ON CONFLICT(" . join(", " => map { $dbh->quote_identifier($_) } @$pk) . ") DO UPDATE SET";
 }
 
 ###############################################################################
