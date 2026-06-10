@@ -50,4 +50,41 @@ subtest invalidate_with_only_a_row => sub {
     ok(!$con->state_cache_lookup('things', {thing_id => $pk}), "row was removed from the cache");
 };
 
+subtest refresh_of_deleted_row_invalidates => sub {
+    my $row = $h->insert({name => 'refresh_me'});
+    my $pk  = $row->field('thing_id');
+
+    db_delete($pk);
+
+    like(
+        dies { $row->refresh },
+        qr/Cannot refresh: this row no longer exists in the database/,
+        "refresh croaks when the database row is gone",
+    );
+
+    ok(!$row->is_valid, "row was invalidated");
+    like(dies { $row->field('name') }, qr/no longer exists in the database/, "the invalidation reason explains why");
+};
+
+subtest lazy_field_fetch_of_deleted_row_invalidates => sub {
+    my $full = $h->insert({name => 'lazy', notes => 'some notes'});
+    my $pk   = $full->field('thing_id');
+    $full = undef;
+
+    # Drop the cached copy so the partial fetch builds a fresh row missing
+    # the 'notes' field.
+    my $row = $con->handle('things', fields => ['thing_id', 'name'], where => {thing_id => $pk})->one;
+    ok(!exists $row->stored_data->{notes}, "notes field was not fetched");
+
+    db_delete($pk);
+
+    like(
+        dies { $row->field('notes') },
+        qr/Cannot fetch field 'notes': this row no longer exists in the database/,
+        "lazy field fetch croaks when the database row is gone",
+    );
+
+    ok(!$row->is_valid, "row was invalidated");
+};
+
 done_testing;

@@ -226,7 +226,8 @@ discrepancy.
 =item $row = $row->refresh
 
 Re-fetch the row from the database (requires a stored row with a primary
-key).
+key). If the row no longer exists in the database it is invalidated and
+this croaks.
 
 =item $row = $row->discard
 
@@ -267,7 +268,12 @@ sub refresh {
     $self->check_pk;
 
     croak "This row is not in the database yet" unless $self->is_stored;
-    return $self->connection->handle($self)->one;
+
+    my $row = $self->connection->handle($self)->one;
+    return $row if $row;
+
+    $self->connection->state_invalidate(source => $self->source, row => $self, reason => "row no longer exists in the database");
+    croak "Cannot refresh: this row no longer exists in the database";
 }
 
 # Remove pending changes (and clear desync)
@@ -431,7 +437,8 @@ transaction stack; such a row must be refreshed before changes are staged.
 
 Shared getter/setter behind C<field> / C<raw_field>: resolves the value
 from pending or stored data (fetching a missing stored field on demand)
-and runs it through C<$view_method>.
+and runs it through C<$view_method>. When the on-demand fetch finds the
+row gone from the database, the row is invalidated and this croaks.
 
 =item $hash = $row->_fields($view_method, @data_hashes)
 
@@ -494,6 +501,12 @@ sub _field {
     if (my $st = $row_data->{+STORED}) {
         unless (exists $st->{$field}) {
             my $data = $self->connection->handle($self->source, where => $self->primary_key_hashref, fields => [$field])->data_only->one;
+
+            unless ($data) {
+                $self->connection->state_invalidate(source => $self->source, row => $self, reason => "row no longer exists in the database");
+                croak "Cannot fetch field '$field': this row no longer exists in the database";
+            }
+
             $st->{$field} = $data->{$field};
         }
 
