@@ -107,7 +107,7 @@ sub supports_returning_delete { 1 }
 
 # DuckDB binds binary data as BLOB; SQL_BINARY (the base default) makes
 # DBD::DuckDB try duckdb_bind_varchar, which fails on binary bytes.
-sub quote_binary_data { DBI::SQL_BLOB() }
+sub quote_binary_data { my $self = shift; DBI::SQL_BLOB() }
 
 # DuckDB native types. Returns the native type name for a supported logical
 # type, undef otherwise (used by type modules to pick an affinity).

@@ -104,7 +104,7 @@ sub supports_returning_update { 0 }
 sub supports_returning_insert { 0 }
 sub supports_returning_delete { 0 }
 
-sub supports_type { }
+sub supports_type { my $self = shift; return undef }
 
 sub datetime_formatter { my $self = shift; croak "No datetime formatter is defined for the '" . $self->dialect_name . "' dialect" }
 
