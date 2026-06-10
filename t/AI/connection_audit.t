@@ -124,4 +124,14 @@ subtest auto_retry_terminal_failure => sub {
     like($err, qr/always fails/, "terminal croak includes the last exception");
 };
 
+subtest handle_undef => sub {
+    my $con = connect_orm();
+
+    my $err = dies { $con->handle(undef) };
+    like($err, qr/handle\(\) requires a source, a handle, or handle constructor arguments; got undef/, "handle(undef) croaks with a clear message");
+
+    $err = dies { $con->handle() };
+    like($err, qr/handle\(\) requires a source/, "handle() with no arguments croaks the same way");
+};
+
 done_testing;

@@ -887,7 +887,8 @@ sub handle {
     my $self = shift;
     my ($in, @args) = @_;
 
-    my $handle;
+    croak "handle() requires a source, a handle, or handle constructor arguments; got undef" unless defined $in;
+
     if ((blessed($in) || !ref($in)) && ($in->isa('DBIx::QuickORM::Handle') || $in->DOES('DBIx::QuickORM::Role::Handle'))) {
         return $in unless @args;
         return $in->handle(@args);
