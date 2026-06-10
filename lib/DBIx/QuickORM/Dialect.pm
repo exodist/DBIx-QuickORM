@@ -66,6 +66,11 @@ Name of the database this dialect is connected to.
 
 Name of the DSN field used to specify a unix socket. Defaults to C<host>.
 
+=item $field = $dialect->dsn_dbname_field
+
+Name of the DSN field used to specify the database name. Defaults to
+C<dbname>; the MySQL family overrides this with C<database>.
+
 =item $name = $dialect->dialect_name
 
 Short name of the dialect, derived from the class name.
@@ -92,6 +97,7 @@ logical type, otherwise nothing.
 # {{{ Feature flags and simple accessors
 
 sub dsn_socket_field { 'host' }
+sub dsn_dbname_field { 'dbname' }
 
 sub quote_binary_data         { my $self = shift; DBI::SQL_BINARY() }
 sub supports_returning_update { 0 }
@@ -205,7 +211,8 @@ sub dsn {
     $dsn_driver =~ s/^DBD:://;
 
     my $db_name = $db->db_name;
-    my $dsn = "dbi:${dsn_driver}:dbname=${db_name};";
+    my $dbname_field = $self_or_class->dsn_dbname_field($driver);
+    my $dsn = "dbi:${dsn_driver}:${dbname_field}=${db_name};";
 
     if (my $socket = $db->socket) {
         $dsn .= $self_or_class->dsn_socket_field($driver) . "=$socket";

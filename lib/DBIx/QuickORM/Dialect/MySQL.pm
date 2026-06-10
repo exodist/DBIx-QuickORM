@@ -221,6 +221,18 @@ sub init {
 
 =pod
 
+=item $field = $dialect->dsn_dbname_field
+
+DSN field name used to specify the database name. The MySQL family uses
+C<database>: C<DBD::MariaDB> does not accept C<dbname>, while C<DBD::mysql>
+accepts both.
+
+=cut
+
+sub dsn_dbname_field { 'database' }
+
+=pod
+
 =item $field = $dialect->dsn_socket_field($driver)
 
 DSN field name used to specify a unix socket for the given driver.
