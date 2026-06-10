@@ -512,7 +512,9 @@ sub build_columns_from_db {
         $col->{type} = \"$res->{DATA_TYPE}";
         $col->{nullable} = $self->_col_field_to_bool($res->{IS_NULLABLE});
 
-        $col->{identity} = 1 if $res->{EXTRA} && $res->{EXTRA} eq 'auto_increment';
+        # EXTRA can carry more than one token (e.g. "auto_increment DEFAULT_GENERATED"),
+        # so match the word rather than the whole string.
+        $col->{identity} = 1 if $res->{EXTRA} && $res->{EXTRA} =~ m/\bauto_increment\b/i;
 
         # Both MySQL (5.7+) and MariaDB (10.2+) populate GENERATION_EXPRESSION
         # for stored/virtual GENERATED columns and leave it null/empty for
