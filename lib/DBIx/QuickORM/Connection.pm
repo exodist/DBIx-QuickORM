@@ -841,7 +841,7 @@ sub source {
         croak "Not sure what to do with '$r'";
     }
 
-    my $source = $self->schema->table($in);
+    my $source = $self->schema->maybe_table($in);
     return $source if $source;
 
     return undef if $params{no_fatal};

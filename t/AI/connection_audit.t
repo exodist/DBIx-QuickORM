@@ -78,4 +78,15 @@ subtest reconnect_guards => sub {
     ok($con->dbh->ping, "fresh dbh works");
 };
 
+subtest source_no_fatal => sub {
+    my $con = connect_orm();
+
+    ok($con->source('users'), "source() resolves a known table");
+
+    is($con->source('no_such_table', no_fatal => 1), undef, "no_fatal => 1 returns undef for an unknown table");
+
+    my $err = dies { $con->source('no_such_table') };
+    like($err, qr/Could not find the 'no_such_table' table in the schema/, "unknown table croaks without no_fatal");
+};
+
 done_testing;
