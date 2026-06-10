@@ -160,6 +160,35 @@ sub rollback_savepoint { my $self = shift; croak "$self->rollback_savepoint() is
 
 =pod
 
+=item $bool = $dialect->async_supported
+
+=item $bool = $dialect->async_cancel_supported
+
+Async feature flags. False by default; dialects with async support override.
+
+=item $dialect->async_prepare_args(%params)
+
+=item $bool = $dialect->async_ready(%params)
+
+=item $result = $dialect->async_result(%params)
+
+=item $dialect->async_cancel(%params)
+
+Async query lifecycle. Stubs that croak; dialects with async support
+override.
+
+=cut
+
+sub async_supported        { 0 }
+sub async_cancel_supported { 0 }
+
+sub async_prepare_args { my $self = shift; croak "$self->async_prepare_args() is not implemented" }
+sub async_ready        { my $self = shift; croak "$self->async_ready() is not implemented" }
+sub async_result       { my $self = shift; croak "$self->async_result() is not implemented" }
+sub async_cancel       { my $self = shift; croak "$self->async_cancel() is not implemented" }
+
+=pod
+
 =item $bool = $dialect->in_txn(%params)
 
 True if a transaction is currently in progress on the handle (the C<dbh>
