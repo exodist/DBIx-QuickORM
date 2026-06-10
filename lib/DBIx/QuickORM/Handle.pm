@@ -2140,7 +2140,17 @@ sub delete {
 
     my $sth;
     if ($has_ret || $row) {
-        $sth = $self->_make_sth($sql, on_ready => $finish, no_rows => 1);
+        # A forked write maintains the parent cache in the parent at reap (via
+        # on_finish) using the bound row's data; it cannot stream RETURNING rows
+        # back through this path, so a bulk forked delete needs a bound row.
+        croak "Cannot do a forked delete without a specific row to delete"
+            if $self->is_forked && !$row;
+
+        $sth = $self->_make_sth(
+            $sql,
+            (($self->is_forked && $row) ? (on_finish => $finish) : (on_ready => $finish)),
+            no_rows => 1,
+        );
     }
     else {
         croak "Cannot do an async delete without a specific row to delete on a database that does not support 'returning on delete'" unless $sync;
@@ -2275,7 +2285,14 @@ sub update {
 
     my $sth;
     if ($row) {
-        $sth = $self->_make_sth($sql, on_ready => $finish, no_rows => 1);
+        # For a forked write the cache maintenance must run in the parent at
+        # reap, not in the child (whose updated cache is discarded), so pass it
+        # as on_finish; sync/async run it in-process via on_ready.
+        $sth = $self->_make_sth(
+            $sql,
+            ($self->is_forked ? (on_finish => $finish) : (on_ready => $finish)),
+            no_rows => 1,
+        );
     }
     else {
         croak "Cannot do an async update without a specific row to update" unless $sync;

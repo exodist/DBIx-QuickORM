@@ -34,7 +34,9 @@ sub DESTROY {
     return if $self->done;
 
     unless ($self->got_result) {
-        if ($self->cancel_supported) {
+        # A handle wrapping a write that must run to completion (cancel_on_destroy
+        # false) waits for the child rather than aborting it mid-write.
+        if ($self->cancel_supported && $self->cancel_on_destroy) {
             $self->cancel;
         }
         else {
