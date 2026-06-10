@@ -66,7 +66,8 @@ The transaction identifier (required).
 
 =item savepoint
 
-True when this represents a savepoint rather than a top-level transaction.
+The savepoint name when this transaction is implemented as a savepoint, undef
+for a top-level transaction. Use C<is_savepoint> for a boolean check.
 
 =item on_success
 
@@ -126,6 +127,15 @@ True when this is a savepoint.
 =cut
 
 sub is_savepoint { $_[0]->{+SAVEPOINT} ? 1 : 0 }
+
+=pod
+
+=item $txn->init
+
+Object construction hook invoked by L<Object::HashBase>. Validates the id and
+normalizes the callback queues. Not called directly.
+
+=cut
 
 sub init {
     my $self = shift;

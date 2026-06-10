@@ -50,20 +50,20 @@ database.
 
     use My::Orm qw/orm/;
 
-    # Get a connection to the orm
+    # Get the orm's connection.
     # Note: This will return the same connection each time, no need to cache it yourself.
-    my $orm = orm('my_orm');
+    my $con = orm('my_orm')->connection;
 
     # Do something to all rows in the 'people' table.
-    my $people_handle = $orm->handle('people');
+    my $people_handle = $con->handle('people');
     for my $person ($people_handle->all) {
         ...
     }
 
     # Find all people with the surname 'smith' and print their first names.
     my $smith_handle = $people_handle->where({surname => 'smith'});
-    for my $person ($handle->all) {
-        print $person->field('first_name') . "\n"
+    for my $person ($smith_handle->all) {
+        print $person->field('first_name') . "\n";
     }
 
     # Do a transaction that is managed by the ORM.
@@ -456,17 +456,17 @@ transactions. Calls to this method can be nested.
 
 If an action sub is provided then the transaction will be started, and the
 action sub will be executed. If the action sub returns then the transaction
-will be commited. If the action sub throws an exception the transaction will be
+will be committed. If the action sub throws an exception the transaction will be
 rolled back.
 
 You can also manually commit/rollback which will exit the action subroutine.
 
-    $txn->commmit;
+    $txn->commit;
     $txn->rollback;
 
 If you need to start a transaction that is not limited to a single subroutine,
 you can call this method without an action sub, it will return an
-L<DBIx::QuickORM::Connection::Transaction> instance that can be used to commmit
+L<DBIx::QuickORM::Connection::Transaction> instance that can be used to commit
 or rollback the transaction when you are ready. If the object falls completely
 out of scope and is destroyed then the transaction will be rolled back.
 
@@ -483,8 +483,8 @@ All possible arguments:
 
         # Things to run at the end of the transaction.
         on_fail       => sub { ... }, # Only runs if the txn is rolled back
-        on_success    => sub { ... }, # Only runs if the txn is commited
-        on_completion => sub { ... }, # Runs whent he txn is done regardless of status.
+        on_success    => sub { ... }, # Only runs if the txn is committed
+        on_completion => sub { ... }, # Runs when the txn is done regardless of status.
 
         # Same as above, except you are adding them to a direct parent txn (if one exists, otherwise they are no-ops)
         on_parent_fail       => sub { ... },

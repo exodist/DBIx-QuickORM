@@ -92,12 +92,10 @@ The active connection, created lazily and cached here.
 
 =over 4
 
-=item $db = $orm->db
+=item $orm->init
 
-=item $orm->db($db)
-
-Gets the database definition, or sets it once. Croaks on a second set or when
-fetched before being set.
+Object construction hook invoked by L<Object::HashBase>. Validates that a
+schema or autofill was provided. Not called directly.
 
 =cut
 
@@ -109,6 +107,17 @@ sub init {
     croak "You must either provide the 'schema' attribute or enable 'autofill'"
         unless $self->{+SCHEMA} || $self->{+AUTOFILL};
 }
+
+=pod
+
+=item $db = $orm->db
+
+=item $orm->db($db)
+
+Gets the database definition, or sets it once. Croaks on a second set or when
+fetched before being set.
+
+=cut
 
 sub db {
     my $self = shift;

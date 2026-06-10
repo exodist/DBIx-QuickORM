@@ -100,7 +100,8 @@ Provenance metadata describing where this definition came from.
 
 =item dialect
 
-The L<DBIx::QuickORM> dialect object (required). Used to build the DSN.
+The L<DBIx::QuickORM::Dialect> subclass name (required). Used to build the
+DSN and to construct per-connection dialect instances.
 
 =item dbi_driver
 
@@ -119,6 +120,15 @@ The database name, defaulting to C<name> when C<db_name> is unset.
 =cut
 
 sub db_name { $_[0]->{+DB_NAME} // $_[0]->{+NAME} }
+
+=pod
+
+=item $db->init
+
+Object construction hook invoked by L<Object::HashBase>. Validates required
+attributes and fills in default DBI attributes. Not called directly.
+
+=cut
 
 sub init {
     my $self = shift;
