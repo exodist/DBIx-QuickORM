@@ -246,9 +246,10 @@ sub build_table_keys_from_db {
     my $dbh = $self->{+DBH};
 
     my $sth = $dbh->prepare(<<"    EOT");
-        SELECT il.name AS grp,
-               origin  AS type,
-               ii.name AS column
+        SELECT il.name     AS grp,
+               il.origin   AS type,
+               il.`unique` AS uniq,
+               ii.name     AS column
          FROM pragma_index_list(?)       AS il,
               pragma_index_info(il.name) AS ii
      ORDER BY seq, il.name, seqno, cid
@@ -261,12 +262,17 @@ sub build_table_keys_from_db {
     my %index;
     while (my $row = $sth->fetchrow_hashref()) {
         my $idx = $index{$row->{grp}} //= {};
-        $idx->{type} = $row->{type};
+        $idx->{type}   = $row->{type};
+        $idx->{unique} = $row->{uniq};
         push @{$idx->{cols} //= []} => $row->{column};
     }
 
-    for my $idx (sort values %index) {
-        $unique{column_key(@{$idx->{cols}})} = $idx->{cols};
+    # Only indexes flagged unique are unique constraints; a plain CREATE INDEX
+    # must not be recorded as one. The flag (not the origin) is the signal:
+    # CREATE UNIQUE INDEX also has origin 'c'.
+    for my $grp (sort keys %index) {
+        my $idx = $index{$grp};
+        $unique{column_key(@{$idx->{cols}})} = $idx->{cols} if $idx->{unique};
         $pk = $idx->{cols} if $idx->{type} eq 'pk';
     }
 
