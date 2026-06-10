@@ -1691,17 +1691,18 @@ sub by_id {
     my $id = pop;
     my $self = shift->handle(@_);
 
-    croak "Cannot call by_ids() on a handle with a where clause"    if $self->{+WHERE};
-    croak "Cannot call by_ids() on a handle with an associated row" if $self->{+ROW};
+    croak "Cannot call by_id() on a handle with a where clause"    if $self->{+WHERE};
+    croak "Cannot call by_id() on a handle with an associated row" if $self->{+ROW};
 
     my $source = $self->{+SOURCE};
+    my $pk_fields = $self->_has_pk or croak "Cannot call by_id() on a source that has no primary key";
 
     my $where;
     my $ref = ref($id);
     #<<<
-    if    ($ref eq 'HASH')  { $where = $id; $id = [ map { $where->{$_} } @{$source->primary_key} ] }
-    elsif ($ref eq 'ARRAY') { $where = +{ mesh($source->primary_key, $id) } }
-    elsif (!$ref)           { $id = [ $id ]; $where = +{ mesh($source->primary_key, $id) } }
+    if    ($ref eq 'HASH')  { $where = $id; $id = [ map { $where->{$_} } @$pk_fields ] }
+    elsif ($ref eq 'ARRAY') { $where = +{ mesh($pk_fields, $id) } }
+    elsif (!$ref)           { $id = [ $id ]; $where = +{ mesh($pk_fields, $id) } }
     #>>>
 
     croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';

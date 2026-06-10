@@ -248,6 +248,29 @@ subtest data_only => sub {
     ref_ok($rows[0], 'HASH', "data_only yields plain hashrefs, not blessed rows");
 };
 
+subtest by_id_errors => sub {
+    like(
+        dies { $base->where({surname => 'smith'})->by_id(1) },
+        qr/Cannot call by_id\(\) on a handle with a where clause/,
+        "by_id() error message names by_id, not by_ids"
+    );
+
+    my ($db_dir) = tempdir(CLEANUP => 1);
+    my $nopk_dsn = "dbi:SQLite:dbname=$db_dir/nopk.sqlite";
+    {
+        my $dbh = DBI->connect($nopk_dsn, '', '', {RaiseError => 1, PrintError => 0});
+        $dbh->do('CREATE TABLE nopk (name TEXT)');
+        $dbh->disconnect;
+    }
+    my $nopk_con = DBIx::QuickORM->quick(credentials => {dsn => $nopk_dsn});
+
+    like(
+        dies { $nopk_con->handle('nopk')->by_id(1) },
+        qr/Cannot call by_id\(\) on a source that has no primary key/,
+        "by_id() on a pk-less source croaks instead of dereferencing undef"
+    );
+};
+
 subtest internal_transactions => sub {
     ok($base->using_internal_transactions, "internal transactions default to on");
 
