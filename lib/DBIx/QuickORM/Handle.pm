@@ -35,8 +35,10 @@ use Object::HashBase qw{
     +where
     +order_by
     +limit
+    +offset
     +fields
     +omit
+    +distinct
 
     +async
     +aside
@@ -142,12 +144,16 @@ The row this handle is bound to, if any.
 
 =item limit
 
+=item offset
+
 =item fields
 
 =item omit
 
-Query-composition state: WHERE clause, ORDER BY, LIMIT, fields to fetch, and
-fields to omit.
+=item distinct
+
+Query-composition state: WHERE clause, ORDER BY, LIMIT, OFFSET, fields to
+fetch, fields to omit, and the SELECT DISTINCT flag.
 
 =item async
 
@@ -506,6 +512,11 @@ You can specify the order_by using the C<order_by> key in a key/value pair.
 
 You can specify the limit using the C<limit> key in a key/value pair.
 
+=item offset => $OFFSET
+
+You can specify the offset using the C<offset> key in a key/value pair. An
+offset requires a limit to also be set by query time.
+
 =item fields => \@FIELDS
 
 You can specify the fields using the C<fields> key in a key/value pair.
@@ -513,6 +524,11 @@ You can specify the fields using the C<fields> key in a key/value pair.
 =item omit => \@FIELDS
 
 You can specify the omit using the C<omit> key in a key/value pair.
+
+=item distinct => $BOOL
+
+You can use the C<distinct> key and a boolean to toggle C<SELECT DISTINCT> on
+and off.
 
 =item async => $BOOL
 
@@ -888,6 +904,13 @@ them, such as L<DBD::SQlite>.
 
 The newly returned handle will return hashrefs instead of blessed row objects.
 
+=item $new_h = $h->distinct()
+
+=item $new_h = $h->distinct($bool)
+
+The newly returned handle will use C<SELECT DISTINCT> when fetching rows.
+Pass a boolean to toggle the flag in either direction.
+
 =item $new_h = $h->all_fields()
 
 Make sure the handle selects all fields when fetching rows. Normally some rows
@@ -977,6 +1000,20 @@ sub data_only {
     return $self if $self->{+DATA_ONLY};
 
     return $self->clone(DATA_ONLY() => 1);
+}
+
+sub distinct {
+    my $self = shift;
+    croak "Must not be called in void context" unless defined wantarray;
+
+    if (@_) {
+        my ($val) = @_;
+        return $self->clone(DISTINCT() => $val ? 1 : 0);
+    }
+
+    return $self if $self->{+DISTINCT};
+
+    return $self->clone(DISTINCT() => 1);
 }
 
 sub all_fields {
@@ -1072,6 +1109,14 @@ handle that uses the new omitted fields.
 Can be used to get the limit of a handle, or to create a clone of the
 handle that uses the new limit.
 
+=item $offset = $h->offset()
+
+=item $new_h = $h->offset($offset)
+
+Can be used to get the offset of a handle, or to create a clone of the
+handle that uses the new offset. An offset is only valid in combination with a
+limit; executing a query with an offset but no limit throws an exception.
+
 =item $where = $h->where()
 
 =item $new_h = $h->where($where)
@@ -1157,6 +1202,13 @@ sub limit {
     croak "Must not be called in void context" unless defined wantarray;
     return $self->{+LIMIT} unless @_;
     return $self->clone(LIMIT() => $_[0]);
+}
+
+sub offset {
+    my $self = shift;
+    croak "Must not be called in void context" unless defined wantarray;
+    return $self->{+OFFSET} unless @_;
+    return $self->clone(OFFSET() => $_[0]);
 }
 
 sub where {
@@ -1650,7 +1702,9 @@ sub _builder_args {
         source   => $self->{+SOURCE},
         where    => $self->{+WHERE},
         limit    => $self->{+LIMIT},
+        offset   => $self->{+OFFSET},
         order_by => $self->{+ORDER_BY},
+        distinct => $self->{+DISTINCT},
         fields   => $self->fields,
         dialect  => $self->dialect,
     };
@@ -1797,7 +1851,9 @@ sub _insert {
 
     croak "Cannot insert rows using a handle with data_only set"   if $self->{+DATA_ONLY};
     croak "Cannot insert rows using a handle with a limit set"     if defined $self->{+LIMIT};
+    croak "Cannot insert rows using a handle with an offset set"   if defined $self->{+OFFSET};
     croak "Cannot insert rows using a handle with an order_by set" if defined $self->{+ORDER_BY};
+    croak "Cannot insert rows using a handle with distinct set"    if $self->{+DISTINCT};
 
     my $data;
     if (my $in = $self->{+TARGET}) {
@@ -2032,7 +2088,9 @@ sub update {
 
     croak "update() with data_only set is not currently supported"        if $self->{+DATA_ONLY};
     croak "update() with a 'limit' clause is not currently supported"     if defined $self->{+LIMIT};
+    croak "update() with an 'offset' clause is not currently supported"   if defined $self->{+OFFSET};
     croak "update() with an 'order_by' clause is not currently supported" if $self->{+ORDER_BY};
+    croak "update() with distinct set is not currently supported"         if $self->{+DISTINCT};
 
     # A bound row normally provides the WHERE clause via its primary key. With
     # no primary key there is no WHERE at all and the update would hit every

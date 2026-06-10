@@ -79,8 +79,11 @@ sub new {
 
 Build a statement of the named kind for the given source. Each returns a
 hashref with C<statement>, C<bind> (an arrayref of per-field bind specs), and
-C<source>. A C<limit> param appends a C<LIMIT ?> clause. These methods are
-generated at compile time.
+C<source>. A C<limit> param appends a C<LIMIT ?> clause, and an C<offset>
+param extends it to C<LIMIT ? OFFSET ?> (an offset without a limit croaks,
+since not every dialect allows a bare OFFSET). A true C<distinct> param turns
+a C<SELECT> into C<SELECT DISTINCT>. These methods are generated at compile
+time.
 
 =cut
 
@@ -109,12 +112,24 @@ BEGIN {
                 ($stmt, @bind) = $self->$meth($source, @args);
             }
 
+            # Not every dialect supports a bare OFFSET (MySQL requires a LIMIT
+            # before it), so OFFSET is only emitted as part of "LIMIT ? OFFSET ?".
+            croak "Cannot use 'offset' without a 'limit'"
+                if defined($params{offset}) && !defined($params{limit});
+
+            $stmt =~ s/^(\s*SELECT)\b/$1 DISTINCT/i if $params{distinct};
+
             my $param = 1;
             @bind = map { my ($f, $v) = @{$_}; +{param => $param++, value => $v, type => 'field', field => $f} } @bind;
 
             if (defined(my $limit = $params{limit})) {
                 $stmt .= " LIMIT ?";
                 push @bind => {param => $param++, value => $limit, type => 'limit'};
+
+                if (defined(my $offset = $params{offset})) {
+                    $stmt .= " OFFSET ?";
+                    push @bind => {param => $param++, value => $offset, type => 'offset'};
+                }
             }
 
             return {statement => $stmt, bind => \@bind, source => $source};
@@ -200,7 +215,9 @@ sub _insert_args {
     my ($params) = @_;
 
     confess "insert() with a 'limit' clause is not currently supported"     if defined $params->{limit};
+    confess "insert() with an 'offset' clause is not currently supported"   if defined $params->{offset};
     confess "insert() with an 'order_by' clause is not currently supported" if $params->{order_by};
+    confess "insert() with 'distinct' set is not currently supported"       if $params->{distinct};
 
     my $values = $params->{insert} // croak "'insert' is required";
     my $returning = $params->{returning};
@@ -215,7 +232,9 @@ sub _delete_args {
     my ($params) = @_;
 
     confess "delete() with a 'limit' clause is not currently supported"     if defined $params->{limit};
+    confess "delete() with an 'offset' clause is not currently supported"   if defined $params->{offset};
     confess "delete() with an 'order_by' clause is not currently supported" if $params->{order_by};
+    confess "delete() with 'distinct' set is not currently supported"       if $params->{distinct};
 
     my $where = $params->{where} // undef;
     my $returning = $params->{returning};
@@ -226,6 +245,11 @@ sub _delete_args {
 sub _update_args {
     my $self = shift;
     my ($params) = @_;
+
+    confess "update() with a 'limit' clause is not currently supported"     if defined $params->{limit};
+    confess "update() with an 'offset' clause is not currently supported"   if defined $params->{offset};
+    confess "update() with an 'order_by' clause is not currently supported" if $params->{order_by};
+    confess "update() with 'distinct' set is not currently supported"       if $params->{distinct};
 
     my $values    = $params->{update} or croak "'update' is required";
     my $returning = $params->{returning};
