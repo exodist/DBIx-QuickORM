@@ -61,12 +61,6 @@ DuckDB has no async query support; the C<async_*> methods C<croak>.
 
 =over 4
 
-=item $ver = $dialect->fallback_ver
-
-=item $ver = $dialect->oldest_ver
-
-=item $ver = $dialect->latest_ver
-
 =item $driver = $dialect->dbi_driver
 
 =item $name = $dialect->dialect_name
@@ -81,10 +75,8 @@ DuckDB has no async query support; the C<async_*> methods C<croak>.
 
 =item $bool = $dialect->async_cancel_supported
 
-=item $bool = $dialect->version_search
-
-Feature flags and constants describing the DuckDB dialect. DuckDB has no
-versioned dialect variants and does not support async queries.
+Feature flags and constants describing the DuckDB dialect. DuckDB does not
+support async queries.
 
 =item $dialect->async_prepare_args
 
@@ -104,9 +96,6 @@ The DuckDB engine version (from C<SELECT version()>).
 
 # {{{ Feature flags, version info, and async stubs
 
-sub fallback_ver { 1 }
-sub oldest_ver   { 1 }
-sub latest_ver   { 1 }
 sub dbi_driver   { 'DBD::DuckDB' }
 sub dialect_name { 'DuckDB' }
 
@@ -142,8 +131,6 @@ sub async_prepare_args     { croak "Dialect '" . $_[0]->dialect_name . "' does n
 sub async_ready            { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 sub async_result           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
-
-sub version_search { 0 }
 
 sub db_version {
     my $self = shift;

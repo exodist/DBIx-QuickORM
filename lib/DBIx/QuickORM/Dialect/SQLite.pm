@@ -45,12 +45,6 @@ and savepoints via the SQLite driver, and reports SQLite's feature set
 
 =over 4
 
-=item $ver = $dialect->fallback_ver
-
-=item $ver = $dialect->oldest_ver
-
-=item $ver = $dialect->latest_ver
-
 =item $driver = $dialect->dbi_driver
 
 =item $name = $dialect->dialect_name
@@ -65,10 +59,8 @@ and savepoints via the SQLite driver, and reports SQLite's feature set
 
 =item $bool = $dialect->async_cancel_supported
 
-=item $bool = $dialect->version_search
-
-Feature flags and constants describing the SQLite dialect. SQLite has no
-versioned dialect variants and does not support async queries.
+Feature flags and constants describing the SQLite dialect. SQLite does not
+support async queries.
 
 =item $dialect->async_prepare_args
 
@@ -88,9 +80,6 @@ The installed C<DBD::SQLite> version.
 
 # {{{ Feature flags, version info, and async stubs
 
-sub fallback_ver { 1 }
-sub oldest_ver   { 1 }
-sub latest_ver   { 1 }
 sub dbi_driver   { 'DBD::SQLite' }
 sub dialect_name { 'SQLite' }
 
@@ -106,8 +95,6 @@ sub async_prepare_args     { croak "Dialect '" . $_[0]->dialect_name . "' does n
 sub async_ready            { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 sub async_result           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
-
-sub version_search { 0 }
 
 sub db_version { my $self = shift; DBD::SQLite->VERSION }
 
