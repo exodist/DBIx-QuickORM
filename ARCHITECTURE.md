@@ -770,3 +770,13 @@ longer exists in the database invalidates the row (reason: it is gone) and
 croaks; `insert_or_save` with nothing to write croaks with insert's "no data to
 write" message; and `vivify` croaks when it would collide with a row already
 loaded in the cache, since insert/vivify assume the row does not yet exist.
+
+## Addendum: qorm_compare uses an equality contract
+
+`Role::Type`'s `qorm_compare($a, $b)` returns **true when the two values are
+the same**, false when they differ — a boolean equality test, not a
+three-way comparator. The built-in JSON, UUID, and DateTime types follow this,
+and `RowData::compare_field` consumes the result directly (it previously
+negated a comparator-style return). There is no ordering use case for type
+comparison, so no `-1/0/1` contract is offered; a custom type that returns a
+comparator result would invert desync detection.

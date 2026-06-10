@@ -206,7 +206,8 @@ an array reference:
         my ($a, $b) = @_;
         $a = $class->qorm_inflate($a);
         $b = $class->qorm_inflate($b);
-        return join(',', @{$a // []}) cmp join(',', @{$b // []});
+        # Equality contract: return true when the two values are the same.
+        return join(',', @{$a // []}) eq join(',', @{$b // []});
     }
 
     sub qorm_sql_type {

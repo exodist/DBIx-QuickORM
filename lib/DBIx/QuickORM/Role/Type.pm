@@ -36,7 +36,8 @@ Convert an inflated value back to the form stored in the database.
 
 =item $bool = $type->qorm_compare($a, $b)
 
-Compare two values for equality.
+Compare two values for equality. Returns true when the two values are the
+same, false when they differ.
 
 =item $affinity = $type->qorm_affinity(...)
 

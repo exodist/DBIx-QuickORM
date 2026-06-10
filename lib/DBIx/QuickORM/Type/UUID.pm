@@ -83,9 +83,10 @@ sub qorm_compare {
     my $da = defined($a);
     my $db = defined($b);
 
-    return $a cmp $b if $da && $db;
-    return 0 unless $da || $db;
-    return 1;
+    # Equality contract: true when the two values are the same.
+    return $a eq $b if $da && $db;
+    return 1 unless $da || $db;    # both undef: equal
+    return 0;                      # exactly one defined: not equal
 }
 
 sub qorm_affinity {

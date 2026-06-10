@@ -376,8 +376,8 @@ sub compare_field {
     return 0 if ($ad xor $bd);       # One is defined, one is not
     return 1 if (!$ad) && (!$bd);    # Neither is defined
 
-    # true if different, false if same
-    return !$type->qorm_compare($a, $b) if $type;
+    # true if same, false if different
+    return $type->qorm_compare($a, $b) if $type;
 
     # true if same, false if different
     return DBIx::QuickORM::Affinity::compare_affinity_values($affinity, $a, $b);
