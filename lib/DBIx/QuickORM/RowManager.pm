@@ -128,16 +128,18 @@ sub do_cache_lookup {
 
 =pod
 
-=item $mgr->invalidate(source => $source, ...)
+=item $mgr->invalidate(source => $source, row => $row, ...)
 
 Mark a row's data invalid, both on any passed-in row and on the cached copy,
-recording a reason (defaulting to the caller's file and line).
+recording a reason (defaulting to the caller's file and line). The row can
+be identified by a row object, fetched data, or a primary key; none of them
+is individually required.
 
 =cut
 
 sub invalidate {
     my $self = shift;
-    my ($source, $fetched, $old_pk, $new_pk, $row, $params) = $self->parse_params({@_});
+    my ($source, $fetched, $old_pk, $new_pk, $row, $params) = $self->parse_params({@_}, fetched => 1);
 
     my $reason = $params->{reason};
     unless ($reason) {
