@@ -50,7 +50,8 @@ subtest reconnect_rebuilds_dialect => sub {
         });
         1;
     };
-    ok($ok, "post-reconnect transaction committed without error") or diag $@;
+    my $err = $@;
+    ok($ok, "post-reconnect transaction committed without error") or diag $err;
     ok((grep { $_ eq 'post-reconnect-commit' } @{raw_names()}), "committed row visible to an independent connection");
 
     my $ok2 = eval {
