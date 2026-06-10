@@ -152,7 +152,8 @@ sub skip {
     my $self = shift;
 
     my $from = $self->{+SKIP};
-    while(my $arg = shift @_) {
+    while (@_) {
+        my $arg = shift @_;
         $from = $from->{$arg} or return 0;
     }
     return $from;

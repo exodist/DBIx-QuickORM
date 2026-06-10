@@ -58,6 +58,16 @@ subtest invalid_hook_croaks => sub {
     );
 };
 
+subtest skip_falsy_names => sub {
+    my $autofill = DBIx::QuickORM::Schema::Autofill->new(
+        skip => {table => {0 => 1}, column => {0 => {c => 1}}},
+    );
+
+    ok($autofill->skip(table => '0'), "a table named '0' can be skipped");
+    ok($autofill->skip(column => ('0', 'c')), "a column on a table named '0' can be skipped");
+    ok(!$autofill->skip(table => 'other'), "non-skipped table is not skipped");
+};
+
 subtest tables_hook => sub {
     ok(DBIx::QuickORM::Schema::Autofill->new->is_valid_hook('tables'), "'tables' is a registered hook");
 
