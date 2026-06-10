@@ -2165,13 +2165,6 @@ sub update {
 
     my $sql = $self->sql_builder->qorm_update(%$builder_args, update => $changes);
 
-    # No cache, or not cachable, just do the update
-    unless ($do_cache) {
-        my $sth = $self->_make_sth($sql, no_rows => 1);
-        return $sth unless $sync;
-        return;
-    }
-
     my $handle_row = sub {
         my ($row) = @_;
 
@@ -2187,8 +2180,26 @@ sub update {
 
         $new_pk = $changes_pk_fields ? [ map { $fetched->{$_} } @$pk_fields ] : undef;
 
-        $con->state_update_row(old_primary_key => $old_pk, new_primary_key => $new_pk, fetched => $fetched, source => $source);
+        # Pass the row through so its own state is updated; without it only
+        # the cache layer (when present) would see the change and the
+        # caller's row object would keep its stale stored/pending data.
+        $con->state_update_row(
+            old_primary_key => $old_pk,
+            new_primary_key => $new_pk,
+            fetched         => $fetched,
+            source          => $source,
+            (blessed($row) ? (row => $row) : ()),
+        );
     };
+
+    # No cache, or not cachable, just do the update (but still sync the bound
+    # row's state when there is one).
+    unless ($do_cache) {
+        my $sth = $self->_make_sth($sql, no_rows => 1);
+        $handle_row->($row) if $row;
+        return $sth unless $sync;
+        return;
+    }
 
     my $done = 0;
     my $rows;
