@@ -79,6 +79,7 @@ my %HOOKS = (
     pre_table      => 1,
     primary_key    => 1,
     table          => 1,
+    tables         => 1,
     unique_keys    => 1,
     link_accessor  => 1,
     field_accessor => 1,

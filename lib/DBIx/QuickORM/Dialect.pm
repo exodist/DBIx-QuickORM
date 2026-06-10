@@ -247,7 +247,9 @@ sub upsert_statement {
 =item $schema = $dialect->build_schema_from_db(%params)
 
 Introspects the live database and returns a L<DBIx::QuickORM::Schema>.
-Requires an C<autofill> object.
+Requires an C<autofill> object. After all tables are built it runs the
+autofill C<tables> hook with the complete name-to-table hashref under the
+C<tables> key, giving callbacks one place to inspect or adjust the full set.
 
 =cut
 
@@ -261,7 +263,7 @@ sub build_schema_from_db {
 
     my $tables = $self->build_tables_from_db(%params);
 
-    $params{autofill}->hook(tables => $tables);
+    $params{autofill}->hook(tables => {tables => $tables});
 
     return DBIx::QuickORM::Schema->new(
         tables    => $tables,
