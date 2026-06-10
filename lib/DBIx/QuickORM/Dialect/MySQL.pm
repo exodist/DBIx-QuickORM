@@ -19,6 +19,7 @@ use DBIx::QuickORM::Schema::View;
 use parent 'DBIx::QuickORM::Dialect';
 use Object::HashBase qw{
     +dbi_driver
+    +db_vendor
 };
 
 =pod
@@ -52,6 +53,10 @@ be detected, falling back to this class with a warning otherwise.
 
 The C<DBD::*> driver class backing the connection (C<DBD::mysql> or
 C<DBD::MariaDB>), resolved lazily from the live handle.
+
+=item db_vendor
+
+Cached result of server vendor detection; see the C<db_vendor> method.
 
 =back
 
@@ -225,6 +230,8 @@ sub init {
     my $self = shift;
 
     if (blessed($self) eq __PACKAGE__) {
+        # The detected vendor is cached on the object, so the subclass init()
+        # after the rebless (and anything later) does not re-probe the server.
         if (my $vendor = $self->db_vendor) {
             if (my $class = load_class("DBIx::QuickORM::Dialect::MySQL::${vendor}")) {
                 bless($self, $class);
@@ -234,10 +241,10 @@ sub init {
                 die $@;
             }
 
-            warn "Could not find vendor specific dialect 'DBIx::QuickORM::Dialect::MySQL::${vendor}', using 'DBIx::QuickORM::Dialect::MySQL'. This can result in degraded capabilities compared to a dedicate dialect\n";
+            warn "Detected db vendor '$vendor', but no vendor-specific dialect 'DBIx::QuickORM::Dialect::MySQL::${vendor}' could be found. Using the generic 'DBIx::QuickORM::Dialect::MySQL', which can mean degraded capabilities compared to a dedicated dialect.\n";
         }
         else {
-            warn "Could not find vendor specific dialect 'DBIx::QuickORM::Dialect::MySQL::YOUR_VENDOR', using 'DBIx::QuickORM::Dialect::MySQL'. This can result in degraded capabilities compared to a dedicate dialect\n";
+            warn "Could not detect the db vendor (MariaDB, Percona, or Community). Using the generic 'DBIx::QuickORM::Dialect::MySQL', which can mean degraded capabilities compared to a dedicated dialect.\n";
         }
     }
 
@@ -299,23 +306,25 @@ sub db_version {
 =item $vendor = $dialect->db_vendor
 
 Detects the server vendor (C<MariaDB>, C<Percona>, or C<Community>) from the
-version strings, or C<undef> when it cannot be determined.
+version strings, or C<undef> when it cannot be determined. The result is
+cached on the object.
 
 =cut
 
 sub db_vendor {
     my $self = shift;
 
+    return $self->{+DB_VENDOR} if exists $self->{+DB_VENDOR};
+
     my $dbh = $self->{+DBH};
 
-    for my $cmd ('SELECT @@version_comment', "SELECT version()") {
+    for my $cmd ('SELECT @@version_comment', 'SELECT version()') {
         my $sth = $dbh->prepare($cmd);
         $sth->execute();
         my ($val) = $sth->fetchrow_array;
 
-        return 'MariaDB'   if $val =~ m/MariaDB/i;
-        return 'Percona'   if $val =~ m/Percona/i;
-        return 'Community' if $val =~ m/Community/i;
+        my $vendor = $self->_vendor_from_string($val);
+        return $self->{+DB_VENDOR} = $vendor if $vendor;
     }
 
     # Single quotes: under ANSI_QUOTES mode double quotes denote identifiers,
@@ -325,13 +334,12 @@ sub db_vendor {
 
     while (my @vals = $sth->fetchrow_array) {
         for my $val (@vals) {
-            return 'MariaDB'   if $val =~ m/MariaDB/i;
-            return 'Percona'   if $val =~ m/Percona/i;
-            return 'Community' if $val =~ m/Community/i;
+            my $vendor = $self->_vendor_from_string($val);
+            return $self->{+DB_VENDOR} = $vendor if $vendor;
         }
     }
 
-    return undef;
+    return $self->{+DB_VENDOR} = undef;
 }
 
 =pod
@@ -546,6 +554,31 @@ sub build_columns_from_db {
 =head1 PRIVATE METHODS
 
 =over 4
+
+=item $vendor_or_undef = $dialect->_vendor_from_string($val)
+
+Maps a server version/comment string to a vendor name, or undef when the
+string (possibly undefined) names no known vendor.
+
+=cut
+
+sub _vendor_from_string {
+    my $self = shift;
+    my ($val) = @_;
+
+    return undef unless defined $val;
+
+    return 'MariaDB' if $val =~ m/MariaDB/i;
+    return 'Percona' if $val =~ m/Percona/i;
+
+    # Oracle ships both "MySQL Community Server" and "MySQL Enterprise
+    # Server"; both are upstream MySQL, which the Community dialect covers.
+    return 'Community' if $val =~ m/(?:Community|Enterprise)/i;
+
+    return undef;
+}
+
+=pod
 
 =item $bool = $dialect->_col_field_to_bool($val)
 
