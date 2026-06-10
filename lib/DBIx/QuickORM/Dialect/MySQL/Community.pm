@@ -56,7 +56,7 @@ sub init {
     $self->SUPER::init();
 
     my $vendor = $self->db_vendor;
-    die "The mysql vendor is '$vendor' not Community" if $vendor && $vendor !~ m/Community/i;
+    croak "The mysql vendor is '$vendor' not Community" if $vendor && $vendor !~ m/Community/i;
 }
 
 1;
