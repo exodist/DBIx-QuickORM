@@ -780,3 +780,28 @@ and `RowData::compare_field` consumes the result directly (it previously
 negated a comparator-style return). There is no ordering use case for type
 comparison, so no `-1/0/1` contract is offered; a custom type that returns a
 comparator result would invert desync detection.
+
+## Addendum: Forked query pipe protocol and process ownership
+
+The forked statement handle (§17) streams its results from the child over a
+pipe. Each message is now an envelope with exactly one key: `result` (always
+first, the driver result), `row` (one row), then a terminal `done` on success
+or `error` on failure. Previously the child signalled end-of-rows by closing
+the pipe, which the parent could not distinguish from a child that died
+mid-stream, and child-side exceptions only reached STDERR. The whole child body
+runs under one eval, so an execute or fetch failure emits an `error` frame; the
+parent raises a child `error` frame as an exception carrying the child's
+message, and treats end-of-file with no terminal frame as a truncated result,
+finalizing (reaping the child, releasing the fork slot) on every exit path.
+
+The handle's reap/cancel/clear operations are guarded by `owner_pid`, the
+process that created it. If the owner forks again the child inherits the
+handle; its destructor must not signal or reap the owner's child process or
+release the owner's fork slot, so those operations no-op outside the owning
+process.
+
+Known remaining gap: a forked write with caching still runs its
+cache-maintenance callback inside the child (where the updated cache is
+discarded), rather than streaming the affected rows back so the parent
+maintains its own cache at reap. Forked writes are currently limited to a
+bound row; fixing the parent-side maintenance is tracked as follow-up work.
