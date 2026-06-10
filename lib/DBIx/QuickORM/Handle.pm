@@ -2297,6 +2297,10 @@ true.
 
 Get the number of rows that the query would return.
 
+When the handle queries a join, or has the distinct flag set, this counts
+C<COUNT(DISTINCT pk)> over the (primary) source's primary key so that
+one-to-many joins do not inflate the count.
+
 =item $h->iterate(sub { my $row = shift; ... })
 
 Run the callback for each row found.
@@ -2409,11 +2413,61 @@ sub iterator {
 }
 
 sub count {
-    my $self = shift->_row_or_hashref(WHERE() => @_)->fields([\'COUNT(*) AS count']);
+    my $self = shift->_row_or_hashref(WHERE() => @_);
     croak "count() cannot be used on an async handle" unless $self->is_sync;
+
+    # The count expression is the only field: 'omit' reconciliation would
+    # prepend primary key fields to it, and a distinct flag belongs inside
+    # COUNT() rather than on the SELECT, so both are cleared on the clone.
+    my $expr = $self->_count_expression;
+    $self = $self->clone(FIELDS() => [\"$expr AS count"], OMIT() => undef, DISTINCT() => undef);
+
     my $sth = $self->_do_select();
     my $row = $sth->next or return undef;
     return $row->{count};
+}
+
+=pod
+
+=head1 PRIVATE METHODS
+
+=over 4
+
+=item $sql = $h->_count_expression
+
+The aggregate expression count() selects. C<COUNT(*)> normally;
+C<COUNT(DISTINCT pk)> over the (primary) source's primary key when the
+source is a join or the handle has the distinct flag set.
+
+=back
+
+=cut
+
+sub _count_expression {
+    my $self = shift;
+
+    my $source = $self->{+SOURCE};
+
+    my ($pk_source, $prefix);
+    if ($source->isa('DBIx::QuickORM::Join')) {
+        my $as = $source->order->[0];
+        $pk_source = $source->components->{$as}->{table};
+        $prefix    = "$as.";
+    }
+    elsif ($self->{+DISTINCT}) {
+        $pk_source = $source;
+        $prefix    = "";
+    }
+    else {
+        return 'COUNT(*)';
+    }
+
+    my $pk = $pk_source->primary_key;
+    croak "Cannot count distinct rows on a source without a primary key"        unless $pk && @$pk;
+    croak "Cannot count distinct rows on a source with a compound primary key"  if @$pk > 1;
+
+    my $db = $pk_source->field_db_name($pk->[0]);
+    return "COUNT(DISTINCT $prefix$db)";
 }
 
 sub iterate {
