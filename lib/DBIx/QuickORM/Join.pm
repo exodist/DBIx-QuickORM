@@ -248,7 +248,7 @@ sub source_db_moniker {
 
             my @cols;
             for (my $i = 0; $i < @$lc; $i++) {
-                push @cols => "$as.$lc->[$i] = $from.$oc->[$i]";
+                push @cols => "$as.$oc->[$i] = $from.$lc->[$i]";
             }
 
             $out .= $type =~ m/join/i ? " $type " : " $type JOIN ";
