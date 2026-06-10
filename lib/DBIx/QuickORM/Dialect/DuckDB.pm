@@ -402,7 +402,10 @@ sub _generated_columns {
     return unless defined $ddl && length $ddl;
 
     my %out;
-    while ($ddl =~ /(?:^|[(,])\s*("[^"]+"|`[^`]+`|\w+)\b[^,]*?\bGENERATED\s+ALWAYS\s+AS\s*\(/sgi) {
+    # The \b belongs inside the bare-word alternative: after a closing quote
+    # there is no word boundary to match, so a trailing \b would reject every
+    # quoted column name.
+    while ($ddl =~ /(?:^|[(,])\s*("[^"]+"|`[^`]+`|\w+\b)[^,]*?\bGENERATED\s+ALWAYS\s+AS\s*\(/sgi) {
         my $name = $1;
         $name =~ s/\A["`]|["`]\z//g;
         $out{lc $name} = 1;
