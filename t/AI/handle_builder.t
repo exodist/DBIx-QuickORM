@@ -225,6 +225,28 @@ subtest data_only => sub {
     ref_ok($rows[0], 'HASH', "data_only yields plain hashrefs, not blessed rows");
 };
 
+subtest internal_transactions => sub {
+    ok($base->using_internal_transactions, "internal transactions default to on");
+
+    my $off = $base->no_internal_txns;
+    isnt(refaddr($off), refaddr($base), "no_internal_txns() returns a new handle");
+    ok(!$off->using_internal_transactions, "internal transactions are off on the new handle");
+    ok($base->using_internal_transactions, "the original handle is unchanged");
+
+    my $on = $off->internal_txns;
+    isnt(refaddr($on), refaddr($off), "internal_txns() returns a new handle");
+    ok($on->using_internal_transactions, "internal transactions are on again on the new handle");
+    ok(!$off->using_internal_transactions, "the intermediate handle is unchanged");
+
+    ok(!$base->internal_transactions(0)->using_internal_transactions, "internal_transactions(0) turns them off");
+    ok($off->no_internal_transactions(0)->using_internal_transactions, "no_internal_transactions(0) turns them on");
+
+    like(dies { $base->internal_txns; 1 },
+        qr/Must not be called in void context/, "internal_txns() croaks in void context");
+    like(dies { $base->no_internal_txns; 1 },
+        qr/Must not be called in void context/, "no_internal_txns() croaks in void context");
+};
+
 subtest connection_shortcuts => sub {
     # Each shortcut is just $con->handle(@args)->METHOD(...).
     is(scalar($con->all('people')), 3, "all() proxies through a handle");

@@ -1022,11 +1022,22 @@ sub all_fields {
     return $self->clone(FIELDS() => $self->{+SOURCE}->fields_list_all);
 }
 
-sub internal_txns            { $_[0]->{+INTERNAL_TRANSACTIONS} = $_[1] // 1; $_[0] }
-sub internal_transactions    { $_[0]->{+INTERNAL_TRANSACTIONS} = $_[1] // 1; $_[0] }
+sub internal_txns    { my $self = shift; $self->internal_transactions(@_) }
+sub no_internal_txns { my $self = shift; $self->no_internal_transactions(@_) }
 
-sub no_internal_txns         { $_[0]->{+INTERNAL_TRANSACTIONS} = defined($_[1]) ? $_[1] ? 0 : 1 : 0; $_[0] }
-sub no_internal_transactions { $_[0]->{+INTERNAL_TRANSACTIONS} = defined($_[1]) ? $_[1] ? 0 : 1 : 0; $_[0] }
+sub internal_transactions {
+    my $self = shift;
+    croak "Must not be called in void context" unless defined wantarray;
+    my $val = @_ ? $_[0] // 1 : 1;
+    return $self->clone(INTERNAL_TRANSACTIONS() => $val ? 1 : 0);
+}
+
+sub no_internal_transactions {
+    my $self = shift;
+    croak "Must not be called in void context" unless defined wantarray;
+    my $val = (@_ && defined $_[0]) ? ($_[0] ? 0 : 1) : 0;
+    return $self->clone(INTERNAL_TRANSACTIONS() => $val);
+}
 
 # Do these last to avoid conflicts with the operators
 {
