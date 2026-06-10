@@ -196,17 +196,21 @@ sub _vivify {
 
 =item $row = $mgr->vivify(source => $source, ...)
 
-Return an existing matching row, or create a new row with the fetched data
-as its pending (unsaved) state.
+Create a new row with the fetched data as its pending (unsaved) state.
+Vivification assumes the row does not exist yet; if the data carries a
+primary key matching a row that is already loaded this croaks rather than
+silently discarding the supplied data.
 
 =cut
 
 sub vivify {
     my $self = shift;
     my ($source, $fetched, $old_pk, $new_pk, $row) = $self->parse_params({@_}, fetched => 1);
-    $row //= $self->_vivify($source, $self->_state(pending => $fetched));
 
-    return $row;
+    croak "A row with this primary key is already loaded; vivify would discard the supplied data. Fetch the row and update it, or use the connection's find_or_insert or update_or_insert helpers instead"
+        if $row;
+
+    return $self->_vivify($source, $self->_state(pending => $fetched));
 }
 
 =pod
