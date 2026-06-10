@@ -132,4 +132,32 @@ subtest on_parent_callbacks => sub {
     is(\%fired, {parent_success => 1, parent_completion => 1}, "on_parent_* attach to the real parent when nested");
 };
 
+subtest already_complete_croaks => sub {
+    my $con = connect_orm();
+
+    my $txn = $con->txn();
+    $txn->commit;
+    ok($txn->complete, "transaction completed");
+
+    my $err = dies { $txn->commit };
+    like($err, qr/Transaction is already complete/, "second commit croaks instead of 'Label not found'");
+
+    $err = dies { $txn->rollback };
+    like($err, qr/Transaction is already complete/, "rollback after completion croaks too");
+};
+
+subtest savepoint_metadata_survives_completion => sub {
+    my $con = connect_orm();
+
+    my $saw;
+    $con->txn(sub {
+        $con->txn(
+            on_completion => sub { my $t = shift; $saw = $t->is_savepoint },
+            action        => sub { 1 },
+        );
+    });
+
+    is($saw, 1, "post-completion callbacks still see is_savepoint true for a savepoint txn");
+};
+
 done_testing;

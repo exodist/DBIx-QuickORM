@@ -219,6 +219,8 @@ sub rollback {
     my $self = shift;
     my ($why) = @_;
 
+    croak "Transaction is already complete" if $self->complete;
+
     if ($self->{+VERBOSE} || !$why) {
         my @caller = caller;
         my $trace = "$caller[1] line $caller[2]";
@@ -261,6 +263,8 @@ sub commit {
     my $self = shift;
     my ($why) = @_;
 
+    croak "Transaction is already complete" if $self->complete;
+
     if ($self->{+VERBOSE} || !$why) {
         my @caller = caller;
         my $trace = "$caller[1] line $caller[2]";
@@ -290,10 +294,11 @@ sub commit {
 
 =item ($ok, $errors) = $txn->terminate($res, $err)
 
-Records the final result, clears the callback queues and savepoint, then runs
-the success-or-fail callbacks followed by the completion callbacks. Returns a
+Records the final result, clears the callback queues, then runs the
+success-or-fail callbacks followed by the completion callbacks. Returns a
 list: a boolean for whether all callbacks succeeded, and an arrayref of any
-callback errors (undef when none).
+callback errors (undef when none). The savepoint name is retained so
+post-completion callbacks can still see C<is_savepoint>.
 
 =cut
 
@@ -310,7 +315,6 @@ sub terminate {
     delete $self->{+ON_SUCCESS};
     delete $self->{+ON_FAIL};
     delete $self->{+ON_COMPLETION};
-    delete $self->{+SAVEPOINT};
 
     return (1, undef) unless $todo && @$todo;
 
@@ -415,7 +419,6 @@ sub finalize {
 
 sub DESTROY {
     my $self = shift;
-    my @caller = caller;
     my $finalize = $self->{+FINALIZE} or return;
     $self->{+IN_DESTROY} = 1;
     $self->set_exception("Transaction fell out of scope");
