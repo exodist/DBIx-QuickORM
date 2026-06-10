@@ -282,8 +282,10 @@ sub build_tables_from_db {
 
         $params{autofill}->hook(post_table => {table => $table, class => \$class});
 
-        $tables{$tname} = $class->new($table);
-        $params{autofill}->hook(table => {table => $tables{$tname}});
+        # Hooks may rename the table; key by the final name.
+        my $final_name = $table->{name};
+        $tables{$final_name} = $class->new($table);
+        $params{autofill}->hook(table => {table => $tables{$final_name}});
     }
 
     return \%tables;
