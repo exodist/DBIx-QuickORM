@@ -691,3 +691,82 @@ and the ORM-level `row_class` was never referenced (row classes are a
 schema/table concern, set via the `row_class` DSL inside `schema`/`table`).
 Both slots and their POD were deleted. Caching behavior is configured by
 passing a row manager (`row_manager`) to the ORM.
+
+## Addendum: RowData frame stack mirrors transaction nesting
+
+This supersedes the merge description in §11. A committed savepoint frame
+used to pick its merge target by recursively resolving the stack, which
+discarded rolled-back frames below it first and let committed inner data
+leapfrog into the base frame past an enclosing rollback. The model is now:
+
+- The frame stack mirrors the connection's transaction nesting exactly.
+  Pushing a frame for a transaction first inserts carrier frames for any
+  open transactions between the current top frame and the new one, each
+  carrying a copy of the data beneath it. `RowData` construction normalizes
+  a provided initial stack through the same path.
+- A committed frame merges only into the frame immediately below it (single
+  step, never recurse-then-merge), so an enclosing rollback discards the
+  merged data along with its frame. The old late re-parenting branch is gone.
+- When the stack empties under a committed frame it becomes the base state;
+  a dataless frame surfacing on top is discarded, so a row inserted inside a
+  rolled-back transaction subtree becomes invalid.
+- `_merge_state` takes an explicit target frame and marks DESYNC by key
+  existence, not truthiness, so a PENDING value of `0`/`''`/`undef` still
+  counts as a pending change.
+
+## Addendum: Desynced rows croak on save by default
+
+A row whose STORED was refreshed out from under a PENDING change to the same
+field (a DESYNC) croaks when saved, by default. A botched boolean collapse in
+earlier join work had inverted this to silent-by-default; the guard is back to
+`DESYNC && track_desync`. Resolution paths are unchanged: discard the pending
+edit, force a re-sync then save, or update the field explicitly.
+
+## Addendum: Pending edits are transactional
+
+Field setters and `update()` route their PENDING changes through
+`change_state` stamped with the current transaction, so edits staged inside a
+savepoint are discarded when that savepoint rolls back, matching the row-state
+model in §11 rather than surviving as orphaned pending data.
+
+## Addendum: Conflicting primary keys croak at schema merge
+
+When user-declared table metadata is merged with the database-introspected
+metadata and the two name different primary-key column sets, `Schema::Table`
+merge croaks, naming both keys and explaining the fix, instead of silently
+preferring one. Identical key sets remain a no-op. A table-level
+`primary_key_override` flag lets a caller declare that the user key wins; the
+declarative surface for setting it is still pending.
+
+## Addendum: Autofill hooks form a pipeline
+
+Registered autofill hooks for a given stage are threaded: each hook receives
+the previous hook's result rather than the original seed, so multiple hooks
+compose. The seed key in the argument set is overwritten each iteration, so a
+single-hook registration behaves exactly as before. `tables` is now a real
+autofill hook, registered and invoked with the same argument convention.
+
+## Addendum: SQLite identity and AUTOINCREMENT detection
+
+A plain `INTEGER PRIMARY KEY` column is a rowid alias and is now marked as an
+identity column even without the `AUTOINCREMENT` keyword. AUTOINCREMENT
+detection was tightened to match the column's own DDL rather than any row in
+`sqlite_master`, removing false positives where an unrelated table or index
+mentioned the keyword.
+
+## Addendum: Handle gained OFFSET and DISTINCT; GROUP BY/HAVING remain a gap
+
+`DBIx::QuickORM::Handle` now supports `OFFSET` and `DISTINCT` (including
+`COUNT(DISTINCT ...)` in `count()`), and `LIMIT 0` is honored as a real limit
+rather than dropped. The previous guard that forbade `order_by`/`limit` on a
+handle without a `WHERE` clause is removed. `GROUP BY`/`HAVING` are still not
+modeled by the handle; use a raw-SQL source when they are needed.
+
+## Addendum: Rows invalidate and croak on vanished or empty operations
+
+Several row/handle operations that previously proceeded on impossible state now
+fail loudly: refreshing or lazily fetching a single field of a row that no
+longer exists in the database invalidates the row (reason: it is gone) and
+croaks; `insert_or_save` with nothing to write croaks with insert's "no data to
+write" message; and `vivify` croaks when it would collide with a row already
+loaded in the cache, since insert/vivify assume the row does not yet exist.
