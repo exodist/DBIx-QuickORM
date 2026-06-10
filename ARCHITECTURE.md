@@ -650,3 +650,44 @@ database name is what SQL emits.
   clauses use link columns, which are database names already. A bare (unaliased)
   field resolves to the first component that has it; qualify with the alias to
   disambiguate.
+
+## Addendum: Connection reconnect rebuilds the dialect
+
+`Connection::reconnect` previously swapped in a fresh `dbh` while the
+connection's dialect instance kept the old, dead handle; all transaction
+control (BEGIN/COMMIT, savepoints, `in_txn`, async helpers) runs through the
+dialect, so post-reconnect transactions were silently broken. Reconnect now
+rebuilds the dialect from the current `dbh` via the same private constructor
+`init` uses (`_build_dialect`), preserving vendor-specific promotion (e.g.
+MySQL -> MariaDB/Percona/Community) which lives in the dialect's own `init`.
+
+Reconnect also gained explicit state rules: it croaks while ORM-managed
+transactions are open, tolerates a missing `dbh` left by a previously failed
+reconnect, abandons any in-progress async query (it ran on the dead handle),
+and clears the aside/forked registries — those queries hold their own private
+connections but belong to the pre-reconnect (possibly pre-fork) state.
+
+## Addendum: Transaction finalize is recoverable until it succeeds
+
+A transaction's finalize step (pop from the stack, COMMIT/ROLLBACK or
+savepoint release, callback firing) used to consume its one-shot state before
+running its guards. A commit attempted while an async query was active threw
+after the one-shot was spent, leaving the transaction permanently wedged:
+still on the stack, DB transaction open, later commit/rollback silent no-ops.
+The contract is now: guard failures leave the transaction fully recoverable.
+`Transaction::finalize` clears its callback only after the callback returns
+successfully, and the connection's finalize closure marks itself spent only
+after its guards pass. Additionally, commit/rollback on an already-completed
+transaction croaks ("Transaction is already complete") instead of escaping
+through a nonexistent `QORM_TRANSACTION` label, and `terminate` retains the
+savepoint name so post-completion callbacks still see `is_savepoint`.
+
+## Addendum: ORM-level cache_class / row_class attributes removed
+
+`DBIx::QuickORM::ORM` carried `cache_class` and `row_class` attributes that
+nothing consumed: `cache_class` fed a `cache` constructor parameter that
+`Connection` never read (row caching is the row manager's responsibility),
+and the ORM-level `row_class` was never referenced (row classes are a
+schema/table concern, set via the `row_class` DSL inside `schema`/`table`).
+Both slots and their POD were deleted. Caching behavior is configured by
+passing a row manager (`row_manager`) to the ORM.
