@@ -24,6 +24,7 @@ use Object::HashBase qw{
     <got_result
     <done
     <pid
+    <owner_pid
     <pipe
 };
 
@@ -38,11 +39,19 @@ DBIx::QuickORM::STH::Fork - Statement handle backed by a forked child process.
 =head1 DESCRIPTION
 
 An asynchronous statement-handle variant whose query runs in a forked child
-process that streams JSON-encoded messages back over a pipe. The first message
-carries the driver result; each subsequent message is one row. C<ready> peeks
-the pipe without blocking, C<result> and row fetches block on it. Finalizing
-the handle drains the pipe, reaps the child, and releases the connection's
-fork slot; cancelling additionally signals the child with C<TERM>.
+process that streams JSON-encoded messages back over a pipe. Every message is
+an envelope with exactly one key: C<result> (always first, the driver result),
+C<row> (one row), then a terminal C<done> on success or C<error> on failure.
+The terminal frame lets the parent tell a clean end from a child that died
+mid-stream: end-of-file with no terminal frame is reported as a truncated
+result rather than silently looking like the last row. C<ready> peeks the pipe
+without blocking, C<result> and row fetches block on it. Finalizing the handle
+drains the pipe, reaps the child, and releases the connection's fork slot;
+cancelling additionally signals the child with C<TERM>.
+
+The reap, cancel, and slot-release operations are guarded by the owning
+process id: if the owner forks again the child inherits this object, and its
+destructor must not disturb the owner's child process or connection state.
 
 =head1 SYNOPSIS
 
@@ -83,6 +92,12 @@ True once iteration has finished and the handle has been finalized.
 =item pid
 
 PID of the forked child process.
+
+=item owner_pid
+
+PID of the process that created this handle. Reap/cancel/clear operations
+no-op unless they run in this process, so an inherited copy in a forked child
+cannot disturb the owner's child process or connection state.
 
 =item pipe
 
@@ -132,7 +147,25 @@ sub init {
     croak "'pipe' is a required attribute"        unless $self->{+PIPE};
     croak "'connection' is a required attribute"  unless $self->{+CONNECTION};
     croak "'source' is a required attribute" unless $self->{+SOURCE};
+
+    # The process that owns this handle. If the owner forks again, the child
+    # inherits this object; its destructor must not reap the child process,
+    # signal it, or release the parent's fork slot. Guarded operations no-op
+    # unless they run in the owning process.
+    $self->{+OWNER_PID} //= $$;
 }
+
+=pod
+
+=item $bool = $sth->in_owner_process
+
+True when running in the process that created this handle. The reap/cancel/
+clear operations are no-ops elsewhere so an inherited copy in a forked child
+cannot disturb the owner's child process or connection state.
+
+=cut
+
+sub in_owner_process { $_[0]->{+OWNER_PID} == $$ }
 
 =pod
 
@@ -183,6 +216,13 @@ sub cancel {
     my $self = shift;
 
     return if $self->{+DONE};
+
+    # An inherited copy in a forked child must not signal or reap the owner's
+    # child process; only mark itself spent locally.
+    unless ($self->in_owner_process) {
+        $self->{+DONE} = 1;
+        return;
+    }
 
     delete $self->{+PIPE};
 
@@ -244,14 +284,30 @@ sub _next {
     $self->result unless exists $self->{+GOT_RESULT};
 
     my $msg = $self->_read_message(1);    # blocking
-    if (defined $msg) {
-        my $row = decode_json($msg);
-        return $row if $row;
+
+    unless (defined $msg) {
+        # EOF with no terminal frame: the child died before signalling
+        # completion, so the streamed rows are truncated.
+        $self->set_done;
+        croak "Forked query ended before the child signalled completion (result was truncated)";
     }
 
-    $self->set_done;
+    my $frame = decode_json($msg);
 
-    return;
+    if ($frame->{done}) {            # clean end of stream
+        $self->set_done;
+        return;
+    }
+
+    if (exists $frame->{error}) {    # the child reported a failure
+        $self->set_done;
+        $self->_croak_child_error($frame->{error});
+    }
+
+    return $frame->{row} if exists $frame->{row};
+
+    $self->set_done;
+    croak "Got invalid data from pipe: $msg";
 }
 
 =pod
@@ -287,7 +343,27 @@ sub _decode_result {
     my $data = defined($msg) ? decode_json($msg) : undef;
     return $data->{result} if $data && exists $data->{result};
 
-    croak "Got invalid data from pipe: " . (defined($msg) ? $msg : '<eof>');
+    # An error frame or EOF arrived where the result frame was expected.
+    # Finalize so the child is reaped and the fork slot released, then surface
+    # the failure rather than hanging or returning bad data.
+    $self->set_done;
+    $self->_croak_child_error($data->{error}) if $data && exists $data->{error};
+    croak "Forked query produced no result before the child exited";
+}
+
+=pod
+
+=item $sth->_croak_child_error($message)
+
+Croak reporting an error the forked child sent back over the pipe.
+
+=cut
+
+sub _croak_child_error {
+    my $self = shift;
+    my ($err) = @_;
+    $err = 'unknown error' unless defined($err) && length($err);
+    croak "Forked query failed in the child process: $err";
 }
 
 =pod
@@ -305,6 +381,13 @@ sub set_done {
     my $self = shift;
 
     return if $self->{+DONE};
+
+    # An inherited copy in a forked child must not reap the owner's child or
+    # release the owner's fork slot; only mark itself spent locally.
+    unless ($self->in_owner_process) {
+        $self->{+DONE} = 1;
+        return;
+    }
 
     delete $self->{+PIPE};
     waitpid($self->{+PID}, 0) if $self->{+PID};

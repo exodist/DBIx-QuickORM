@@ -1544,31 +1544,43 @@ sub _make_forked_sth {
     undef $rh;
 
     my $json = Cpanel::JSON::XS->new->utf8(1)->convert_blessed(1)->allow_nonref(1);
-    my $dbh = $con->aside_dbh;
 
-    my ($sth, $res) = $self->_execute($dbh, $sql);
-    $wh->write_message($json->encode({result => $res}));
-
+    # Every message is an envelope with exactly one of these keys so the parent
+    # can tell rows apart from control frames: {result=>...} (always first),
+    # {row=>...} per row, then a terminal {done=>1} on success or {error=>...}
+    # on failure. The terminal frame lets the parent distinguish a clean end
+    # from a child that died mid-stream (which would otherwise look like EOF).
     my $ok = eval {
+        my $dbh = $con->aside_dbh;
+
+        my ($sth, $res) = $self->_execute($dbh, $sql);
+        $wh->write_message($json->encode({result => $res}));
+
         if (my $on_ready = $params{on_ready}) {
             if (my $fetch = $on_ready->($dbh, $sth, $res, $sql)) {
                 while (my $row = $fetch->()) {
-                    $wh->write_message($json->encode($row));
+                    $wh->write_message($json->encode({row => $row}));
                 }
             }
         }
 
-        undef $wh;
+        $wh->write_message($json->encode({done => 1}));
         1;
     };
     my $err = $@;
 
     unless ($ok) {
-        warn $err;
+        # Best-effort terminal error frame so the parent surfaces the failure
+        # instead of treating the truncated stream as a clean end. If even this
+        # write dies the scope guard still _exits, and the parent sees EOF with
+        # no terminal frame and reports a truncated stream.
+        eval { $wh->write_message($json->encode({error => "$err"})); 1 };
+        undef $wh;
         $guard->dismiss();
         POSIX::_exit(1);
     }
 
+    undef $wh;
     $guard->dismiss();
     POSIX::_exit(0);
 }
