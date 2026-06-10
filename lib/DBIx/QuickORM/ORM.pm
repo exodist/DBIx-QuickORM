@@ -13,10 +13,8 @@ use Object::HashBase qw{
     +db
     <schema
     <autofill
-    <row_class
     <created
     <compiled
-    cache_class
     <default_handle_class
     <row_manager
 
@@ -68,19 +66,11 @@ The schema object. Either this or C<autofill> is required.
 
 When true, missing schema metadata is introspected from the live database.
 
-=item row_class
-
-The class used for row objects.
-
 =item created
 
 =item compiled
 
 Provenance metadata describing where this ORM came from.
-
-=item cache_class
-
-Optional class used to build the per-connection cache.
 
 =item default_handle_class
 
@@ -147,7 +137,6 @@ sub connect {
     croak "'db' has not been set" unless $self->{+DB};
 
     my %params = (orm => $self);
-    $params{cache} = $self->{+CACHE_CLASS}->new() if $self->{+CACHE_CLASS};
 
     $params{+DEFAULT_HANDLE_CLASS} = $self->{+DEFAULT_HANDLE_CLASS};
 
