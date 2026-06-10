@@ -340,6 +340,9 @@ L<DBIx::QuickORM::Join::Row> objects.
 
 Shortcuts for C<< $h->join(type => $DIRECTION, @args) >>.
 
+C<cross_join> is special: a cross join has no C<ON> clause, so it takes a
+table name (or C<< table => $name >>) instead of a link.
+
 =back
 
 =cut
@@ -371,13 +374,32 @@ link against the source and returns a clone whose source is the resulting join.
 
 sub _join {
     my $self = shift;
-    my ($link, %params) = @_;
 
-    ($params{from}, $link) = ($1, $2) if !ref($link) && $link =~ m/^(.+)\:(.+)$/;
+    # An odd argument count means the first argument is the positional link
+    # (or table, for cross joins).
+    my ($link, %params);
+    if (@_ % 2) { ($link, %params) = @_ }
+    else        { %params = @_; $link = delete $params{link} }
 
     my $source = $self->{+SOURCE};
 
-    $link = $source->resolve_link($link, %params);
+    if (($params{type} // '') =~ m/^CROSS$/i) {
+        # A cross join has no ON clause, so no link is needed; the argument
+        # names the table to join.
+        $params{table} //= $link if defined $link;
+        croak "No table provided to cross_join()" unless defined $params{table};
+        $link = undef;
+    }
+    else {
+        croak "No link provided to join()"
+            unless defined($link) || defined($params{table}) || defined($params{alias});
+
+        # A 'from:link' prefix splits on the FIRST colon; aliases cannot
+        # contain colons but link names might.
+        ($params{from}, $link) = ($1, $2) if defined($link) && !ref($link) && $link =~ m/^(.+?)\:(.+)$/;
+
+        $link = $source->resolve_link($link, %params);
+    }
 
     my $join;
     if ($source->isa('DBIx::QuickORM::Join')) {
@@ -391,7 +413,7 @@ sub _join {
         );
     }
 
-    $join = $join->join(%params, link => $link);
+    $join = $join->join(%params, ($link ? (link => $link) : ()));
 
     return $self->clone(SOURCE() => $join, FIELDS() => $join->fields_to_fetch);
 }

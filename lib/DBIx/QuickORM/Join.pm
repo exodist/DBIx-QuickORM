@@ -242,7 +242,11 @@ sub source_db_moniker {
         my $table = $comp->{table};
         my $type  = $comp->{type} // "";
 
-        if ($link) {
+        if ($type =~ m/^CROSS$/i) {
+            # CROSS JOIN takes no ON clause (PostgreSQL rejects one).
+            $out .= " CROSS JOIN " . $table->source_db_moniker . " AS $as";
+        }
+        elsif ($link) {
             my $lc = $link->local_columns;
             my $oc = $link->other_columns;
 
@@ -427,7 +431,8 @@ sub _join_params {
 
 Clone the join and add a new component for the given link, resolving its
 alias and source-of-join (C<from>) and appending it to the order, lookup, and
-components. Returns the new join.
+components. Returns the new join. A C<CROSS> type component may omit the link
+and pass C<< table => $name >> instead; it joins without an C<ON> clause.
 
 =cut
 
@@ -452,32 +457,45 @@ sub _join {
 
     croak "A join has already been made using the identifier '$as'" if $self->{+COMPONENTS}->{$as};
 
-    if ($from && !$self->{+COMPONENTS}->{$from}) {
-        my $check = $self->{+LOOKUP}->{$from};
-        croak "'$from' is not defined" unless $check && @$check;
-        croak "'$from' source has multiple aliases: " . join(', ' => @$check) if @$check > 1;
-        ($from) = @$check;
-    }
+    my $is_cross = ($type // '') =~ m/^CROSS$/i;
+    croak "A 'link' is required (only CROSS joins may omit it)" unless $link || $is_cross;
 
-    unless ($from) {
-        my $lt = $link->local_table;
-        if ($lt eq $self->{+PRIMARY_SOURCE}->name) {
-            $from = $self->{+ORDER}->[0];
+    my $joined;
+    if ($link) {
+        if ($from && !$self->{+COMPONENTS}->{$from}) {
+            my $check = $self->{+LOOKUP}->{$from};
+            croak "'$from' is not defined" unless $check && @$check;
+            croak "'$from' source has multiple aliases: " . join(', ' => @$check) if @$check > 1;
+            ($from) = @$check;
         }
-        elsif (my $n = $self->{+LOOKUP}->{$lt}) {
-            croak "Table '$lt' has been joined multiple times, you must specify which name to use in the join" if @$n > 1;
-            $from = $n->[0];
-        }
-        else {
-            croak "Table '$lt' is not yet in the join";
-        }
-    }
 
-    my $joined = $self->schema->table($link->other_table);
+        unless ($from) {
+            my $lt = $link->local_table;
+            if ($lt eq $self->{+PRIMARY_SOURCE}->name) {
+                $from = $self->{+ORDER}->[0];
+            }
+            elsif (my $n = $self->{+LOOKUP}->{$lt}) {
+                croak "Table '$lt' has been joined multiple times, you must specify which name to use in the join" if @$n > 1;
+                $from = $n->[0];
+            }
+            else {
+                croak "Table '$lt' is not yet in the join";
+            }
+        }
+
+        $joined = $self->schema->table($link->other_table);
+    }
+    else {
+        # Link-less CROSS join: no ON clause is emitted, so no 'from' side is
+        # needed either, only the table being joined.
+        my $table = $params{table} or croak "A 'table' is required for a link-less CROSS join";
+        $joined = blessed($table) ? $table : $self->schema->table($table);
+        $from = undef;
+    }
 
     push @{$self->{+ORDER}} => $as;
 
-    push @{$self->{+LOOKUP}->{$link->other_table}} => $as;
+    push @{$self->{+LOOKUP}->{$link ? $link->other_table : $joined->source_orm_name}} => $as;
 
     $self->{+COMPONENTS}->{$as} = {
         as    => $as,
