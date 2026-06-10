@@ -92,6 +92,10 @@ subtest runtime_sqlite => sub {
         ],
         "asymmetric-column join associates each post with its own user"
     );
+
+    ref_ok($h->fields, 'ARRAY', "a join handle's field list is an arrayref");
+    ok(lives { $h->fields(\"1 AS extra")->data_only->all }, "the additive fields() form works on a join handle")
+        or note $@;
 };
 
 done_testing;

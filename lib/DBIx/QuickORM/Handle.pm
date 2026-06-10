@@ -410,6 +410,7 @@ sub _join {
         $join = DBIx::QuickORM::Join->new(
             primary_source => $source,
             schema         => $self->{+CONNECTION}->schema,
+            connection     => $self->{+CONNECTION},
         );
     }
 

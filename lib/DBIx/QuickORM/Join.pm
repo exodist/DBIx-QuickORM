@@ -22,6 +22,8 @@ use Object::HashBase qw{
     <order
     <lookup
     <components
+
+    <connection
 };
 
 =pod
@@ -86,6 +88,12 @@ Hashref mapping a table's ORM name to the aliases it has been joined as.
 
 Hashref mapping each alias to its component spec (table, link, from, type).
 
+=item connection
+
+The L<DBIx::QuickORM::Connection> the join will be queried through, when
+known. Used to quote identifiers with the active driver's quoting rules;
+without one, standard double quotes are used.
+
 =back
 
 =cut
@@ -99,7 +107,7 @@ sub fields_to_omit { }
 
 sub fields_list_all {
     my $self = shift;
-    croak "Not Supported";
+    croak "fields_list_all() is not supported on a join source, select fields explicitly instead";
 }
 
 sub field_db_name {
@@ -337,10 +345,11 @@ sub has_field {
 
 =pod
 
-=item $sql = $join->fields_to_fetch
+=item $fields = $join->fields_to_fetch
 
-Return a comma-joined list of aliased select expressions covering every
-component table's fetch fields, each aliased as C<"alias.field">.
+Return an arrayref of aliased select expressions (literal-SQL scalar refs)
+covering every component table's fetch fields, each aliased as
+C<"alias.field">.
 
 =cut
 
@@ -352,10 +361,27 @@ sub fields_to_fetch {
     for my $as (@{$self->{+ORDER}}) {
         my $c = $self->{+COMPONENTS}->{$as};
         my $t = $c->{table};
-        push @fields => map { my $db = $t->field_db_name($_); qq{$as.$db AS "$as.$db"} } @{$t->fields_to_fetch};
+        push @fields => map { my $db = $t->field_db_name($_); \("$as.$db AS " . $self->_quote_identifier("$as.$db")) } @{$t->fields_to_fetch};
     }
 
-    return join(', ' => @fields);
+    return \@fields;
+}
+
+=pod
+
+=item $quoted = $join->_quote_identifier($name)
+
+Quote an identifier using the connection's driver rules when a connection is
+available, falling back to standard double quotes.
+
+=cut
+
+sub _quote_identifier {
+    my $self = shift;
+    my ($name) = @_;
+
+    my $con = $self->{+CONNECTION} or return qq{"$name"};
+    return $con->dbh->quote_identifier($name);
 }
 
 =pod
