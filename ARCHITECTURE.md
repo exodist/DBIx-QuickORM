@@ -354,7 +354,8 @@ Attributes include `connection`, `source`, `sql_builder`, `where`, `row`
   `iterator` (lazy, async-capable), `count`, `iterate` (callback per row),
   `by_id`/`by_ids` (primary-key lookup with cache hit).
 - **Mutating:** `insert`/`insert_and_refresh`, `upsert`/`upsert_and_refresh`,
-  `update`, `delete`, `vivify` (build a pending row without inserting).
+  `update`, `delete`, `vivify` (return a loaded row or build a pending one
+  without inserting).
   Mutations route through the connection's `state_*_row` methods so the
   `RowManager` cache stays correct (including PK-change invalidation).
 
@@ -767,9 +768,12 @@ modeled by the handle; use a raw-SQL source when they are needed.
 Several row/handle operations that previously proceeded on impossible state now
 fail loudly: refreshing or lazily fetching a single field of a row that no
 longer exists in the database invalidates the row (reason: it is gone) and
-croaks; `insert_or_save` with nothing to write croaks with insert's "no data to
-write" message; and `vivify` croaks when it would collide with a row already
-loaded in the cache, since insert/vivify assume the row does not yet exist.
+croaks; and `insert_or_save` with nothing to write croaks with insert's "no
+data to write" message.
+
+(An earlier revision of this addendum also had `vivify` croak on a primary-key
+collision with an already-loaded row. That was reverted — see the addendum
+"vivify is a find-or-create primitive" below.)
 
 ## Addendum: qorm_compare uses an equality contract
 
@@ -814,3 +818,30 @@ forked write (no bound row) croaks. If the child errors or its stream is
 truncated, `on_finish` is skipped and the reap warns. Insert already followed
 the streaming model — the child streams the inserted row and the parent's
 `Row::Async` proxy applies `state_insert_row` when it materializes.
+
+## Addendum: vivify is a find-or-create primitive
+
+This supersedes the `vivify` croak described in "Rows invalidate and croak on
+vanished or empty operations" above. During a thorough pre-release human code
+review, Chad "Exodist" Granum identified that croak as a mistake: it did not
+match the original design intent for `vivify`.
+
+`vivify` is a low-level primitive whose purpose is to hand the caller a row
+object to work with *before* it is known whether that row is stored in the
+database, named for Perl's own autovivification of a nested hash slot. Like
+accessing an existing hash slot, an already-loaded row wins: if the supplied
+data carries a primary key matching a row already in the cache, that existing
+row is returned as-is. Otherwise a new row is created with the supplied data as
+its pending (unsaved) state. `vivify` never queries the database and never
+guarantees the row exists there; the caller reconciles with the database later
+via `save`/`refresh`/`upsert`.
+
+On a cache hit the supplied data is not applied to the existing row (existing
+values win). Because that can silently drop information the caller supplied,
+`vivify` emits a warning when a hit drops a non-primary-key field whose value
+differs from the loaded row's current value. The warning points at the
+database-backed ensure-exists path (`find_or_insert` / `update_or_insert`) and
+at `->update` for changing a loaded row. Identity-only data and matching values
+are dropped silently, since nothing is lost. Internal callers reach the row
+layer through the private constructor and never trip this path; `Row::clone`
+strips the primary key before vivifying, so it always creates rather than hits.

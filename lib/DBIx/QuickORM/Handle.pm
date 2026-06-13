@@ -1702,8 +1702,17 @@ ID formats.
 
 =item $row = $h->vivify(\%ROW_DATA)
 
-Create a row object witht he provided data. The Row will NOT be inserted into
-the database unless you call C<< $row->insert >> or C<< $row->save >>.
+Get a row object to work with for the provided data. If a row matching the
+data's primary key is already loaded, that existing row is returned as-is;
+otherwise a new row is created with the provided data. The Row will NOT be
+inserted into the database unless you call C<< $row->insert >> or
+C<< $row->save >>.
+
+This does not query the database and does not guarantee the row exists there.
+On a hit the provided data is not applied to the existing row (existing values
+win); a warning is emitted if that would silently drop differing data. To
+change a loaded row, fetch it and call C<< $row->update >>; to ensure a row
+exists in the database, use C<find_or_insert> or C<update_or_insert>.
 
 =back
 

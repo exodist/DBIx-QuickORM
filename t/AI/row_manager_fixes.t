@@ -2,9 +2,10 @@ use Test2::V0;
 use DBI;
 use File::Temp qw/tempdir/;
 
-# Exercises RowManager-level behaviors: cache_lookup, vivify refusing to
-# shadow an already-loaded row, insert_or_save with nothing to write, and
-# the connection's find_or_insert / update_or_insert helpers.
+# Exercises RowManager-level behaviors: cache_lookup, vivify returning an
+# already-loaded row (and warning when that drops differing data),
+# insert_or_save with nothing to write, and the connection's
+# find_or_insert / update_or_insert helpers.
 
 BEGIN {
     skip_all "DBD::SQLite is required for these tests"
@@ -64,16 +65,30 @@ subtest cache_lookup => sub {
     ok(!$miss, "cache_lookup returns undef on a miss");
 };
 
-subtest vivify_of_loaded_row_croaks => sub {
+subtest vivify_of_loaded_row_returns_existing => sub {
     my $row = $h->insert({name => 'loaded', color => 'red'});
     my $pk  = $row->field('gadget_id');
 
-    like(
-        dies { $h->vivify({gadget_id => $pk, name => 'shadow', color => 'blue'}) },
-        qr/already loaded/,
-        "vivify croaks when the primary key matches an already-loaded row",
-    );
+    # A bare hit (only the primary key, or matching values) returns the loaded
+    # row with no warning: nothing was dropped.
+    my $hit;
+    my $count = warns {
+        $hit = $h->vivify({gadget_id => $pk, name => 'loaded', color => 'red'});
+    };
+    ref_is($hit, $row, "vivify returned the already-loaded row");
+    is($count, 0, "no warning when nothing is dropped (matching values)");
 
+    # Differing non-pk data would be silently lost, so vivify warns and still
+    # returns the existing row untouched.
+    my $got = warnings {
+        $hit = $h->vivify({gadget_id => $pk, name => 'shadow', color => 'blue'});
+    };
+    like(
+        $got,
+        [qr/returned an already-loaded row.*'color', 'name'.*was not applied/s],
+        "vivify warns when the supplied data differs and would be dropped",
+    );
+    ref_is($hit, $row, "vivify still returned the already-loaded row");
     is($row->field('color'), 'red', "the loaded row's data was not touched");
 
     ok(lives { $h->vivify({name => 'unloaded', color => 'green'}) }, "vivify without a conflicting primary key still works");
