@@ -1,4 +1,4 @@
-use Test2::V0;
+use Test2::V0 '!meta', '!pass';
 
 # Table merge primary-key conflict handling: when both the introspected table
 # and the user declaration define a primary key, differing column sets

@@ -1,4 +1,4 @@
-use Test2::V0;
+use Test2::V0 '!meta', '!pass';
 
 # Coverage for DBIx::QuickORM::Type::JSON: inflate string->ref, deflate
 # ref->json, undef handling, canonical comparison, blessed-ref deflation,

@@ -2,7 +2,7 @@ package DBIx::QuickORM::Test;
 use strict;
 use warnings;
 
-use Test2::V0;
+use Test2::V0 '!meta', '!pass';
 use Test2::IPC qw/cull/;
 use List::Util qw/first/;
 use Importer Importer => 'import';

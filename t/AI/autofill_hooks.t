@@ -1,4 +1,4 @@
-use Test2::V0;
+use Test2::V0 '!meta', '!pass';
 
 # Autofill hook behavior, exercised directly through Autofill->hook. Every
 # callback registered for a hook receives the running value under the hook's

@@ -1,4 +1,4 @@
-use Test2::V0;
+use Test2::V0 '!meta', '!pass';
 
 # Regression tests for DBIx::QuickORM::DB::new_dbh failure modes: a connect
 # callback or DBI->connect that returns undef without throwing must croak

@@ -1,4 +1,4 @@
-use Test2::V0;
+use Test2::V0 '!meta', '!pass';
 
 # Coverage for DBIx::QuickORM::Type::UUID: inflate/deflate, string vs binary
 # affinity, looks_like_uuid / looks_like_bin, ->new returning a v7 UUID,

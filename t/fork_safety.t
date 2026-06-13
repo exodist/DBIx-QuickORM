@@ -1,4 +1,4 @@
-use Test2::V0;
+use Test2::V0 '!meta', '!pass';
 use POSIX ();
 use Atomic::Pipe;
 use Cpanel::JSON::XS ();

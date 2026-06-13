@@ -1,4 +1,4 @@
-use Test2::V0;
+use Test2::V0 '!meta', '!pass';
 use lib 't/lib';
 
 # PostgreSQL introspection follows the connection's search_path: every catalog
