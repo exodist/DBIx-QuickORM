@@ -26,13 +26,13 @@ our @EXPORT = qw{
 
 use version ();
 
-sub psql     { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'PostgreSQL', @args}) } or diag(clean_err($@)) }
-sub mysql    { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'MySQL',      @args}) } or diag(clean_err($@)) }
-sub mysqlcom { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'MySQLCom',   @args}) } or diag(clean_err($@)) }
-sub mariadb  { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'MariaDB',    @args}) } or diag(clean_err($@)) }
-sub percona  { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'Percona',    @args}) } or diag(clean_err($@)) }
-sub sqlite   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'SQLite',     @args}) } or diag(clean_err($@)) }
-sub duckdb   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'DuckDB',     @args}) } or diag(clean_err($@)) }
+sub psql     { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'PostgreSQL', fast_destroy => 1, @args}) } or diag(clean_err($@)) }
+sub mysql    { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'MySQL', fast_destroy => 1,      @args}) } or diag(clean_err($@)) }
+sub mysqlcom { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'MySQLCom', fast_destroy => 1,   @args}) } or diag(clean_err($@)) }
+sub mariadb  { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'MariaDB', fast_destroy => 1,    @args}) } or diag(clean_err($@)) }
+sub percona  { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'Percona', fast_destroy => 1,    @args}) } or diag(clean_err($@)) }
+sub sqlite   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'SQLite', fast_destroy => 1,     @args}) } or diag(clean_err($@)) }
+sub duckdb   { require Test2::Tools::QuickDB; my @args = @_; eval { Test2::Tools::QuickDB::get_db({driver => 'DuckDB', fast_destroy => 1,     @args}) } or diag(clean_err($@)) }
 
 # Static sets that do not live under ~/dbs: the system-installed servers and
 # sqlite. These are always offered (and skipped at runtime if unavailable).
