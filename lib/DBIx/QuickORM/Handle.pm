@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use feature qw/state/;
 
-our $VERSION = '0.000023';
+our $VERSION = '0.000024';
 
 use Carp qw/confess croak carp/;
 use Sub::Util qw/set_subname/;

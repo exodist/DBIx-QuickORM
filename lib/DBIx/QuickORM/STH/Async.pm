@@ -2,7 +2,7 @@ package DBIx::QuickORM::STH::Async;
 use strict;
 use warnings;
 
-our $VERSION = '0.000023';
+our $VERSION = '0.000024';
 
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::STH';
