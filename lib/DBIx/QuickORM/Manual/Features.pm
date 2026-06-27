@@ -87,6 +87,11 @@ Extend the builder. See L<DBIx::QuickORM/plugin> and L<DBIx::QuickORM::Plugin>.
 Fetch, create, update, and delete rows with handles (where/order/limit/
 iterators). See L<DBIx::QuickORM::Manual::Querying>.
 
+=item Compare and set
+
+Update a row only while a set of guard values still match, for safe concurrent
+writes. See C<cas> in L<DBIx::QuickORM::Manual::Querying>.
+
 =item Relations
 
 Define links (foreign keys) and follow them between rows, plus joins. See
