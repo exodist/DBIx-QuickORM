@@ -251,6 +251,16 @@ C<force_sync>, or updating every desynced field) is required first.
 Delete the row from the database (requires a stored row with a primary
 key).
 
+=item $result = $row->cas($input, \%changes)
+
+Compare-and-set this row: write the changes only while a set of guard values
+still match, so a concurrent writer cannot overwrite it unnoticed. C<$input> is
+the guard: a where hashref, an arrayref of field names, or a single field name
+(field names are checked against the row's currently stored values). Returns a
+L<DBIx::QuickORM::CAS::Result> that is true only when the row was updated; a
+failed guard is a normal C<lost> result, not an exception. See the C<cas>
+method in L<DBIx::QuickORM::Handle> for the full description.
+
 =back
 
 =cut
@@ -293,6 +303,16 @@ sub delete {
 
     croak "This row is not in the database yet" unless $self->is_stored;
     return $self->connection->handle($self)->delete;
+}
+
+sub cas {
+    my $self = shift;
+    my ($input, $changes) = @_;
+
+    $self->check_pk;
+
+    croak "This row is not in the database yet" unless $self->is_stored;
+    return $self->connection->handle($self)->cas($input, $changes);
 }
 
 sub update {

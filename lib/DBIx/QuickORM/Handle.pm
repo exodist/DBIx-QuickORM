@@ -22,6 +22,7 @@ use DBIx::QuickORM::STH::Aside();
 use DBIx::QuickORM::STH::Async();
 use DBIx::QuickORM::Row::Async();
 use DBIx::QuickORM::Iterator();
+use DBIx::QuickORM::Raw();
 
 sub new;
 use Role::Tiny::With qw/with/;
@@ -2080,6 +2081,47 @@ croaks with "Changes may not be empty".
 
 Write pending changes to the row.
 
+=item $result = $h->cas($input, \%changes)
+
+Compare-and-set: update a single row only while a set of guard values still
+match, so concurrent writers cannot clobber each other without noticing. The
+update runs as one statement (C<UPDATE ... SET ... WHERE primary_key AND
+guard>) and never throws when the guard simply fails to match; it returns a
+L<DBIx::QuickORM::CAS::Result> whose boolean is true only when a row was
+updated.
+
+The handle must already carry either a row or a where clause, and C<$input>
+supplies the other half:
+
+=over 4
+
+=item handle has a row
+
+C<$input> is the guard. Pass a where hashref, an arrayref of field names, or a
+single field name. Field names are guarded against the values currently stored
+on the row, so the update only lands if those fields have not changed since the
+row was read.
+
+=item handle has a where clause
+
+C<$input> is the row to update. The handle's where clause is the guard.
+
+=back
+
+C<\%changes> is the field/value pairs to write. Database-generated columns are
+dropped from it; if nothing is left, C<cas> croaks. On a win the row object is
+updated in place; on a loss it is left unchanged.
+
+This is the no-throw path: a failed guard is a normal C<lost> result, but real
+database errors still propagate. On an async or aside handle the result comes
+back unresolved: poll C<< $result->ready >>, or just use it and any method other
+than C<ready> blocks until the database answers.
+
+Some database engines, and MySQL or MariaDB with the found-rows client flag
+turned off, report the number of rows changed rather than matched. On those, a
+win that sets a column to the value it already holds makes no net change and is
+reported as a loss.
+
 =back
 
 =cut
@@ -2322,6 +2364,200 @@ sub update {
     $finish->($sth->dbh, $sth->sth);
 
     return undef;
+}
+
+sub cas {
+    my $self = shift;
+    my ($input, $changes) = @_;
+
+    my $con = $self->{+CONNECTION};
+    $con->pid_and_async_check;
+
+    croak "cas() requires a changes hashref"           unless ref($changes) eq 'HASH';
+    croak "cas() is not supported with data_only set"  if $self->{+DATA_ONLY};
+    croak "cas() is not supported with forked handles" if $self->is_forked;
+
+    my $source    = $self->{+SOURCE};
+    my $pk_fields = $self->_has_pk or croak "cas() requires a source with a primary key";
+
+    my ($row, $guard_where, $raw_fields) = $self->_cas_inputs($input);
+
+    my %clean = map { $_ => $changes->{$_} } grep { !$source->field_is_generated($_) } keys %$changes;
+    croak "cas() changes may not be empty" unless keys %clean;
+
+    my $where = $self->_cas_where($row, $guard_where, $raw_fields);
+
+    my $sql = $self->sql_builder->qorm_update(
+        source  => $source,
+        where   => $where,
+        update  => \%clean,
+        dialect => $self->dialect,
+    );
+
+    $self->_cas_warn_found_rows;
+
+    my $resolver = $self->_cas_resolver($row, \%clean, $pk_fields);
+    my $sth      = $self->_make_sth($sql, no_rows => 1);
+
+    require DBIx::QuickORM::CAS::Result;
+    my $result = DBIx::QuickORM::CAS::Result->new(
+        sth      => $sth,
+        resolver => $resolver,
+        row      => $row,
+        changes  => \%clean,
+    );
+
+    # Resolve synchronous results now so the row update lands before cas()
+    # returns; async results resolve lazily on first use.
+    $result->_resolve if $self->is_sync;
+
+    return $result;
+}
+
+=pod
+
+=head1 PRIVATE METHODS
+
+=over 4
+
+=item ($row, $guard_where, $raw_fields) = $h->_cas_inputs($input)
+
+Resolve a C<cas> call's row, hashref guard, and raw-field guard from the
+handle's row-or-where state and the supplied input.
+
+=item $where = $h->_cas_where($row, $guard_where, $raw_fields)
+
+Build the combined primary-key-plus-guard where clause. Field-name guards are
+wrapped in L<DBIx::QuickORM::Raw> so their stored values bind as-is instead of
+being deflated a second time.
+
+=item $resolver = $h->_cas_resolver($row, \%changes, $pk_fields)
+
+Return a coderef that reads the affected-row count from a finished statement
+handle, applying the row update on a win and croaking if more than one row
+matched.
+
+=item $h->_cas_sync_row($row, \%changes, $pk_fields)
+
+Apply a winning compare-and-set's changes to the row object and the cache.
+
+=item $h->_cas_warn_found_rows
+
+Warn if the connection reports the affected-row count unreliably (the
+found-rows client flag is off), which can turn a no-net-change win into a loss.
+
+=back
+
+=cut
+
+sub _cas_inputs {
+    my $self = shift;
+    my ($input) = @_;
+
+    if (my $row = $self->{+ROW}) {
+        my $ref = ref $input;
+        return ($row, $input, undef)   if $ref eq 'HASH';
+        return ($row, undef, $input)   if $ref eq 'ARRAY';
+        return ($row, undef, [$input]) if !$ref && defined $input;
+        croak "cas() on a row handle needs a where hashref, a field-name arrayref, or a field name";
+    }
+
+    if (my $where = $self->{+WHERE}) {
+        croak "cas() on a where handle needs a row object"
+            unless blessed($input) && $input->DOES('DBIx::QuickORM::Role::Row');
+        croak "cas() row is from a different source than the handle"
+            unless $input->source == $self->{+SOURCE};
+        return ($input, $where, undef);
+    }
+
+    croak "cas() needs a handle with a row or a where clause";
+}
+
+sub _cas_where {
+    my $self = shift;
+    my ($row, $guard_where, $raw_fields) = @_;
+
+    my $source   = $self->{+SOURCE};
+    my $pk_where = $row->primary_key_hashref;
+
+    return $self->sql_builder->qorm_and($pk_where, $guard_where)
+        if defined $guard_where;
+
+    my %where = %$pk_where;
+    my %is_pk = map { $_ => 1 } @{$source->primary_key // []};
+
+    for my $field (@{$raw_fields // []}) {
+        croak "cas() guard field '$field' is not a field on this source" unless $source->has_field($field);
+        next if $is_pk{$field};
+
+        # The stored value is already in database form. Wrap it so the bind
+        # path leaves it untouched instead of deflating it again; an undef
+        # value becomes an IS NULL test rather than a bound NULL.
+        my $val = $row->raw_stored_field($field);
+        $where{$field} = defined($val) ? {'-value' => DBIx::QuickORM::Raw->new($val)} : undef;
+    }
+
+    return \%where;
+}
+
+sub _cas_resolver {
+    my $self = shift;
+    my ($row, $changes, $pk_fields) = @_;
+
+    return sub {
+        my ($sth) = @_;
+
+        # Drivers disagree on where the affected-row count lives. Most report it
+        # from execute (0E0 meaning zero); DuckDB always returns 0E0 there but
+        # reports the real count via rows(); DBD::Pg returns -1 from rows() on a
+        # zero-row update. The true count is the larger of the two sources: a win
+        # shows up as 1 in exactly one of them, a loss as 0. -1 from both means
+        # the driver could not tell us.
+        my $exec = $sth->result;
+        my $rows = $sth->sth->rows;
+
+        my $count = -1;
+        for my $val ((defined($exec) ? 0 + $exec : -1), (defined($rows) ? 0 + $rows : -1)) {
+            $count = $val if $val > $count;
+        }
+        croak "cas() matched more than one row; the guard does not identify a single row" if $count > 1;
+
+        $self->_cas_sync_row($row, $changes, $pk_fields) if $count == 1;
+
+        return $count;
+    };
+}
+
+sub _cas_sync_row {
+    my $self = shift;
+    my ($row, $changes, $pk_fields) = @_;
+
+    my $changes_pk = grep { exists $changes->{$_} } @$pk_fields;
+    my $fetched    = { %{$row->stored_data}, %$changes };
+
+    my $old_pk = $changes_pk ? [ $row->primary_key_value_list ]      : undef;
+    my $new_pk = $changes_pk ? [ map { $fetched->{$_} } @$pk_fields ] : undef;
+
+    $self->{+CONNECTION}->state_update_row(
+        old_primary_key => $old_pk,
+        new_primary_key => $new_pk,
+        fetched         => $fetched,
+        source          => $self->{+SOURCE},
+        row             => $row,
+    );
+
+    return;
+}
+
+sub _cas_warn_found_rows {
+    my $self = shift;
+    my $con  = $self->{+CONNECTION};
+
+    return unless $con->can('cas_count_reliable');
+    return if $con->cas_count_reliable;
+
+    carp "This connection reports rows changed rather than rows matched (found-rows is off); cas() may report a loss for an update that changes no values";
+    return;
 }
 
 =pod
