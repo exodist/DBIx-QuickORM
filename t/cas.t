@@ -134,6 +134,13 @@ do_for_all_dbs {
         $h->insert({name => 'dupe_a'});
         my $b = $h->insert({name => 'dupe_b', revision => 0});
 
+        # The unique-violation here is intentional; cas() still raises it (which
+        # we assert below). Silence DBI's PrintError just for this scope so the
+        # expected driver message does not clutter the test output. RaiseError
+        # stays on, so the exception is unaffected.
+        my $dbh = $h->connection->dbh;
+        local $dbh->{PrintError} = 0;
+
         like(
             dies { $h->row($b)->cas([qw/revision/], {revision => 1, name => 'dupe_a'}) },
             qr/dupe_a|uniqu|constraint|duplicate/i,
