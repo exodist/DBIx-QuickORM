@@ -2,7 +2,7 @@ package DBIx::QuickORM::Connection;
 use strict;
 use warnings;
 
-our $VERSION = '0.000024';
+our $VERSION = '0.000025';
 
 use Carp qw/confess croak carp/;
 use Scalar::Util qw/blessed weaken/;
