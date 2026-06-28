@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+0.000025  2026-06-28 10:59:16-07:00 America/Los_Angeles
+
     Internal / cleanup:
     - Backfill the missing changelog entries for the 0.000023 and 0.000024 releases.
 
