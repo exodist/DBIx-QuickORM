@@ -2,6 +2,15 @@
 
 0.000024  2026-06-28 09:48:16-07:00 America/Los_Angeles
 
+    Features:
+    - Add compare-and-set via cas() on handles and rows: a guarded single-row update that reports a lost race instead of throwing (GitHub #29).
+
+    Documentation:
+    - Document compare-and-set and batch schema introspection in the Manual.
+
+    Internal / cleanup:
+    - Refactor schema introspection to run in a fixed number of queries per database across all dialects.
+
 0.000023  2026-06-13 22:20:26-07:00 America/Los_Angeles
 
 0.000022  2026-05-28 13:26:49-07:00 America/Los_Angeles
