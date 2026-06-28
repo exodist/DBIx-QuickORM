@@ -289,6 +289,10 @@ they have not changed since.
         # lost: refetch and retry
     }
 
+The changes should set a new value for at least one guard column, as the
+incrementing C<value> does above; C<cas> warns otherwise, because a guard that
+never changes lets two concurrent writers both win.
+
 The guard can be a list of field names (compared against the row's stored
 values), a single field name, or a where hashref. On a handle you supply
 whichever half the handle is missing: C<< $h->row($row)->cas(\@fields, \%changes) >>

@@ -2108,9 +2108,21 @@ C<$input> is the row to update. The handle's where clause is the guard.
 
 =back
 
-C<\%changes> is the field/value pairs to write. Database-generated columns are
-dropped from it; if nothing is left, C<cas> croaks. On a win the row object is
-updated in place; on a loss it is left unchanged.
+C<\%changes> is the field/value pairs to write, and should include a new value
+for at least one of the guard columns (CAS cannot work unless you set a new,
+reliably unique, guard value every time the row changes). Database-generated
+columns are dropped from it; if nothing is left, C<cas> croaks. If none of the
+guard columns are given a new value, C<cas> warns, because two concurrent
+writers could then both win. On a win the row object is updated in place; on a
+loss it is left unchanged.
+
+For example, a simple incrementing integer is sufficient:
+
+ my $result = $row->cas('version', {version => $row->field('version') + 1});
+
+But on database engines with high resolution timestamps you might use:
+
+ my $result = $row->cas('last_update', {last_update => \'CURRENT_TIMESTAMP()'});
 
 This is the no-throw path: a failed guard is a normal C<lost> result, but real
 database errors still propagate. On an async or aside handle the result comes
@@ -2385,6 +2397,12 @@ sub cas {
     my %clean = map { $_ => $changes->{$_} } grep { !$source->field_is_generated($_) } keys %$changes;
     croak "cas() changes may not be empty" unless keys %clean;
 
+    # CAS only protects against a concurrent writer if at least one guard column
+    # gets a new value; otherwise the same update can win for two writers at once.
+    my @guard_fields = $self->_cas_guard_fields($guard_where, $raw_fields);
+    carp "cas() changes set no new value for any guard column (@guard_fields); concurrent writers could both succeed because the guard never changes"
+        if @guard_fields && !grep { exists $clean{$_} } @guard_fields;
+
     my $where = $self->_cas_where($row, $guard_where, $raw_fields);
 
     my $sql = $self->sql_builder->qorm_update(
@@ -2424,6 +2442,12 @@ sub cas {
 
 Resolve a C<cas> call's row, hashref guard, and raw-field guard from the
 handle's row-or-where state and the supplied input.
+
+=item @fields = $h->_cas_guard_fields($guard_where, $raw_fields)
+
+Return the guard column names (the keys of a hashref guard, or the raw field
+names minus any primary-key fields). Used to warn when C<cas> changes set a new
+value for none of them.
 
 =item $where = $h->_cas_where($row, $guard_where, $raw_fields)
 
@@ -2471,6 +2495,17 @@ sub _cas_inputs {
     }
 
     croak "cas() needs a handle with a row or a where clause";
+}
+
+sub _cas_guard_fields {
+    my $self = shift;
+    my ($guard_where, $raw_fields) = @_;
+
+    return keys %$guard_where if ref($guard_where) eq 'HASH';
+
+    # Primary-key fields identify the row, they are not guards (see _cas_where).
+    my %is_pk = map { $_ => 1 } @{$self->{+SOURCE}->primary_key // []};
+    return grep { !$is_pk{$_} } @{$raw_fields // []};
 }
 
 sub _cas_where {

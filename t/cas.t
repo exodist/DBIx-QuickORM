@@ -35,19 +35,21 @@ do_for_all_dbs {
     subtest win_and_lose => sub {
         my $row = $h->insert({name => 'a', revision => 1, data => {n => 1}});
 
-        my $res = $h->row($row)->cas([qw/revision/], {data => {n => 2}});
+        # Proper CAS advances the guard column (revision) on every write.
+        my $res = $h->row($row)->cas([qw/revision/], {revision => 2, data => {n => 2}});
         isa_ok($res, 'DBIx::QuickORM::CAS::Result');
         ok($res,           "won: boolean overload is true");
         is($res->count, 1, "won: count is 1");
         is($res->state, 'won', "won: state");
         ok($res->won && !$res->lost && !$res->unknown, "won: predicates");
-        is($res->changes, {data => {n => 2}}, "result carries the changes");
+        is($res->changes, {revision => 2, data => {n => 2}}, "result carries the changes");
         ref_is($res->row, $row, "result carries the row");
         is($row->field('data'), {n => 2}, "row object updated on win");
+        is($row->field('revision'), 2, "guard column advanced on win");
 
         # A where guard that cannot match -> deterministic loss, no exception.
         my $lose;
-        ok(lives { $lose = $h->row($row)->cas({revision => 999}, {data => {n => 3}}) }, "loss does not throw");
+        ok(lives { $lose = $h->row($row)->cas({revision => 999}, {revision => 3, data => {n => 3}}) }, "loss does not throw");
         ok(!$lose,           "lost: boolean overload is false");
         is($lose->count, 0,  "lost: count is 0 (not 0E0-true)");
         is($lose->state, 'lost', "lost: state");
@@ -58,29 +60,29 @@ do_for_all_dbs {
     subtest guard_forms => sub {
         my $row = $h->insert({name => 'forms', revision => 7});
 
-        # single field name (auto-wrapped to an arrayref)
-        ok($h->row($row)->cas('revision', {name => 'forms2'}), "single-field-string guard wins");
+        # single field name (auto-wrapped to an arrayref); advance the guard.
+        ok($h->row($row)->cas('revision', {revision => 8, name => 'forms2'}), "single-field-string guard wins");
         is($row->field('name'), 'forms2', "row updated");
 
         # where hashref guard
-        ok($h->row($row)->cas({revision => 7}, {name => 'forms3'}), "where-hashref guard wins");
+        ok($h->row($row)->cas({revision => 8}, {revision => 9, name => 'forms3'}), "where-hashref guard wins");
 
         # handle already has the where; input is the row
-        ok($h->where({revision => 7})->cas($row, {name => 'forms4'}), "where-handle + row input wins");
+        ok($h->where({revision => 9})->cas($row, {revision => 10, name => 'forms4'}), "where-handle + row input wins");
         is($row->field('name'), 'forms4', "row updated via where-handle form");
     };
 
     subtest row_wrapper => sub {
         my $row = $h->insert({name => 'wrap', revision => 3});
 
-        my $res = $row->cas([qw/revision/], {name => 'wrapped'});
+        my $res = $row->cas([qw/revision/], {revision => 4, name => 'wrapped'});
         ok($res, "row->cas with field list wins");
         is($row->field('name'), 'wrapped', "row updated");
 
-        ok($row->cas('revision', {name => 'wrap2'}), "row->cas with single field wins");
-        ok($row->cas({revision => 3}, {name => 'wrap3'}), "row->cas with where hashref wins");
+        ok($row->cas('revision', {revision => 5, name => 'wrap2'}), "row->cas with single field wins");
+        ok($row->cas({revision => 5}, {revision => 6, name => 'wrap3'}), "row->cas with where hashref wins");
 
-        ok(!$row->cas({revision => 999}, {name => 'never'}), "row->cas loses on bad guard");
+        ok(!$row->cas({revision => 999}, {revision => 7, name => 'never'}), "row->cas loses on bad guard");
         is($row->field('name'), 'wrap3', "row unchanged after loss");
     };
 
@@ -89,7 +91,8 @@ do_for_all_dbs {
 
         # Guarding on the unchanged JSON value must win: the raw stored value is
         # compared as-is, not deflated a second time (which would double-encode).
-        ok($h->row($row)->cas([qw/data/], {revision => 2}), "JSON field guard wins when unchanged");
+        # The write also advances the guarded column.
+        ok($h->row($row)->cas([qw/data/], {data => {k => 'v2'}, revision => 2}), "JSON field guard wins when unchanged");
 
         # A concurrent writer changes the row out from under us. Go straight to
         # the dbh so the row object's stored value is left stale, as it would be
@@ -97,7 +100,7 @@ do_for_all_dbs {
         my $raw = $h->connection->dbh;
         $raw->do("UPDATE example SET data = ? WHERE name = ?", undef, '{"k":"other"}', 'conc');
 
-        my $res = $h->row($row)->cas([qw/data/], {revision => 3});
+        my $res = $h->row($row)->cas([qw/data/], {data => {k => 'v3'}, revision => 3});
         ok(!$res, "JSON field guard loses after a concurrent change");
         is($res->count, 0, "count 0");
     };
@@ -105,11 +108,26 @@ do_for_all_dbs {
     subtest null_guard => sub {
         my $row = $h->insert({name => 'nullg', revision => 1, data => undef});
 
-        # A field-list guard on a NULL stored value becomes an IS NULL test.
-        ok($h->row($row)->cas([qw/data/], {revision => 2}), "guard on a NULL stored value wins");
+        # A field-list guard on a NULL stored value becomes an IS NULL test; the
+        # write advances the guard column away from NULL.
+        ok($h->row($row)->cas([qw/data/], {data => {y => 1}}), "guard on a NULL stored value wins");
+        is($row->field('data'), {y => 1}, "NULL guard win sets the value");
 
         $h->connection->dbh->do("UPDATE example SET data = ? WHERE name = ?", undef, '{"x":1}', 'nullg');
-        ok(!$h->row($row)->cas([qw/data/], {revision => 3}), "guard on NULL loses once the value is set");
+        ok(!$h->row($row)->cas([qw/data/], {data => {z => 1}}), "guard loses once the value changes underneath");
+    };
+
+    subtest guard_must_change => sub {
+        my $row = $h->insert({name => 'guardchg', revision => 1});
+
+        # Changing none of the guard columns is a CAS anti-pattern (two writers
+        # could both win), so cas() warns.
+        my $warn = warnings { $h->row($row)->cas([qw/revision/], {name => 'changed'}) };
+        like($warn->[0], qr/no new value for any guard column/, "warns when the guard column is not advanced");
+
+        # Advancing the guard column is correct usage: no warning.
+        my $clean = warnings { $h->row($row)->cas([qw/revision/], {revision => 2, name => 'changed2'}) };
+        is(@$clean, 0, "no warning when the guard column advances");
     };
 
     subtest real_errors_propagate => sub {
@@ -117,7 +135,7 @@ do_for_all_dbs {
         my $b = $h->insert({name => 'dupe_b', revision => 0});
 
         like(
-            dies { $h->row($b)->cas([qw/revision/], {name => 'dupe_a'}) },
+            dies { $h->row($b)->cas([qw/revision/], {revision => 1, name => 'dupe_a'}) },
             qr/dupe_a|uniqu|constraint|duplicate/i,
             "a real database error is not swallowed by cas",
         );
@@ -127,7 +145,7 @@ do_for_all_dbs {
         my $row = $h->insert({name => 'async1', revision => 1});
 
         # Same result class as sync; using it blocks until the database answers.
-        my $res = $h->row($row)->async->cas([qw/revision/], {name => 'async2'});
+        my $res = $h->row($row)->async->cas([qw/revision/], {revision => 2, name => 'async2'});
         isa_ok($res, 'DBIx::QuickORM::CAS::Result');
         ok($res, "async cas won (boolean blocks until ready)");
         ok($res->ready, "ready true once resolved");
@@ -135,7 +153,7 @@ do_for_all_dbs {
         is($row->field('name'), 'async2', "row updated after async win");
 
         # Poll without blocking, then read the outcome.
-        my $lose = $h->row($row)->async->cas({revision => 999}, {name => 'never'});
+        my $lose = $h->row($row)->async->cas({revision => 999}, {revision => 3, name => 'never'});
         Time::HiRes::sleep(0.001) until $lose->ready;
         ok(!$lose, "async cas lost");
         is($lose->count, 0, "async loss count 0");
@@ -149,7 +167,7 @@ do_for_all_dbs {
         like(dies { $h->row($row)->cas($row, {revision => 2}) }, qr/where hashref|field-name|field name/, "row handle with a row input croaks");
         like(dies { $h->where({revision => 1})->cas({revision => 1}, {revision => 2}) }, qr/needs a row object/, "where handle without a row input croaks");
         like(dies { $h->cas([qw/revision/], {revision => 2}) }, qr/needs a handle with a row or a where/, "bare handle croaks");
-        like(dies { $h->row($row)->cas([qw/nope/], {revision => 2}) }, qr/not a field/, "unknown guard field croaks");
+        like(dies { $h->row($row)->cas([qw/nope/], {nope => 2}) }, qr/not a field/, "unknown guard field croaks");
     };
 };
 

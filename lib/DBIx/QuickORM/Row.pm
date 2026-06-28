@@ -258,8 +258,13 @@ still match, so a concurrent writer cannot overwrite it unnoticed. C<$input> is
 the guard: a where hashref, an arrayref of field names, or a single field name
 (field names are checked against the row's currently stored values). Returns a
 L<DBIx::QuickORM::CAS::Result> that is true only when the row was updated; a
-failed guard is a normal C<lost> result, not an exception. See the C<cas>
-method in L<DBIx::QuickORM::Handle> for the full description.
+failed guard is a normal C<lost> result, not an exception. C<\%changes> should
+set a new value for at least one guard column (C<cas> warns otherwise), for
+example:
+
+ my $result = $row->cas('version', {version => $row->field('version') + 1});
+
+See the C<cas> method in L<DBIx::QuickORM::Handle> for the full description.
 
 =back
 
