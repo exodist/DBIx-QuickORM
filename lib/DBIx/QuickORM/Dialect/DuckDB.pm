@@ -2,7 +2,7 @@ package DBIx::QuickORM::Dialect::DuckDB;
 use strict;
 use warnings;
 
-our $VERSION = '0.000025';
+our $VERSION = '0.000026';
 
 use DBD::DuckDB;
 use DBI ();
