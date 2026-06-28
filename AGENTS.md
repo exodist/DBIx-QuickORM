@@ -241,6 +241,26 @@ guide; walk it before declaring work ready for review.
   not yet been pushed to origin, amend that commit instead of
   creating a new one.
 
+## Changelog
+
+- Every commit that changes shipped behavior must record itself in
+  `Changes` in the **same commit**, by adding a bullet under the
+  `{{$NEXT}}` section at the top of the file describing the change in
+  user-facing terms. Do not defer changelog entries to release time —
+  releases have shipped with empty changelogs because entries were
+  never written.
+- Keep each entry brief: one line, one sentence where possible, two at
+  the very most.
+- This applies to **all** such commits going forward, whether they land
+  directly on the main branch or on a worktree branch that is later
+  merged in. When you open a worktree, the work's `Changes` entry lands
+  in that branch alongside the code; the merge commit then carries it
+  onto the main branch.
+- Exempt: changes that ship nothing to users — pure test-only work,
+  trivial cleanups (whitespace, typos, formatting), and dev-only tooling
+  (`agent_scripts/`, `old*/`, `AI_DOCS/`). Everything else needs an
+  entry.
+
 ## Worktrees
 
 - Significant work requires a worktree. Place worktrees in
