@@ -120,10 +120,19 @@ do_for_all_dbs {
     subtest guard_must_change => sub {
         my $row = $h->insert({name => 'guardchg', revision => 1});
 
-        # Changing none of the guard columns is a CAS anti-pattern (two writers
-        # could both win), so cas() warns.
+        # Omitting the guard column from the changes is a CAS anti-pattern (two
+        # writers could both win), so cas() warns.
         my $warn = warnings { $h->row($row)->cas([qw/revision/], {name => 'changed'}) };
-        like($warn->[0], qr/no new value for any guard column/, "warns when the guard column is not advanced");
+        like($warn->[0], qr/do not advance any guard column/, "warns when the guard column is not advanced");
+
+        # Setting the guard column to the value it already holds is the same
+        # anti-pattern: the guard never changes, so cas() still warns.
+        my $same = warnings { $h->row($row)->cas([qw/revision/], {revision => 1, name => 'changed-same'}) };
+        like($same->[0], qr/do not advance any guard column/, "warns when the guard column is set to its current value");
+
+        # A where-hashref guard set to its own guard value warns too.
+        my $same_where = warnings { $h->row($row)->cas({revision => 1}, {revision => 1, name => 'changed-same2'}) };
+        like($same_where->[0], qr/do not advance any guard column/, "warns when a hashref guard is set to its own value");
 
         # Advancing the guard column is correct usage: no warning.
         my $clean = warnings { $h->row($row)->cas([qw/revision/], {revision => 2, name => 'changed2'}) };

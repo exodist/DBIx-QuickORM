@@ -2111,10 +2111,12 @@ C<$input> is the row to update. The handle's where clause is the guard.
 C<\%changes> is the field/value pairs to write, and should include a new value
 for at least one of the guard columns (CAS cannot work unless you set a new,
 reliably unique, guard value every time the row changes). Database-generated
-columns are dropped from it; if nothing is left, C<cas> croaks. If none of the
-guard columns are given a new value, C<cas> warns, because two concurrent
-writers could then both win. On a win the row object is updated in place; on a
-loss it is left unchanged.
+columns are dropped from it; if nothing is left, C<cas> croaks. If no guard
+column is given a value that differs from the one being guarded against --
+whether because the guard is omitted from the changes or set to the value it
+already holds -- C<cas> warns, because two concurrent writers could then both
+win. On a win the row object is updated in place; on a loss it is left
+unchanged.
 
 For example, a simple incrementing integer is sufficient:
 
@@ -2397,13 +2399,15 @@ sub cas {
     my %clean = map { $_ => $changes->{$_} } grep { !$source->field_is_generated($_) } keys %$changes;
     croak "cas() changes may not be empty" unless keys %clean;
 
-    # CAS only protects against a concurrent writer if at least one guard column
-    # gets a new value; otherwise the same update can win for two writers at once.
-    my @guard_fields = $self->_cas_guard_fields($guard_where, $raw_fields);
-    carp "cas() changes set no new value for any guard column (@guard_fields); concurrent writers could both succeed because the guard never changes"
-        if @guard_fields && !grep { exists $clean{$_} } @guard_fields;
-
     my $where = $self->_cas_where($row, $guard_where, $raw_fields);
+
+    # CAS only protects against a concurrent writer if at least one guard column
+    # is given a value that differs from the one being guarded against; setting a
+    # guard to the value it already has lets the same update win for two writers
+    # at once, just as omitting the guard from the changes does.
+    my @guard_fields = $self->_cas_guard_fields($guard_where, $raw_fields);
+    carp "cas() changes do not advance any guard column (@guard_fields); concurrent writers could both succeed because the guard value does not change"
+        if @guard_fields && !$self->_cas_guard_advances($row, \%clean, \@guard_fields, $guard_where, $raw_fields);
 
     my $sql = $self->sql_builder->qorm_update(
         source  => $source,
@@ -2446,8 +2450,16 @@ handle's row-or-where state and the supplied input.
 =item @fields = $h->_cas_guard_fields($guard_where, $raw_fields)
 
 Return the guard column names (the keys of a hashref guard, or the raw field
-names minus any primary-key fields). Used to warn when C<cas> changes set a new
-value for none of them.
+names minus any primary-key fields). Used to warn when C<cas> changes advance
+none of them.
+
+=item $bool = $h->_cas_guard_advances($row, \%changes, \@guard_fields, $guard_where, $raw_fields)
+
+Return true when the changes give at least one guard column a value that differs
+from the one being guarded against, comparing with the field's type/affinity
+comparator. A computed SQL value, or a guard value we cannot read as a plain
+scalar, counts as advancing. Used to decide whether C<cas> should warn that its
+guard never changes.
 
 =item $where = $h->_cas_where($row, $guard_where, $raw_fields)
 
@@ -2506,6 +2518,37 @@ sub _cas_guard_fields {
     # Primary-key fields identify the row, they are not guards (see _cas_where).
     my %is_pk = map { $_ => 1 } @{$self->{+SOURCE}->primary_key // []};
     return grep { !$is_pk{$_} } @{$raw_fields // []};
+}
+
+sub _cas_guard_advances {
+    my $self = shift;
+    my ($row, $changes, $guard_fields, $guard_where, $raw_fields) = @_;
+
+    my $source     = $self->{+SOURCE};
+    my $con        = $self->{+CONNECTION};
+    my $data       = $row->row_data_obj;
+    my $hash_guard = ref($guard_where) eq 'HASH';
+
+    for my $field (@$guard_fields) {
+        next unless exists $changes->{$field};
+
+        # A computed/literal SQL value (Raw, scalar ref, etc.) is resolved by the
+        # database, so we cannot prove it matches the guard; assume it advances.
+        my $new = $changes->{$field};
+        return 1 if ref($new);
+
+        # A hashref guard may hold an operator or literal rather than a plain
+        # value; if we cannot read a scalar guard value we cannot compare, so we
+        # assume the guard advances rather than warn on something we misread.
+        my $old = $hash_guard ? $guard_where->{$field} : $row->raw_stored_field($field);
+        return 1 if ref($old);
+
+        # compare_field is true when the values are equal; any difference advances
+        # the guard and protects against a concurrent writer.
+        return 1 unless $data->compare_field($field, {$field => $old}, {$field => $new}, $source, $con);
+    }
+
+    return 0;
 }
 
 sub _cas_where {
