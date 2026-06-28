@@ -148,6 +148,19 @@ sub init {
 
 =pod
 
+=item $bool = $db->cas_count_reliable
+
+True if a connection to this database reports the affected-row count that
+compare-and-set needs (rows matched, not rows changed). The MySQL and MariaDB
+drivers enable that by default; this is false only when the found-rows client
+flag was explicitly turned off in the connect attributes.
+
+=cut
+
+sub cas_count_reliable { $_[0]->{+DIALECT}->cas_count_reliable($_[0]->attributes) }
+
+=pod
+
 =item $dsn = $db->dsn
 
 Returns the DSN, building it from the dialect and caching it on first call.
