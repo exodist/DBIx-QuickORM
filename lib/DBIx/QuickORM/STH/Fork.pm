@@ -522,7 +522,7 @@ L<https://github.com/exodist/DBIx-QuickORM>.
 
 =over 4
 
-=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+=item Chad Granum E<lt>exodist7@gmail.comE<gt>
 
 =back
 
@@ -530,7 +530,7 @@ L<https://github.com/exodist/DBIx-QuickORM>.
 
 =over 4
 
-=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+=item Chad Granum E<lt>exodist7@gmail.comE<gt>
 
 =back
 

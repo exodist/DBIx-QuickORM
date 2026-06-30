@@ -2645,7 +2645,7 @@ L<https://https://github.com/exodist/DBIx-QuickORM>.
 
 =over 4
 
-=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+=item Chad Granum E<lt>exodist7@gmail.comE<gt>
 
 =back
 
@@ -2653,13 +2653,13 @@ L<https://https://github.com/exodist/DBIx-QuickORM>.
 
 =over 4
 
-=item Chad Granum E<lt>exodist@cpan.orgE<gt>
+=item Chad Granum E<lt>exodist7@gmail.comE<gt>
 
 =back
 
 =head1 COPYRIGHT
 
-Copyright Chad Granum E<lt>exodist@cpan.orgE<gt>.
+Copyright Chad Granum E<lt>exodist7@gmail.comE<gt>.
 
 This program is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
