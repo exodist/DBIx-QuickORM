@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+0.000026  2026-06-29 17:41:35-07:00 America/Los_Angeles
+
     Security:
     - Quote all SQL identifiers so caller-supplied names (order_by, where keys, field/returning lists, upsert columns, and join aliases) can no longer break out into SQL injection (CVE-2026-13766).
 

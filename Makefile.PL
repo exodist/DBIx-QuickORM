@@ -24,7 +24,7 @@ if ($ENV{AUTOMATED_TESTING}) {
 
 my %WriteMakefileArgs = (
   "ABSTRACT" => "Composable ORM builder.",
-  "AUTHOR" => "Chad Granum <exodist\@cpan.org>",
+  "AUTHOR" => "Chad Granum <exodist7\@gmail.com>",
   "CONFIGURE_REQUIRES" => {
     "ExtUtils::MakeMaker" => 0
   },
