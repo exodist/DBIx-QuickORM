@@ -2,7 +2,7 @@ package DBIx::QuickORM::Role::Linked;
 use strict;
 use warnings;
 
-our $VERSION = '0.000026';
+our $VERSION = '0.000027';
 
 use Carp qw/croak/;
 use Scalar::Util qw/blessed/;

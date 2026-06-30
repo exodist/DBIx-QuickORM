@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use feature qw/state/;
 
-our $VERSION = '0.000026';
+our $VERSION = '0.000027';
 
 use Carp qw/croak confess/;
 $Carp::Internal{ (__PACKAGE__) }++;

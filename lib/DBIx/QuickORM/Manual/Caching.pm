@@ -2,7 +2,7 @@ package DBIx::QuickORM::Manual::Caching;
 use strict;
 use warnings;
 
-our $VERSION = '0.000026';
+our $VERSION = '0.000027';
 
 1;
 

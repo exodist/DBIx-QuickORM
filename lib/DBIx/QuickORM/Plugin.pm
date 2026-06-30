@@ -2,7 +2,7 @@ package DBIx::QuickORM::Plugin;
 use strict;
 use warnings;
 
-our $VERSION = '0.000026';
+our $VERSION = '0.000027';
 
 use Object::HashBase;
 
