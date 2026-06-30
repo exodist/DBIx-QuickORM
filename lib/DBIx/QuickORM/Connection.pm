@@ -179,7 +179,18 @@ sub init {
 
     $self->{+DEFAULT_SQL_BUILDER} //= do {
         require DBIx::QuickORM::SQLBuilder::SQLAbstract;
-        DBIx::QuickORM::SQLBuilder::SQLAbstract->new();
+        # Quote identifiers so attacker-influenceable names (order_by, where
+        # keys, field and returning lists) cannot break out of their identifier
+        # slot into raw SQL. Without quote_char SQL::Abstract emits identifiers
+        # verbatim, and field_db_name() passes unknown names through unchanged,
+        # which together allow SQL injection at any identifier position. The
+        # quote char comes from the live driver (SQL_IDENTIFIER_QUOTE_CHAR) so
+        # it is correct per-dialect (double-quote for SQLite/Postgres, backtick
+        # for MySQL); fall back to the ANSI double-quote when the driver reports
+        # nothing usable (a single space means quoting is unsupported).
+        my $qc = eval { $self->dbh->get_info(29) };
+        $qc = '"' unless defined($qc) && $qc =~ /\S/;
+        DBIx::QuickORM::SQLBuilder::SQLAbstract->new(quote_char => $qc, name_sep => '.');
     };
 
     my $txns = $self->{+TRANSACTIONS} = [];
