@@ -27,12 +27,15 @@ use DBIx::QuickORM::Raw();
 sub new;
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Handle';
+with 'DBIx::QuickORM::Role::Source';
 
 use Object::HashBase qw{
     +connection
     +source
     +sql_builder
     +sql_builder_cache
+
+    +subquery_alias
 
     +row
 
@@ -1313,6 +1316,134 @@ sub order_by {
 ###################
 # }}} Immucessors #
 ###################
+
+##########################
+# {{{ Subquery source     #
+##########################
+
+=pod
+
+=head2 Subquery source
+
+Any handle can be used as the B<source> of another query: pass it to
+C<< $con->handle(...) >> and it is rendered to its statement and binds and
+spliced in as a derived table, C<< ( <inner query> ) AS <alias> >>. Its binds
+are threaded into the outer statement ahead of the outer WHERE, and its real
+(non-computed) columns keep their types, so values fetched through the outer
+query inflate the same way they would from the inner source.
+
+    my $recent = $con->handle('events')->where({ts => {'>' => $cutoff}});
+
+    $con->handle($recent)->where({kind => 'click'})->all;
+    # SELECT * FROM ( SELECT ... FROM events WHERE ts > ? ) AS subquery
+    #   WHERE kind = ?
+
+The derived table is aliased C<subquery> by default; use C<subquery_alias($alias)>
+to choose a different name (required if two subqueries share one statement).
+Computed or literal output columns (e.g. C<COUNT(*)>) carry no metadata, so they
+come back untyped; the derived table exposes the inner statement's emitted
+column names.
+
+To refine an existing handle B<without> wrapping it in a subquery, call refining
+methods on the handle directly (e.g. C<< $recent->where(...) >>), which return a
+refined clone.
+
+=over 4
+
+=item $alias = $h->subquery_alias()
+
+=item $new_h = $h->subquery_alias($alias)
+
+With no argument, returns the derived-table alias set on this handle (C<undef>
+if none was set, in which case the source renders with the default alias
+C<subquery>). With an argument, returns a clone whose derived-table alias is
+C<$alias>. Naming the table is the only thing this does — a handle is usable as
+a source with or without it:
+
+    my $recent = $con->handle('events')
+        ->where({ts => {'>' => $cutoff}})
+        ->subquery_alias('recent');
+
+    $con->handle($recent)->where({kind => 'click'})->all;
+    # SELECT * FROM ( SELECT ... FROM events WHERE ts > ? ) AS recent
+    #   WHERE kind = ?
+
+=back
+
+=cut
+
+sub subquery_alias {
+    my $self = shift;
+    croak "Must not be called in void context" unless defined wantarray;
+    return $self->{+SUBQUERY_ALIAS} unless @_;
+    return $self->clone(SUBQUERY_ALIAS() => $_[0]);
+}
+
+# {{{ Role::Source interface (handle as a derived-table source)
+
+sub source_db_moniker {
+    my $self = shift;
+
+    my $source = $self->{+SOURCE} or croak "Cannot use this handle as a source: it has no source to query";
+    my $alias  = $self->{+SUBQUERY_ALIAS} // 'subquery';
+    croak "Subquery alias '$alias' is not a valid identifier" unless $alias =~ /\A\w+\z/;
+
+    my $sql = $self->sql_builder->qorm_select(%{$self->_builder_args});
+
+    # SQL::Abstract (bindtype 'columns') wants each literal bind as a
+    # [column, value] pair and threads them ahead of the outer WHERE binds.
+    # LIMIT/OFFSET binds have no column, so use an empty name; the outer
+    # _do_binds treats an unknown field as untyped and binds it as-is.
+    my @pairs = map { [$_->{field} // '', $_->{value}] } @{$sql->{bind} // []};
+
+    return \["( $sql->{statement} ) AS $alias", @pairs];
+}
+
+sub source_orm_name { my $self = shift; return $self->{+SUBQUERY_ALIAS} // 'subquery' }
+
+sub primary_key        { my $self = shift; return undef }
+sub row_class          { my $self = shift; return undef }
+sub source_has_aliases { my $self = shift; return 0 }
+sub field_is_generated { my $self = shift; return 0 }
+sub fields_to_fetch    { my $self = shift; return ['*'] }
+sub fields_list_all    { my $self = shift; return ['*'] }
+sub fields_to_omit     { my $self = shift; return undef }
+
+# The derived table exposes the inner statement's emitted column names, so the
+# name accessors are identity; metadata is delegated to the inner source.
+sub field_db_name  { my $self = shift; my ($field) = @_; return $field }
+sub field_orm_name { my $self = shift; my ($field) = @_; return $field }
+
+sub has_field {
+    my $self = shift;
+    my ($field) = @_;
+    # A derived table's output columns are not enumerable (computed/literal
+    # columns carry no metadata), so accept any name and let the database
+    # reject genuinely unknown ones. Typing still keys off the inner source.
+    return 1;
+}
+
+sub field_type {
+    my $self = shift;
+    my ($field) = @_;
+    my $source = $self->{+SOURCE};
+    return undef unless $source && $source->has_field($field);
+    return $source->field_type($field);
+}
+
+sub field_affinity {
+    my $self = shift;
+    my ($field, $dialect) = @_;
+    my $source = $self->{+SOURCE};
+    return 'string' unless $source && $source->has_field($field);
+    return $source->field_affinity($field, $dialect);
+}
+
+# }}} Role::Source interface
+
+##########################
+# }}} Subquery source     #
+##########################
 
 #######################
 # {{{ State Accessors #

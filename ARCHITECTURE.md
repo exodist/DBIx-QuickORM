@@ -45,7 +45,7 @@ covers structure and behavior only.
                               v
   schema model             Schema ── Table/View ── Column        (+ Autofill)
                               |
-  sources (Role::Source)   Table | View | Join | LiteralSource
+  sources (Role::Source)   Table | View | Join | LiteralSource | Handle (subquery)
                               |
   query layer              Handle (immutable builder) ── SQLBuilder ── STH (sync/Async/Aside/Fork)
                               |                                          |
@@ -327,6 +327,18 @@ Implementations:
 - **`LiteralSource`** — a blessed scalar ref wrapping raw SQL; `field_*`
   return permissive defaults, `fields_to_fetch` is `['*']`, and it is not
   cachable.
+- **`Handle` (as a subquery source)** — a `Handle` also consumes
+  `Role::Source`, so passing one to `Connection->handle` uses it as a derived
+  table: `source_db_moniker` renders the handle to `( <inner sql> ) AS <alias>`
+  and returns it as a SQL::Abstract literal-with-binds so the inner binds
+  thread into the outer statement. `field_type` / `field_affinity` delegate to
+  the inner source (real columns stay typed; computed columns are untyped),
+  `has_field` is permissive, and the source has no primary key and is not
+  cachable. The alias defaults to `subquery`; `subquery_alias($alias)` returns a
+  clone with a chosen alias. `Connection->handle` always routes a handle
+  argument through the constructor as the source; refining an existing handle
+  without wrapping it is done by calling refining methods (e.g. `where`) on the
+  handle directly, which return a refined clone.
 
 ## 10. Query layer
 
