@@ -9,7 +9,7 @@ use Carp qw/confess croak carp/;
 use Sub::Util qw/set_subname/;
 use List::Util qw/mesh/;
 use Scalar::Util qw/blessed/;
-use DBIx::QuickORM::Util qw{debug};
+use DBIx::QuickORM::Util qw{debug literal_write_value};
 
 use POSIX();
 use Scope::Guard();
@@ -1891,7 +1891,7 @@ row's view of the generated column reflects the database-computed value.
 
 sub upsert {
     my $self = shift->_row_or_hashref(TARGET() => @_);
-    return $self->_insert_and_refresh(upsert => 1) if $self->{+AUTO_REFRESH};
+    return $self->_insert_and_refresh(upsert => 1) if $self->{+AUTO_REFRESH} || $self->_write_has_literal;
     return $self->_insert(upsert => 1);
 }
 
@@ -1902,7 +1902,7 @@ sub upsert_and_refresh {
 
 sub insert {
     my $self = shift->_row_or_hashref(TARGET() => @_);
-    return $self->_insert_and_refresh() if $self->{+AUTO_REFRESH};
+    return $self->_insert_and_refresh() if $self->{+AUTO_REFRESH} || $self->_write_has_literal;
     return $self->_insert();
 }
 
@@ -1917,6 +1917,13 @@ sub insert_and_refresh {
 
 =over 4
 
+=item $bool = $h->_write_has_literal
+
+True when the data this handle is about to insert/upsert contains a literal SQL
+write value (a scalar ref or C<[\'sql ?', @binds]>) and the source has a primary
+key. Such writes route through the refresh path so the database-computed value
+replaces the literal in the row's cached state.
+
 =item $row = $h->_insert_and_refresh(%params)
 
 Insert and then refresh the row, using 'returning on insert' when available or
@@ -1930,6 +1937,25 @@ row, applying per-column defaults and returning-clause handling.
 =back
 
 =cut
+
+sub _write_has_literal {
+    my $self = shift;
+
+    # Routing a literal write through the refresh path only makes sense when the
+    # row can be recovered afterward, which needs a primary key.
+    return 0 unless $self->_has_pk;
+
+    my $data;
+    if (ref($self->{+TARGET}) eq 'HASH') {
+        $data = $self->{+TARGET};
+    }
+    elsif (my $row = $self->{+ROW}) {
+        $data = $row->pending_data;
+    }
+
+    return 0 unless ref($data) eq 'HASH';
+    return scalar grep { literal_write_value($_) } values %$data;
+}
 
 sub _insert_and_refresh {
     my $self = shift;
@@ -2044,6 +2070,11 @@ sub _insert {
                 $row_data = { %$data };
             }
 
+            # RETURNING (above) fills literal write values with the
+            # database-computed result. Drop any literal not returned so a later
+            # read fetches it on demand.
+            delete @{$row_data}{ grep { literal_write_value($row_data->{$_}) } keys %$row_data };
+
             my $sent = 0;
             return sub { $sent++ ? () : $row_data };
         },
@@ -2095,6 +2126,12 @@ Keys in C<%CHANGES> that name a database-generated column are silently dropped
 before SQL generation. If filtering leaves no fields to write, C<update>
 croaks with "Changes may not be empty".
 
+A literal SQL change value (a scalar ref like C<\'NOW()'>) is computed by the
+database. When updating a specific row its value is read back so the row's cached
+state reflects it. A bulk update (a where clause, no specific row) writes the
+database correctly but does not refresh already-loaded row objects matching that
+where; refresh them to see the computed value.
+
 =item $h->update($row_obj)
 
 Write pending changes to the row.
@@ -2143,6 +2180,10 @@ For example, a simple incrementing integer is sufficient:
 But on database engines with high resolution timestamps you might use:
 
  my $result = $row->cas('last_update', {last_update => \'CURRENT_TIMESTAMP()'});
+
+A scalar-ref change value like this is emitted as SQL and computed by the
+database; on a win the row is refreshed so its cached C<last_update> reflects the
+stored value.
 
 This is the no-throw path: a failed guard is a normal C<lost> result, but real
 database errors still propagate. On an async or aside handle the result comes
@@ -2307,10 +2348,21 @@ sub update {
     my $do_cache          = $pk_fields && @$pk_fields && $con->state_does_cache;
     my $changes_pk_fields = $pk_fields ? (grep { exists $changes->{$_} } @$pk_fields) : ();
 
+    # Literal SQL write values (\'NOW()', [\'expr ?', @binds]) are computed by the
+    # database, so the cached row takes their value from the database: via
+    # UPDATE ... RETURNING when the dialect supports it (no extra round trip),
+    # otherwise via a refresh.
+    my @literal_fields    = grep { literal_write_value($changes->{$_}) } keys %$changes;
+    my $literal_returning = @literal_fields && $row && $sync && $pk_fields && @$pk_fields && $dialect->supports_returning_update;
+    if ($literal_returning) {
+        my %seen;
+        $builder_args->{returning} = [ grep { !$seen{$_}++ } @$pk_fields, @literal_fields ];
+    }
+
     my $sql = $self->sql_builder->qorm_update(%$builder_args, update => $changes);
 
     my $handle_row = sub {
-        my ($row) = @_;
+        my ($row, $db_row) = @_;
 
         my ($old_pk, $new_pk, $fetched);
         if (blessed($row)) {
@@ -2320,6 +2372,16 @@ sub update {
         else {
             $old_pk = $changes_pk_fields ? [ map { $row->{$_} } @$pk_fields ] : undef;
             $fetched = { %$row, %$changes };
+        }
+
+        # Take literal fields from the RETURNING row when we have it; the refresh
+        # fallback (below) covers dialects without RETURNING-on-update.
+        if (@literal_fields) {
+            delete @{$fetched}{@literal_fields};
+            if ($db_row) {
+                my $got = $self->sql_builder->qorm_row_to_orm($source, $db_row);
+                $fetched->{$_} = $got->{$_} for grep { exists $got->{$_} } @literal_fields;
+            }
         }
 
         $new_pk = $changes_pk_fields ? [ map { $fetched->{$_} } @$pk_fields ] : undef;
@@ -2340,7 +2402,11 @@ sub update {
     # row's state when there is one).
     unless ($do_cache) {
         my $sth = $self->_make_sth($sql, no_rows => 1);
-        $handle_row->($row) if $row;
+        if ($row) {
+            my $db_row = $literal_returning ? $sth->sth->fetchrow_hashref : undef;
+            $handle_row->($row, $db_row);
+            $row->refresh if @literal_fields && $sync && !$literal_returning;
+        }
         return $sth unless $sync;
         return;
     }
@@ -2359,7 +2425,8 @@ sub update {
         }
 
         if ($row) {
-            $handle_row->($row);
+            my $db_row = $literal_returning ? $sth->fetchrow_hashref : undef;
+            $handle_row->($row, $db_row);
             return;
         }
 
@@ -2394,6 +2461,10 @@ sub update {
     return $sth unless $sync;
 
     $finish->($sth->dbh, $sth->sth);
+
+    # A literal write on a dialect without RETURNING-on-update leaves the
+    # computed columns unknown to the cache; re-read them.
+    $row->refresh if $row && @literal_fields && $sync && !$literal_returning;
 
     return undef;
 }
@@ -2628,8 +2699,14 @@ sub _cas_sync_row {
     my $self = shift;
     my ($row, $changes, $pk_fields) = @_;
 
+    # Literal SQL write values are computed by the database. cas() recovers them
+    # with a refresh, not RETURNING: RETURNING moves the affected-row count into
+    # the result set, which would break cas()'s win/loss detection.
+    my @literal = grep { literal_write_value($changes->{$_}) } keys %$changes;
+
     my $changes_pk = grep { exists $changes->{$_} } @$pk_fields;
     my $fetched    = { %{$row->stored_data}, %$changes };
+    delete @{$fetched}{@literal} if @literal;
 
     my $old_pk = $changes_pk ? [ $row->primary_key_value_list ]      : undef;
     my $new_pk = $changes_pk ? [ map { $fetched->{$_} } @$pk_fields ] : undef;
@@ -2641,6 +2718,8 @@ sub _cas_sync_row {
         source          => $self->{+SOURCE},
         row             => $row,
     );
+
+    $row->refresh if @literal;
 
     return;
 }
