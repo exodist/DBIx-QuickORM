@@ -1,5 +1,8 @@
 {{$NEXT}}
 
+    Bug Fixes:
+    - Autofill now croaks at schema-build time when two generated relationship accessors (or a relationship and a column accessor) would resolve to the same name, instead of silently dropping one; resolve with distinct link aliases or an autoname hook.
+
 0.000026  2026-06-29 17:41:35-07:00 America/Los_Angeles
 
     Security:
