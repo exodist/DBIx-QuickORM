@@ -36,6 +36,12 @@ of C<subquery>:
     # SELECT * FROM ( SELECT ... ) AS recent
     my $src = DBIx::QuickORM::LiteralSource->new($full_select, subquery => 'recent');
 
+The alias must be a plain identifier (word characters only); it is interpolated
+directly into the SQL and cannot be safely quoted here.
+
+B<Changed in 0.000026:> a non-identifier alias now croaks. Previously any alias
+string was spliced into the statement verbatim, which allowed SQL injection.
+
 Literal sources carry no schema metadata: they expose no fields, no primary
 key, and no row class, so the field/key accessors return nothing and the
 source is not cachable. C<fields_to_fetch> is C<['*']>.
@@ -72,6 +78,10 @@ sub new {
     # value of 'subquery' (a true value of 1 uses a default alias).
     if (defined(my $sq = $params{subquery})) {
         my $alias = (length($sq) && $sq ne '1') ? $sq : 'subquery';
+        # The alias is interpolated into raw SQL and there is no dbh here to
+        # quote it, so reject anything that is not a plain identifier rather
+        # than letting it break out into the statement.
+        croak "subquery alias '$alias' is not a valid identifier" unless $alias =~ /\A\w+\z/;
         $sql = "( $sql ) AS $alias";
     }
 
