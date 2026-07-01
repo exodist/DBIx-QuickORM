@@ -11,7 +11,7 @@ use DBIx::QuickORM::Util qw/column_key literal_write_value/;
 use DBIx::QuickORM::Affinity();
 use DBIx::QuickORM::Link();
 
-our $VERSION = '0.000027';
+our $VERSION = '0.000028';
 
 use DBIx::QuickORM::Connection::RowData qw{
     STORED
