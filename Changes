@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+0.000027  2026-07-01 11:18:00-07:00 America/Los_Angeles
+
     Features:
     - A handle passed to handle() is now used as a query source: the inner query is spliced in as a derived table (aliased "subquery" by default, or via subquery_alias($alias)), its binds are threaded into the outer statement, and its real columns keep their types.
 
