@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - upsert() on an already-stored bound row now reports an "upsert" error instead of the shared insert body's "insert" wording.
     - Two columns that resolve to the same generated accessor name now croak during autorow generation instead of silently dropping one (matching the existing link-vs-link collision behavior).
     - Generated field lists (and thus SELECT column order) are now deterministic, ordered by each column's position instead of hash order.
     - and(), or(), and the join methods (left_join/right_join/inner_join/full_join/cross_join) now croak when called in void context, like the other query-building methods, instead of silently doing nothing.
