@@ -1,6 +1,8 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Writes (insert/update/delete/cas) through a handle-as-subquery (derived-table) source now croak with a clear message instead of dying deep in statement construction or on a missing method.
+    - omit() on a handle-as-subquery source now croaks (its columns are not enumerable) instead of silently returning the column it was told to omit.
     - handle() now croaks on an unknown -flag (e.g. a misspelled -allow_overide) instead of silently storing and ignoring it, which previously left the intended protection disabled with no diagnostic.
     - upsert() on an already-stored bound row now reports an "upsert" error instead of the shared insert body's "insert" wording.
     - Two columns that resolve to the same generated accessor name now croak during autorow generation instead of silently dropping one (matching the existing link-vs-link collision behavior).
