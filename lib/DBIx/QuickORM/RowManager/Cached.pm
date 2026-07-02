@@ -4,7 +4,6 @@ use warnings;
 
 our $VERSION = '0.000028';
 
-use Carp qw/croak/;
 use Scalar::Util qw/weaken/;
 
 use DBIx::QuickORM::Affinity();

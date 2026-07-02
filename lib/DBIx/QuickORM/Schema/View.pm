@@ -4,9 +4,6 @@ use warnings;
 
 our $VERSION = '0.000028';
 
-use Carp qw/croak/;
-use Scalar::Util qw/blessed/;
-
 use parent 'DBIx::QuickORM::Schema::Table';
 use Object::HashBase;
 

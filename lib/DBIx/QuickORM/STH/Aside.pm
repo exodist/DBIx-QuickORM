@@ -4,8 +4,6 @@ use warnings;
 
 our $VERSION = '0.000028';
 
-use Carp qw/croak/;
-
 # Roles (Role::STH, Role::Async) arrive via the parent STH::Async. Re-composing
 # them here would reinstall the roles' croaking default cancel/cancel_supported
 # into this package, shadowing the working STH::Async overrides.

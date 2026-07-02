@@ -8,7 +8,7 @@ use DBI();
 
 our $VERSION = '0.000028';
 
-use DBIx::QuickORM::Util qw/load_class find_modules/;
+use DBIx::QuickORM::Util qw/load_class/;
 
 use Object::HashBase qw{
     <dbh
