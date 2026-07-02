@@ -69,4 +69,21 @@ subtest raiseerror_disabled_connect_failure => sub {
     like($err, qr/Could not connect to the database/, "a silent DBI->connect failure croaks with context");
 };
 
+subtest callback_handle_gets_default_attributes => sub {
+    require DBI;
+    # The connect callback returns a lax handle; new_dbh must enforce the same
+    # sensible defaults the DSN path gets, so the codebase's RaiseError-based
+    # error handling and dialect-owned transaction control keep working.
+    my $db = DBIx::QuickORM::DB->new(
+        dialect => 'DBIx::QuickORM::Dialect::SQLite',
+        name    => 'attrs',
+        connect => sub { DBI->connect("dbi:SQLite:dbname=$dir/attrs.sqlite", '', '', {RaiseError => 0, PrintError => 0}) },
+    );
+
+    my $dbh = $db->new_dbh;
+    ok($dbh->{RaiseError},          "RaiseError forced onto a connect-callback handle");
+    ok($dbh->{AutoCommit},          "AutoCommit forced onto a connect-callback handle");
+    ok($dbh->{AutoInactiveDestroy}, "AutoInactiveDestroy forced onto a connect-callback handle");
+};
+
 done_testing;
