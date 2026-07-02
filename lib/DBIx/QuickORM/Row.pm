@@ -7,9 +7,6 @@ use Storable qw/dclone/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/literal_write_value/;
 
-use DBIx::QuickORM::Affinity();
-use DBIx::QuickORM::Link();
-
 our $VERSION = '0.000028';
 
 use DBIx::QuickORM::Connection::RowData qw{
@@ -120,7 +117,7 @@ sub stored_data   { $_[0]->row_data->{+STORED} }
 sub pending_data  { $_[0]->row_data->{+PENDING} }
 sub desynced_data { $_[0]->row_data->{+DESYNC} }
 
-sub is_invalid { $_[0]->{+ROW_DATA}->invalid // 0 }
+sub is_invalid { $_[0]->{+ROW_DATA}->invalid }
 sub is_valid   { $_[0]->{+ROW_DATA}->valid ? 1 : 0 }
 
 sub in_storage  { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }

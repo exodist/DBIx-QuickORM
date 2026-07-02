@@ -8,8 +8,6 @@ use Carp qw/carp confess croak/;
 use Scalar::Util qw/weaken/;
 use DBIx::QuickORM::Util qw/load_class/;
 
-use DBIx::QuickORM::Affinity();
-
 use DBIx::QuickORM::Connection::RowData qw{
     STORED
     PENDING
@@ -444,19 +442,17 @@ sub parse_params {
     my $old_pk = $params->{old_primary_key};
 
     my $row;
-    unless ($skip{row}) {
-        if ($row = $params->{row}) {
-            confess "'$row' is not a valid row"     unless $row->isa('DBIx::QuickORM::Row');
-            confess "Row has incorrect source" unless $row->source == $source;
-            confess "Row has incorrect connection"  unless $row->connection == $self->{+CONNECTION};
-            $old_pk //= [$row->primary_key_value_list] if $row->in_storage;
-        }
-
-        my $cached = $self->do_cache_lookup($source, $fetched, $old_pk, $new_pk, $row);
-
-        confess "Cached row does not match operating row" if $cached && $row && $cached != $row;
-        $row //= $cached;
+    if ($row = $params->{row}) {
+        confess "'$row' is not a valid row"    unless $row->isa('DBIx::QuickORM::Row');
+        confess "Row has incorrect source"     unless $row->source == $source;
+        confess "Row has incorrect connection" unless $row->connection == $self->{+CONNECTION};
+        $old_pk //= [$row->primary_key_value_list] if $row->in_storage;
     }
+
+    my $cached = $self->do_cache_lookup($source, $fetched, $old_pk, $new_pk, $row);
+
+    confess "Cached row does not match operating row" if $cached && $row && $cached != $row;
+    $row //= $cached;
 
     return ($source, $fetched, $old_pk, $new_pk, $row, $params);
 }
