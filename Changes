@@ -1,6 +1,8 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Join::Row field accessors now return undef for a LEFT-JOIN-missed sub-row and croak cleanly on an unknown alias instead of dying on an undefined value.
+    - Join::Row is_valid now requires every sub-row to be valid, so a join row with an invalidated sub-row is no longer both valid and invalid.
     - A hashref link spec with an unknown key now croaks clearly instead of misreading the key as the other-table name.
     - Extending a cloned Join (re-joining a table already present) no longer corrupts the original join's alias lookup.
     - Committing or rolling back an outer transaction object from inside a nested transaction's action now croaks instead of silently resolving the inner transaction.
