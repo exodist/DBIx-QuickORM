@@ -27,6 +27,9 @@ subtest inflate => sub {
         "decoded JSON array string",
     );
 
+    is($C->qorm_inflate(class => $C, value => '"hello"'), 'hello', "decoded JSON string scalar");
+    is($C->qorm_inflate(class => $C, value => '42'),      42,      "decoded JSON numeric scalar");
+
     is($C->qorm_inflate(class => $C, value => undef), undef, "undef inflates to undef");
 
     # An already-inflated ref passes straight through (the row layer can
@@ -49,6 +52,18 @@ subtest deflate => sub {
     );
 
     is($C->qorm_deflate(class => $C, value => undef, affinity => 'string'), undef, "undef deflates to undef");
+
+    is(
+        $C->qorm_deflate(class => $C, value => 'hello', affinity => 'string'),
+        '"hello"',
+        "encoded a string scalar to a JSON string",
+    );
+
+    is(
+        $C->qorm_inflate(class => $C, value => $C->qorm_deflate(class => $C, value => 42, affinity => 'string')),
+        42,
+        "numeric scalar round-trips through deflate and inflate",
+    );
 
     like(
         dies { $C->qorm_deflate(class => $C, value => {x => 1}) },

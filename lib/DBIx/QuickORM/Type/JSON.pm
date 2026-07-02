@@ -11,7 +11,7 @@ use Scalar::Util qw/reftype blessed/;
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Type';
 
-use Cpanel::JSON::XS qw/decode_json/;
+use Cpanel::JSON::XS();
 
 =pod
 
@@ -56,7 +56,7 @@ sub qorm_inflate {
     my $class  = $params->{class} // __PACKAGE__;
 
     return $val if ref($val);
-    return decode_json($val);
+    return $class->JSON->decode($val);
 }
 
 sub qorm_deflate {
