@@ -8,7 +8,13 @@ use Carp();
 use Scalar::Util();
 
 use overload (
-    'bool' => sub { $_[0]->{invalid} ? 0 : 1 },
+    'bool' => sub {
+        my $s = $_[0];
+        return $s->{row} ? 1 : 0 if exists $s->{row};      # already materialized
+        return 0 if $s->{invalid};                          # known empty / cancelled
+        return 1 unless $s->{async} && $s->{async}->ready;  # still pending: treat as truthy
+        return $s->row ? 1 : 0;                             # ready: resolve now
+    },
 );
 
 =pod
@@ -205,7 +211,9 @@ sub ready {
 
     return undef unless $self->{async}->ready();
 
-    return $self->row;
+    # A ready-but-empty result materializes to an undef row; still report ready
+    # (1) rather than undef (which reads as "not ready yet").
+    return $self->row // 1;
 }
 
 =pod
@@ -308,10 +316,14 @@ sub AUTOLOAD {
     my $meth = $AUTOLOAD;
     $meth =~ s/^.*:://;
 
+    # swapout() reassigns its own $_[0], which is aliased to $self here, so it
+    # rebinds $self to the materialized row; keep a reference to the proxy so the
+    # validity check reads the proxy's flag, not a raw key on the real row.
+    my $proxy = $self;
     $_[0] = $self->swapout;
 
     Carp::croak("This async row is not valid, the query probably returned no data, or the query was canceled")
-        if $self->{invalid};
+        if $proxy->{invalid};
 
     my $sub = $_[0]->can($meth) or Carp::croak(qq{Can't locate object method "$meth" via package "} . ref($_[0]) . '"');
 

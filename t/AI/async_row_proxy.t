@@ -93,6 +93,23 @@ subtest materialized_proxy_forwards => sub {
     is($proxy->field('name'), 'two', "field access works on the materialized row");
 };
 
+subtest ready_empty_resolves_opportunistically => sub {
+    # A ready-but-empty result must read as false / ready WITHOUT another method
+    # call poking the proxy into materializing first.
+    my ($proxy, $async) = mock_proxy(rows => []);
+    $async->{ready} = 1;
+    ok(!$proxy, "a ready-but-empty proxy is false in boolean context without being poked");
+
+    my ($proxy2, $async2) = mock_proxy(rows => []);
+    $async2->{ready} = 1;
+    ok(defined($proxy2->ready), "ready() reports a defined (ready) result for a ready-but-empty query");
+    ok($proxy2->ready, "ready() is true once the empty result has arrived");
+
+    # A still-pending proxy stays truthy.
+    my ($pending) = mock_proxy(rows => [{item_id => 1, name => 'one'}]);
+    ok($pending, "a pending proxy is still true in boolean context");
+};
+
 subtest empty_result_invalidates => sub {
     my ($proxy, $async) = mock_proxy(rows => []);
     $async->{ready} = 1;
