@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Upserts now preserve RETURNING clauses when literal write SQL contains the word "returning".
     - Handle omit() can now append to an existing omit set, and all_fields() now clears any previous omit.
     - Columns declared with blessed type instances now use those instances for field inflate/deflate.
     - Table names are now quoted in FROM clauses, fixing queries against reserved-word or mixed-case table names.

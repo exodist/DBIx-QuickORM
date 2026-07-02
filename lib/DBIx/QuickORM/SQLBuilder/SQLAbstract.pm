@@ -178,7 +178,7 @@ sub qorm_upsert {
 
     my $returning = "";
     my $statement = $sql->{statement};
-    $returning = $1 if $statement =~ s/\s+(returning.*)$//is;
+    ($statement, $returning) = ($1, $2) if $statement =~ m/(.*)\s+(returning\b.*)\z/is;
 
     my $pk_db = [ map { $source->field_db_name($_) } @$pk ];
     my $dbh   = $params{dialect}->dbh;

@@ -58,4 +58,24 @@ subtest mixed_still_updates => sub {
     is($h2->count, 1, "no duplicate row");
 };
 
+subtest literal_value_containing_returning => sub {
+    {
+        my $dbh = DBI->connect($dsn, '', '', {RaiseError => 1, PrintError => 0});
+        $dbh->do('CREATE TABLE phrases (id INTEGER PRIMARY KEY, note TEXT)');
+        $dbh->disconnect;
+    }
+
+    my $con2 = DBIx::QuickORM->quick(credentials => {dsn => $dsn});
+    my $h2   = $con2->handle('phrases');
+
+    my $row;
+    ok(
+        lives { $row = $h2->upsert({id => 1, note => \"'contains returning token'"}) },
+        "upsert keeps the RETURNING clause separate from a literal value containing the word",
+    ) or note $@;
+
+    is($row->field('id'), 1, "upsert returned the row primary key");
+    is($h2->by_id(1)->field('note'), 'contains returning token', "literal value was written intact");
+};
+
 done_testing;
