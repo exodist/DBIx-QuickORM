@@ -345,15 +345,19 @@ sub change_state {
 
 =pod
 
-=head1 PUBLIC METHODS
-
 =over 4
 
 =item $bool = $data->compare_field($field, \%a, \%b)
 
+=item $bool = $data->compare_field($field, \%a, \%b, $source, $connection)
+
 Returns true when the named field compares equal between two field hashes,
 using the field's type comparator when one exists and otherwise comparing by
 affinity. Treats existence and definedness mismatches as unequal.
+
+C<$source> and C<$connection> are optional and default to the row's own
+source and connection; callers that already hold them (or that compare
+against a different source) may pass them to avoid the lookup.
 
 =back
 

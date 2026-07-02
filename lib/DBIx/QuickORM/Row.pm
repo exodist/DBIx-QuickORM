@@ -431,6 +431,12 @@ The various field views: C<fields> merges pending over stored; the
 C<stored_*> / C<pending_*> variants read only that view, and the C<raw_*>
 variants return deflated values instead of inflated ones.
 
+For a partially-fetched row the hash-returning variants (C<fields>,
+C<raw_fields>, C<stored_fields>, etc.) return only the fields that have been
+fetched so far. In contrast C<field($name)> (and the single-field accessors)
+will fetch a missing stored field from the database on demand, so use those
+if you need a column that may not yet be loaded.
+
 =item $bool = $row->field_is_desynced($name)
 
 True if the named field is marked out of sync.
