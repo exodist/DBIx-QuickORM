@@ -2990,6 +2990,12 @@ C<on_ready> yields one fetched hashref per call.
 sub _do_select {
     my $self = shift;
 
+    # A handle bound to a row whose table has no primary key has no derivable
+    # WHERE clause, so a read would silently scan the whole table (and return
+    # the wrong row). The write side already guards this; guard reads too.
+    croak "Cannot read a row bound to a handle when its table has no primary key (no WHERE clause can be derived to identify the row)"
+        if $self->{+ROW} && !$self->_has_pk;
+
     my $con = $self->{+CONNECTION};
     $con->pid_and_async_check;
 
