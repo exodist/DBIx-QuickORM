@@ -644,14 +644,19 @@ sub autoname {
             return unless @$links;
             for my $link_pair (@$links) {
                 my ($a, $b) = @$link_pair;
-                my $table_a = $a->[0];
-                my $table_b = $b->[0];
 
-                push @$a => $callback->(in_table => $a->[0], fetch_table => $b->[0], in_fields => $a->[1], fetch_fields => $b->[1])
-                    unless @$a > 2; # Skip if it has an alias
+                # Only claim an alias when the callback actually returns one; a
+                # falsy ("no opinion") return must leave the pair unaliased so
+                # later naming hooks still get a chance at it.
+                unless (@$a > 2) {    # Skip if it already has an alias
+                    my $name = $callback->(in_table => $a->[0], fetch_table => $b->[0], in_fields => $a->[1], fetch_fields => $b->[1]);
+                    push @$a => $name if $name;
+                }
 
-                push @$b => $callback->(in_table => $b->[0], fetch_table => $a->[0], in_fields => $b->[1], fetch_fields => $a->[1])
-                    unless @$b > 2; # Skip if it has an alias
+                unless (@$b > 2) {    # Skip if it already has an alias
+                    my $name = $callback->(in_table => $b->[0], fetch_table => $a->[0], in_fields => $b->[1], fetch_fields => $a->[1]);
+                    push @$b => $name if $name;
+                }
             }
         });
     }
@@ -910,6 +915,10 @@ sub _table {
 
         if ($class && !$no_match) {
             my $table = $self->_load_table($class);
+
+            croak "'$class' defines a $table->{class}, not a $make"
+                if $table->{class} && $table->{class} ne $make;
+
             $name //= $table->{name};
             $into->{$name} = $table;
 
@@ -1198,6 +1207,9 @@ sub primary_key {
         croak "Not enough arguments" unless @list;
         $meta = $top->{meta};
     }
+
+    croak "primary_key is already defined for this table; pass { override => 1 } to replace it, or use the table-level list form for a composite key"
+        if $meta->{primary_key} && !$opts->{override};
 
     $meta->{primary_key} = \@list;
     $meta->{primary_key_override} = 1 if $opts->{override};
