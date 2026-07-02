@@ -336,8 +336,25 @@ sub insert_or_save {
 sub force_sync { $_[0]->_row_map(sub {$b->force_sync}); $_[0] }
 sub discard    { $_[0]->_row_map(sub {$b->discard   }); $_[0] }
 sub refresh    { $_[0]->_row_map(sub {$b->refresh   }); $_[0] }
-sub save       { $_[0]->_row_map(sub {$b->save      }); $_[0] }
-sub delete     { $_[0]->_row_map(sub {$b->delete    }); $_[0] }
+sub save {
+    my $self = shift;
+    # Save foreign-key parents before children (deterministic, not hash order).
+    for my $as (@{$self->source->save_order}) {
+        my $row = $self->{+BY_ALIAS}->{$as} or next;
+        $row->save;
+    }
+    return $self;
+}
+
+sub delete {
+    my $self = shift;
+    # Delete children before parents (reverse of the save order).
+    for my $as (reverse @{$self->source->save_order}) {
+        my $row = $self->{+BY_ALIAS}->{$as} or next;
+        $row->delete;
+    }
+    return $self;
+}
 #>>>
 
 ############################

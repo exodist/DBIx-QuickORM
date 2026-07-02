@@ -439,6 +439,56 @@ sub links {
 
 =pod
 
+=item $aliases = $join->save_order
+
+An arrayref of component aliases ordered so a foreign-key parent precedes its
+child (safe insert/save order; reverse it for delete). Each non-primary
+component is joined from an earlier alias via a link whose C<unique> side is
+the "one" (parent) end: C<unique> means the joined component is the parent,
+otherwise the from-side is. The order is a topological sort of those edges,
+tie-broken by join order, falling back to join order on a foreign-key cycle.
+
+=cut
+
+sub save_order {
+    my $self = shift;
+
+    my $order = $self->{+ORDER};
+    my $comps = $self->{+COMPONENTS};
+
+    my %rank = map { $order->[$_] => $_ } 0 .. $#$order;
+
+    my (%after, %indeg);
+    $indeg{$_} = 0 for @$order;
+    for my $as (@$order) {
+        my $link = $comps->{$as}->{link} or next;
+        my $from = $comps->{$as}->{from};
+        next unless defined $from && exists $comps->{$from};
+        my ($parent, $child) = $link->unique ? ($as, $from) : ($from, $as);
+        next if $parent eq $child;
+        push @{$after{$parent}} => $child;
+        $indeg{$child}++;
+    }
+
+    my @out;
+    while (@out < @$order) {
+        my ($pick) = sort { $rank{$a} <=> $rank{$b} } grep { defined($indeg{$_}) && !$indeg{$_} } keys %indeg;
+        unless (defined $pick) {
+            # A foreign-key cycle (relational schemas avoid these): fall back to
+            # join order for the remainder so the fan-out stays deterministic.
+            push @out => sort { $rank{$a} <=> $rank{$b} } keys %indeg;
+            last;
+        }
+        push @out => $pick;
+        $indeg{$_}-- for @{$after{$pick} // []};
+        delete $indeg{$pick};
+    }
+
+    return \@out;
+}
+
+=pod
+
 =item $table = $join->from($alias_or_name)
 
 Resolve an alias or table name to its component table. Croaks when a table
