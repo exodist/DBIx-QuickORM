@@ -192,7 +192,15 @@ sub ready {
     return 1 if exists $self->{+GOT_RESULT};
 
     my $msg = $self->_read_message(0);    # non-blocking peek for the result message
-    return 0 unless defined $msg;
+    unless (defined $msg) {
+        # read_message returns undef both for "no complete frame yet" and for
+        # EOF. If the child died before sending its result the pipe is at EOF
+        # and no frame will ever arrive; report ready so the next result()/next()
+        # surfaces the truncation error instead of spinning forever (wait() and
+        # DESTROY both poll ready()).
+        return 1 if $self->{+PIPE} && $self->{+PIPE}->eof;
+        return 0;
+    }
 
     $self->{+GOT_RESULT} = $self->_decode_result($msg);
     return $self->{+READY} = 1;
