@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Cancelling an async query no longer tries to collect its result (which croaks) or run its on_ready callback after the cancel.
     - reconnect() after a fork no longer explicitly disconnects the handle inherited from the parent, which could tear down the parent's database session.
     - A forked query whose child dies before producing a result is now detected by ready() instead of hanging wait()/DESTROY forever.
     - Destroying a parent transaction while a child savepoint is still open no longer wedges the connection with a phantom open transaction.
