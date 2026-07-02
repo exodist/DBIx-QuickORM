@@ -134,4 +134,42 @@ subtest handle_with_where_filters_the_subquery => sub {
         "the original handle is unchanged (still ts>15)");
 };
 
+subtest writes_through_a_subquery_source_croak => sub {
+    # A derived table is read-only; each write path should refuse it with a
+    # clear message rather than dying deep in statement construction (or, for
+    # insert, on a missing columns() method).
+    my $sub   = $con->handle('events')->where({kind => 'click'})->subquery_alias('w');
+    my $outer = $con->handle($sub);
+
+    like(
+        dies { $outer->insert({kind => 'x', ts => 1}) },
+        qr/Cannot insert through a derived-table \(subquery\) source/,
+        "insert through a subquery source croaks",
+    );
+    like(
+        dies { $outer->where({id => 3})->delete },
+        qr/Cannot delete through a derived-table \(subquery\) source/,
+        "delete through a subquery source croaks",
+    );
+    like(
+        dies { $outer->where({id => 3})->update({kind => 'y'}) },
+        qr/Cannot update through a derived-table \(subquery\) source/,
+        "update through a subquery source croaks",
+    );
+    like(
+        dies { $outer->where({id => 3})->cas({kind => 'click'}, {kind => 'y'}) },
+        qr/Cannot use cas\(\) through a derived-table \(subquery\) source/,
+        "cas through a subquery source croaks",
+    );
+};
+
+subtest omit_on_a_subquery_source_croaks => sub {
+    my $sub = $con->handle('events')->subquery_alias('o');
+    like(
+        dies { $con->handle($sub)->omit('ts')->all },
+        qr/Cannot omit fields on a source whose columns are not enumerable/,
+        "omit on a subquery source croaks instead of silently no-opping",
+    );
+};
+
 done_testing;
