@@ -91,6 +91,12 @@ sub cancel {
 
     unless ($self->ready && defined $self->result) {
         $self->dialect->async_cancel(dbh => $self->{+DBH}, sth => $self->{+STH});
+
+        # The query was cancelled, so there is no result to collect. Mark the
+        # fetch spent so set_done's _fetch does not call async_result (e.g.
+        # pg_result) on the cancelled query — which croaks — and does not run
+        # on_ready (cache maintenance) for a write that never completed.
+        $self->{+FETCH_CB} = undef;
     }
 
     $self->set_done;
