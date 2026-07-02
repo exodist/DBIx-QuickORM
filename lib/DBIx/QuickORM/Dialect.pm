@@ -285,6 +285,14 @@ sub upsert_statement {
     return "ON CONFLICT(" . join(", " => map { $dbh->quote_identifier($_) } @$pk) . ") DO UPDATE SET";
 }
 
+sub upsert_noop_assignment {
+    my $self = shift;
+    my ($quoted_col) = @_;
+    # A self-assignment keeps the conflict clause a valid no-op (so RETURNING
+    # still yields the row) without changing any data.
+    return "$quoted_col = $quoted_col";
+}
+
 ###############################################################################
 # {{{ Schema Builder Code
 ###############################################################################
