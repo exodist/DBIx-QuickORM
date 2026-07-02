@@ -11,7 +11,6 @@ $Carp::Internal{ (__PACKAGE__) }++;
 use Sub::Util qw/set_subname/;
 use Scalar::Util qw/blessed/;
 
-use Scope::Guard();
 use DBIx::QuickORM::Schema::Autofill();
 
 use DBIx::QuickORM::Util qw/load_class find_modules/;
@@ -542,7 +541,6 @@ sub db {
         delete $frame->{name};
         delete $frame->{meta}->{name};
         delete $frame->{meta}->{dbs};
-        delete $frame->{prefix} unless defined $frame->{prefix};
 
         $into = $top->{meta}->{dbs} //= {};
     }

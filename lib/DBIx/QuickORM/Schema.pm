@@ -158,9 +158,8 @@ sub merge {
     my $self = shift;
     my ($other, %params) = @_;
 
-    $params{+TABLES}    //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES});
-    $params{+NAME}      //= $self->{+NAME} if $self->{+NAME};
-    $params{+ROW_CLASS} //= $other->{+ROW_CLASS};
+    $params{+TABLES} //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES});
+    $params{+NAME}   //= $self->{+NAME} if $self->{+NAME};
 
     return ref($self)->new(%$self, %$other, %params);
 }

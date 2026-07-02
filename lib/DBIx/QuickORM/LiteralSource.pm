@@ -93,7 +93,7 @@ sub new {
 
 # {{{ Role::Source interface
 
-sub cachable { 0 }
+# No primary key, so Role::Source's cachable default already returns 0.
 
 sub source_db_moniker { ${$_[0]} }
 sub source_orm_name   { 'LITERAL' }

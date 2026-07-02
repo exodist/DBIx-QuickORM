@@ -6,8 +6,6 @@ our $VERSION = '0.000028';
 
 use Scalar::Util qw/weaken/;
 
-use DBIx::QuickORM::Affinity();
-
 use parent 'DBIx::QuickORM::RowManager';
 use Object::HashBase qw {
     +cache
