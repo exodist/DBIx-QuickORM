@@ -5,6 +5,7 @@ use warnings;
 our $VERSION = '0.000028';
 
 use Carp qw/croak/;
+use List::Util qw/uniq/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/column_key/;
 
@@ -156,7 +157,7 @@ sub merge {
         $new->{+CREATED} = $other->{+CREATED};
     }
 
-    $new->{+ALIASES} = [@{$self->{+ALIASES} // []}, @{$other->{+ALIASES} // []}];
+    $new->{+ALIASES} = [uniq(@{$self->{+ALIASES} // []}, @{$other->{+ALIASES} // []})];
 
     return bless($new, blessed($self));
 }
