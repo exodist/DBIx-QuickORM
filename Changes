@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - DSL variants, coderef defaults, table-class metadata, and builtin-shaped calls now preserve the intended user values.
     - JSON deflate no longer dies on top-level booleans and now honors TO_JSON for blessed values.
     - Inserts that only provide database-generated columns now croak cleanly instead of emitting invalid empty INSERT SQL.
     - Bulk deletes on primary-key-less tables now skip cache maintenance instead of failing before the delete runs.

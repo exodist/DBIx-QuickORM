@@ -8,7 +8,6 @@ our $VERSION = '0.000028';
 use Carp qw/croak confess/;
 $Carp::Internal{ (__PACKAGE__) }++;
 
-use Storable qw/dclone/;
 use Sub::Util qw/set_subname/;
 use Scalar::Util qw/blessed/;
 
@@ -103,7 +102,14 @@ sub import {
 
     for my $name (@EXPORT) {
         my $meth = $name;
-        $export{$name} //= set_subname("${caller}::$meth" => sub { shift @_ if @_ && $_[0] && "$_[0]" eq $caller; $builder->$meth(@_) });
+        $export{$name} //= set_subname("${caller}::$meth" => sub {
+            shift @_ if @_ && $_[0] && "$_[0]" eq $caller;
+            return CORE::connect($_[0], $_[1])         if $meth eq 'connect' && @_ == 2 && ref($_[0]);
+            return CORE::index($_[0], $_[1])           if $meth eq 'index' && @_ == 2 && !ref($_[0]) && !ref($_[1]);
+            return CORE::index($_[0], $_[1], $_[2])    if $meth eq 'index' && @_ == 3 && !grep { ref($_) } @_;
+            return CORE::socket($_[0], $_[1], $_[2], $_[3]) if $meth eq 'socket' && @_ == 4;
+            return $builder->$meth(@_);
+        });
     }
 
     my %seen;
@@ -807,6 +813,18 @@ sub _load_table {
     return $table;
 }
 
+sub _clone_ref {
+    my $self = shift;
+    my ($value) = @_;
+
+    my $ref = ref($value) or return $value;
+    return $value if $ref eq 'CODE';
+    return do { my $copy = $$value; \$copy } if $ref eq 'SCALAR';
+    return [map { $self->_clone_ref($_) } @$value] if $ref eq 'ARRAY';
+    return {map { $_ => $self->_clone_ref($value->{$_}) } keys %$value} if $ref eq 'HASH';
+    return $value;
+}
+
 sub table {
     my $self = shift;
     $self->_table('DBIx::QuickORM::Schema::Table', @_);
@@ -831,14 +849,14 @@ sub _table {
         $self->unimport_from($self->{+PACKAGE});
 
         my $pkg       = $self->{+PACKAGE};
-        my $row_class = $table->{row_class} // '+DBIx::QuickORM::Row';
-        my $loaded_class = load_class($row_class, 'DBIx::QuickORM::Row') or croak "Could not load row class '$row_class': $@";
+        my $row_class = $table->{meta}->{row_class} // 'DBIx::QuickORM::Row';
+        my $loaded_class = load_class($row_class) or croak "Could not load row class '$row_class': $@";
         $table->{row_class} = $self->{+PACKAGE};
         $table->{meta}->{row_class} = $self->{+PACKAGE};
 
         {
             no strict 'refs';
-            *{"$pkg\::qorm_table"} = sub { dclone($table) };
+            *{"$pkg\::qorm_table"} = sub { $self->_clone_ref($table) };
             push @{"$pkg\::ISA"} => $loaded_class;
         }
 
@@ -1325,6 +1343,32 @@ sub compile {
     return $out;
 }
 
+sub _variant_exists {
+    my $self = shift;
+    my ($frame, $variant) = @_;
+
+    return 1 if $frame->{alt}->{$variant};
+
+    my $recurse = $RECURSE{$frame->{building}} or return 0;
+    my $meta = $frame->{meta} // {};
+
+    for my $field (keys %$recurse) {
+        my $val = $meta->{$field} // next;
+
+        if ($recurse->{$field} > 1) {
+            for my $name (keys %$val) {
+                return 1 if $self->_variant_exists($val->{$name}, $variant);
+            }
+
+            next;
+        }
+
+        return 1 if $self->_variant_exists($val, $variant);
+    }
+
+    return 0;
+}
+
 sub _merge {
     my $self = shift;
     my ($a, $b) = @_;
@@ -1339,7 +1383,8 @@ sub _merge {
     # Not a ref, a wins
     return $a // $b unless $ref_a;
 
-    return { %$a, %$b } if $ref_a eq 'HASH';
+    return { %$b, %$a } if $ref_a eq 'HASH';
+    return $a if $ref_a eq 'ARRAY' || $ref_a eq 'SCALAR' || $ref_a eq 'CODE';
 
     croak "Not sure how to merge $a and $b";
 }
@@ -1362,7 +1407,15 @@ sub _build {
     for my $arg (@$args) {
         my $ref = ref($arg);
         if    (!$ref)          { if ($name) { push @extra => $arg } else { $name = $arg } }
-        elsif ($ref eq 'CODE') { croak "Multiple builders provided!" if $builder; $builder = $arg }
+        elsif ($ref eq 'CODE') {
+            if (@extra && $extra[-1] eq 'perl_default') {
+                push @extra => $arg;
+            }
+            else {
+                croak "Multiple builders provided!" if $builder;
+                $builder = $arg;
+            }
+        }
         elsif ($ref eq 'HASH') { croak "Multiple meta hashes provided!" if $meta_arg; $meta_arg = $arg }
         else                   { push @extra => $arg }
     }
@@ -1378,6 +1431,7 @@ sub _build {
     # Simple fetch
     if ($name && !$builder && !$meta_arg && !$force_build) {
         croak "'$name' is not a defined $type" unless $into->{$name};
+        croak "'$alt' is not a defined $type variant for '$name'" if $alt && !$self->_variant_exists($into->{$name}, $alt);
         return $self->compile($into->{$name}, $alt) unless $params{no_compile};
         return $into->{$name};
     }
