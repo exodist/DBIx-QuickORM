@@ -409,6 +409,14 @@ sub _join {
 
     my $source = $self->{+SOURCE};
 
+    # Joins are only implemented over table (or view) sources and already-built
+    # joins. A LiteralSource / derived-table source has no resolve_link and its
+    # moniker is a bind-ref that would be string-concatenated into broken SQL,
+    # so refuse early rather than failing deep in join construction.
+    croak "Cannot build a join from a " . (blessed($source) || ref($source) || 'non-object') . " source; joins require table sources"
+        unless blessed($source)
+        && ($source->isa('DBIx::QuickORM::Join') || $source->isa('DBIx::QuickORM::Schema::Table'));
+
     if (($params{type} // '') =~ m/^CROSS$/i) {
         # A cross join has no ON clause, so no link is needed; the argument
         # names the table to join.

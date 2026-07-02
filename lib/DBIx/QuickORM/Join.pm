@@ -562,6 +562,8 @@ sub _join {
         # needed either, only the table being joined.
         my $table = $params{table} or croak "A 'table' is required for a link-less CROSS join";
         $joined = blessed($table) ? $table : $self->schema->table($table);
+        croak "A CROSS join table must be a table source, got a " . (blessed($joined) || ref($joined) || 'non-object')
+            unless blessed($joined) && $joined->isa('DBIx::QuickORM::Schema::Table');
         $from = undef;
     }
 
