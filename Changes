@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Invalidating a row no longer emits a spurious "pending data" warning from a rolled-back frame, and resurrecting an invalidated row clears its stale invalidation reason.
     - An async single-row proxy now resolves boolean and ready() opportunistically, so a completed-empty result reads as false/ready without needing another method call first.
     - Autorow generation no longer silently swallows a compile error in a user's row/base class (it rethrows instead of substituting the stock Row), and builds the correct %INC key for multi-part class names.
     - Saving or deleting a join row now fans out to its sub-rows in a deterministic foreign-key-safe order (parents before children on save, children first on delete) instead of hash order.
