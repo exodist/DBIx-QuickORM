@@ -276,7 +276,14 @@ sub parse {
     croak "Unknown link specification key(s): " . join(', ', sort keys %$link)
         if keys %$link;
 
-    $local_table //= $source ? $source->name : croak "No local_table or source provided";
+    unless (defined $local_table) {
+        croak "No local_table or source provided" unless $source;
+        # A Join source has no single local table, so it provides no name();
+        # tell the caller to be explicit rather than dying on a missing method.
+        croak "Cannot infer local_table from this source; pass local_table or from"
+            unless $source->can('name');
+        $local_table = $source->name;
+    }
     croak "no other_table provided" unless $other_table;
 
     my ($local, $other);
