@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Committing or rolling back an outer transaction object from inside a nested transaction's action now croaks instead of silently resolving the inner transaction.
     - A blessed row_manager instance already in use by one connection can no longer be silently rebound to another; it croaks instead of corrupting the first connection's state.
     - A database handle returned by a connect callback now gets the same default attributes (RaiseError, AutoCommit, etc.) as the DSN path instead of only AutoInactiveDestroy.
     - Committing a transaction whose rollback was refused by a guard now croaks instead of silently issuing a ROLLBACK while reporting success.
