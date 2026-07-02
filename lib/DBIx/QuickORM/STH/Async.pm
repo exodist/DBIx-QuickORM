@@ -143,10 +143,10 @@ sub ready {
     $self->{+READY} = $self->dialect->async_ready(dbh => $self->{+DBH}, sth => $self->{+STH});
     return 0 unless $self->{+READY};
 
-    if ($self->no_rows) {
-        $self->next;
-        $self->set_done;
-    }
+    # result() performs the no_rows drain exactly once (it caches GOT_RESULT
+    # before finalizing), so on_ready fires a single time; calling next()+
+    # set_done() here re-entered _fetch and fired on_ready twice.
+    $self->result if $self->no_rows;
 
     return $self->{+READY};
 }
