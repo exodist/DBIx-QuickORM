@@ -1879,6 +1879,7 @@ sub by_id {
     #>>>
 
     croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';
+    croak "Undefined primary key value in by_id()" if grep { !defined } @$id;
 
     $self->{+CONNECTION}->pid_check;
 
