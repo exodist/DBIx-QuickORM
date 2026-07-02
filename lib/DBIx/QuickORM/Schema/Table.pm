@@ -378,9 +378,13 @@ Arrayref of all column names.
 
 =cut
 
-sub fields_to_fetch { $_[0]->{+FIELDS_TO_FETCH} //= [ map { $_->name } grep { !$_->omit } values %{$_[0]->{+COLUMNS}} ] }
-sub fields_to_omit  { $_[0]->{+FIELDS_TO_OMIT}  //= [ map { $_->name } grep { $_->omit }  values %{$_[0]->{+COLUMNS}} ] }
-sub fields_list_all { $_[0]->{+FIELDS_LIST_ALL} //= [ map { $_->name }                    values %{$_[0]->{+COLUMNS}} ] }
+# Sorted by each column's order slot so generated field lists (and thus the
+# SELECT column order) are deterministic run-to-run instead of hash order.
+sub fields_to_fetch { $_[0]->{+FIELDS_TO_FETCH} //= [ map { $_->name } grep { !$_->omit } $_[0]->_columns_in_order ] }
+sub fields_to_omit  { $_[0]->{+FIELDS_TO_OMIT}  //= [ map { $_->name } grep { $_->omit }  $_[0]->_columns_in_order ] }
+sub fields_list_all { $_[0]->{+FIELDS_LIST_ALL} //= [ map { $_->name }                    $_[0]->_columns_in_order ] }
+
+sub _columns_in_order { sort { $a->order <=> $b->order } values %{$_[0]->{+COLUMNS}} }
 
 =pod
 
