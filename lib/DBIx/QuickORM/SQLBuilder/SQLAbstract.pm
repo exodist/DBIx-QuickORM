@@ -246,19 +246,41 @@ sub qorm_upsert {
 =item @args = $builder->_where_args(\%params)
 
 Translate the ORM parameter hash into the positional argument list the
-corresponding C<SQL::Abstract> method expects. Insert and delete confess on
-unsupported C<limit> / C<order_by> clauses.
+corresponding C<SQL::Abstract> method expects. Insert, update, and delete
+reject unsupported C<limit> / C<offset> / C<order_by> / C<distinct> clauses;
+C<where> rejects C<distinct>.
+
+=item $builder->_reject_unsupported_clauses($verb, \%params, @clauses)
+
+Confess (naming C<$verb>) for each of the named clauses that is present in
+C<%params>. Shared by the C<_*_args> helpers so the messages stay identical.
 
 =cut
+
+# Clause name => [ human description, whether presence is tested with defined() ].
+my %UNSUPPORTED_CLAUSE = (
+    limit    => ["a 'limit' clause",     1],
+    offset   => ["an 'offset' clause",   1],
+    order_by => ["an 'order_by' clause", 0],
+    distinct => ["'distinct' set",       0],
+);
+
+sub _reject_unsupported_clauses {
+    my $self = shift;
+    my ($verb, $params, @clauses) = @_;
+
+    for my $clause (@clauses) {
+        my $spec = $UNSUPPORTED_CLAUSE{$clause} or confess "Unknown clause '$clause'";
+        my $present = $spec->[1] ? defined($params->{$clause}) : $params->{$clause};
+        confess "$verb() with $spec->[0] is not currently supported" if $present;
+    }
+}
 
 sub _insert_args {
     my $self = shift;
     my ($params) = @_;
 
-    confess "insert() with a 'limit' clause is not currently supported"     if defined $params->{limit};
-    confess "insert() with an 'offset' clause is not currently supported"   if defined $params->{offset};
-    confess "insert() with an 'order_by' clause is not currently supported" if $params->{order_by};
-    confess "insert() with 'distinct' set is not currently supported"       if $params->{distinct};
+    $self->_reject_unsupported_clauses(insert => $params, qw/limit offset order_by distinct/);
 
     my $values = $params->{insert} // croak "'insert' is required";
     my $returning = $params->{returning};
@@ -272,10 +294,7 @@ sub _delete_args {
     my $self = shift;
     my ($params) = @_;
 
-    confess "delete() with a 'limit' clause is not currently supported"     if defined $params->{limit};
-    confess "delete() with an 'offset' clause is not currently supported"   if defined $params->{offset};
-    confess "delete() with an 'order_by' clause is not currently supported" if $params->{order_by};
-    confess "delete() with 'distinct' set is not currently supported"       if $params->{distinct};
+    $self->_reject_unsupported_clauses(delete => $params, qw/limit offset order_by distinct/);
 
     my $where = $params->{where};
     my $returning = $params->{returning};
@@ -287,10 +306,7 @@ sub _update_args {
     my $self = shift;
     my ($params) = @_;
 
-    confess "update() with a 'limit' clause is not currently supported"     if defined $params->{limit};
-    confess "update() with an 'offset' clause is not currently supported"   if defined $params->{offset};
-    confess "update() with an 'order_by' clause is not currently supported" if $params->{order_by};
-    confess "update() with 'distinct' set is not currently supported"       if $params->{distinct};
+    $self->_reject_unsupported_clauses(update => $params, qw/limit offset order_by distinct/);
 
     my $values    = $params->{update} or croak "'update' is required";
     my $returning = $params->{returning};
@@ -315,7 +331,7 @@ sub _where_args {
     my $self = shift;
     my ($params) = @_;
 
-    confess "where() with 'distinct' set is not currently supported" if $params->{distinct};
+    $self->_reject_unsupported_clauses(where => $params, 'distinct');
 
     my $where = $params->{where};
     my $order = $params->{order_by};
