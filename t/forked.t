@@ -86,10 +86,10 @@ do_for_all_dbs {
 
     ok($forked->async->pid, "got a pid");
 
-    ok(blessed($ready), 'DBIx::QuickORM::Row', "Row was returned from ready()");
+    isa_ok($ready, ['DBIx::QuickORM::Row'], "Row was returned from ready()");
     ref_is($ready, $row, "same ref");
 
-    ok(blessed($readyC), 'DBIx::QuickORM::Row', "Row was returned from ready()");
+    isa_ok($readyC, ['DBIx::QuickORM::Row'], "Row was returned from ready()");
     ref_is($readyC, $row, "same ref");
 
     is(blessed($forked), 'DBIx::QuickORM::Row::Async', "Still async");
@@ -119,4 +119,3 @@ do_for_all_dbs {
 };
 
 done_testing;
-

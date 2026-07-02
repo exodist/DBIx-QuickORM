@@ -76,10 +76,10 @@ do_for_all_dbs {
     ok($counter > 5, "We waited at least once ($counter)");
     ok($counterC < 5, "We did not need to wait much for the second ($counterC)");
 
-    ok(blessed($ready), 'DBIx::QuickORM::Row', "Row was returned from ready()");
+    isa_ok($ready, ['DBIx::QuickORM::Row'], "Row was returned from ready()");
     ref_is($ready, $row, "same ref");
 
-    ok(blessed($readyC), 'DBIx::QuickORM::Row', "Row was returned from ready()");
+    isa_ok($readyC, ['DBIx::QuickORM::Row'], "Row was returned from ready()");
     ref_is($readyC, $row, "same ref");
 
     is(blessed($aside), 'DBIx::QuickORM::Row::Async', "Still async");

@@ -172,7 +172,8 @@ sub do_for_all_dbs(&;@) {
                     local $CURRENT_SET = $set;
                     $ENV{$_} = $set->{env}->{$_} for keys %{$set->{env}};
                     my $qdb = "DBIx::QuickDB::Driver::$set->{quickdb}";
-                    my $have_qdb = eval { require "DBIx/QuickDB/Driver/$set->{quickdb}.pm"; my ($v, $why) = $qdb->viable({load_sql => 1, bootstrap => 1}); $v || die $why } or note $@;
+                    my %dbd_args = $dbi =~ m/^(?:mysql|MariaDB)$/ ? (dbd_driver => "DBD::$dbi") : ();
+                    my $have_qdb = eval { require "DBIx/QuickDB/Driver/$set->{quickdb}.pm"; my ($v, $why) = $qdb->viable({load_sql => 1, bootstrap => 1, %dbd_args}); $v || die $why } or note $@;
                     my $have_dbi = eval { require "DBD/$dbi.pm"; 1 } or note $@;
 
                     unless ($have_qdb && $have_dbi) {
@@ -211,11 +212,11 @@ sub do_for_all_dbs(&;@) {
                     my $db;
                     if ($sql_file) {
                         note "Loading SQL file: $sql_file\n";
-                        $db = $set->{db}->(load_sql => [quickdb => $sql_file]);
+                        $db = $set->{db}->(%dbd_args, load_sql => [quickdb => $sql_file]);
                     }
                     else {
                         note "No sql file found, skipping...\n";
-                        $db = $set->{db}->();
+                        $db = $set->{db}->(%dbd_args);
                     }
 
                     $code->($db);
