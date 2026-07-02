@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Reads on a handle bound to a row whose table has no primary key now croak instead of scanning the whole table (and possibly returning the wrong row).
     - Building a join from a non-table source (e.g. a literal/derived-table source) now croaks early instead of failing deep in join construction with obscure errors.
     - A hashref link spec without local_table resolved on a join now croaks with a clear message instead of dying on a missing name() method.
     - A bare (unqualified) field that exists in more than one joined component now reports a clean ambiguity instead of silently binding to the first match.
