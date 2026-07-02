@@ -1044,12 +1044,11 @@ BEGIN {
                 "Cannot have multiple hashes"
             );
 
-            like(
-                dies {
+            ok(
+                lives {
                     columns x => sub { }
                 },
-                qr/Not sure what to do with/,
-                "Cannot use a sub"
+                "columns() accepts a trailing builder"
             );
         };
     };
