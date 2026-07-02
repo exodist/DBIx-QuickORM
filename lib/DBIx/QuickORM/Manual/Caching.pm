@@ -110,8 +110,9 @@ row object and the one-copy guarantee no longer applies.
 
 To customise caching, supply your own manager - typically a subclass of
 L<DBIx::QuickORM::RowManager::Cached> - via the connection's C<manager>
-attribute, or build the ORM with a C<cache_class> so each connection it creates
-gets a fresh cache of your chosen class.
+attribute, or set the ORM's C<row_manager> (a manager class or instance, for
+example C<< DBIx::QuickORM->quick(row_manager => ...) >>). The ORM passes its
+C<row_manager> to every connection it creates as that connection's C<manager>.
 
 =head1 SEE ALSO
 
