@@ -497,17 +497,49 @@ sub _translate_where {
                 $out{$key} = ref($val) ? $self->_translate_where($source, $val) : $self->_field_to_db($source, $val);
             }
             else {
-                $out{$self->_field_to_db($source, $key)} = $val;
+                $out{$self->_field_to_db($source, $key)} = $self->_translate_value($source, $val);
             }
         }
         return \%out;
     }
 
     if ($ref eq 'ARRAY') {
-        return [ map { $self->_translate_where($source, $_) } @$where ];
+        # An arrayref is either a list of OR-ed conditions (refs) or a flat
+        # field => value pair list; walk pairwise so a bare field name is
+        # translated and its following value passed through untranslated, while
+        # a -op token or a nested condition is not treated as a field name.
+        my @in = @$where;
+        my @out;
+        while (@in) {
+            my $el = shift @in;
+            if (ref $el) {
+                push @out => $self->_translate_where($source, $el);
+            }
+            elsif ($el =~ m/^-/) {
+                push @out => $el;
+            }
+            else {
+                push @out => $self->_field_to_db($source, $el);
+                push @out => $self->_translate_value($source, shift(@in)) if @in;
+            }
+        }
+        return \@out;
     }
 
     return $where;
+}
+
+sub _translate_value {
+    my $self = shift;
+    my ($source, $val) = @_;
+
+    # A field value that is an -ident expression names another column, not data,
+    # so its identifier must be translated to the database name too.
+    if (ref($val) eq 'HASH' && exists $val->{'-ident'} && !ref($val->{'-ident'})) {
+        return {%$val, '-ident' => $self->_field_to_db($source, $val->{'-ident'})};
+    }
+
+    return $val;
 }
 
 =pod
