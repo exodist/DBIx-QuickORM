@@ -107,13 +107,11 @@ BEGIN {
             if (blessed($source)) {
                 croak "'$source' does not implement the 'DBIx::QuickORM::Role::Source' role" unless $source->DOES('DBIx::QuickORM::Role::Source');
                 my $moniker = $source->source_db_moniker;
-                # Emit the FROM target verbatim. With quote_char set,
-                # SQL::Abstract would otherwise quote a plain-string moniker as
-                # a single identifier, corrupting literal-source subqueries
-                # ("( SELECT ... ) AS x") and join FROM fragments. A scalar ref
-                # is passed through as literal SQL; join monikers are already
-                # refs, so only wrap when one is not.
-                my $from = ref($moniker) ? $moniker : \$moniker;
+                # Table/view monikers are identifiers and must let
+                # SQL::Abstract quote them. Literal, join, and subquery
+                # monikers are already complete FROM fragments.
+                my $from = $moniker;
+                $from = \$moniker unless ref($moniker) || $source->isa('DBIx::QuickORM::Schema::Table');
                 ($stmt, @bind) = $self->$meth($from, @args);
             }
             else {

@@ -39,7 +39,7 @@ subtest round_trip_and_bind_order => sub {
     my $outer = $con->handle($sub)->where({kind => 'click'})->order_by('id');
 
     my $sql = $outer->sql_builder->qorm_select(%{$outer->_builder_args});
-    like($sql->{statement}, qr/FROM \( SELECT .* FROM events WHERE "ts" > \? \) AS recent/,
+    like($sql->{statement}, qr/FROM \( SELECT .* FROM "events" WHERE "ts" > \? \) AS recent/,
         "inner query is spliced in as a derived table");
     is(
         [map { $_->{value} } @{$sql->{bind}}],
@@ -104,7 +104,7 @@ subtest plain_handle_is_used_as_source => sub {
     ref_is_not($outer, $h, "passing a handle to handle() builds a new handle around it, not the same object");
 
     my $sql = $outer->sql_builder->qorm_select(%{$outer->_builder_args});
-    like($sql->{statement}, qr/FROM \( SELECT .* FROM events WHERE "kind" = \? \) AS subquery/,
+    like($sql->{statement}, qr/FROM \( SELECT .* FROM "events" WHERE "kind" = \? \) AS subquery/,
         "an unmarked handle is wrapped as a derived table aliased 'subquery'");
 
     is([map { $_->field('id') } $outer->order_by('id')->all], [1, 3, 4],

@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Table names are now quoted in FROM clauses, fixing queries against reserved-word or mixed-case table names.
     - Non-RETURNING inserts now preserve caller-supplied primary keys instead of replacing them with last_insert_id().
     - JSON typed columns can now read back scalar JSON values written by the ORM, such as strings and numbers.
     - Masked inflated values now delegate numeric comparisons to the wrapped object instead of forcing direct numification.
