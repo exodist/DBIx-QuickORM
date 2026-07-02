@@ -226,4 +226,16 @@ subtest parse_conflate_args => sub {
     };
 };
 
+subtest merge_hash_of_objs_explicit_undef => sub {
+    # Regression: an explicit undef in the second hash must win (second wins)
+    # without dereferencing the undef, even when the first hash holds a ref.
+    my $out;
+    ok(
+        lives { $out = merge_hash_of_objs({k => [1, 2], h => {a => 1}}, {k => undef, h => undef}) },
+        "explicit-undef second value does not crash the ref branches",
+    ) or note $@;
+    ok(!defined $out->{k}, "array-vs-undef: second (undef) wins");
+    ok(!defined $out->{h}, "hash-vs-undef: second (undef) wins");
+};
+
 done_testing;

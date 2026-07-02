@@ -111,7 +111,8 @@ sub merge_hash_of_objs {
             my $r = ref($a);
             my $bl = blessed($a);
 
-            if    ($bl)           { $out{$name} = $a->merge($b, %$merge_params) }
+            if    (!defined $b)   { $out{$name} = $b }                              # Explicit undef in second wins
+            elsif ($bl)           { $out{$name} = $a->merge($b, %$merge_params) }
             elsif ($r eq 'HASH')  { $out{$name} = {%$a, %$b} }
             elsif ($r eq 'ARRAY') { $out{$name} = [@$b] }                           # Second array wins
             else                  { $out{$name} = $b }                              # Second value wins
