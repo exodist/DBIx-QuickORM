@@ -200,7 +200,8 @@ subtest cas_count_reliable_unit => sub {
     ok($d->cas_count_reliable({mysql_client_found_rows => 1}), "reliable when on");
     ok($d->cas_count_reliable({}), "reliable when unset (driver defaults on)");
     ok(!$d->cas_count_reliable({mysql_client_found_rows => 0}), "unreliable when explicitly off");
-    ok(!$d->cas_count_reliable({mariadb_found_rows => 0}), "unreliable when mariadb flag off");
+    ok(!$d->cas_count_reliable({mariadb_client_found_rows => 0}), "unreliable when mariadb flag off");
+    ok($d->cas_count_reliable({mariadb_found_rows => 0}), "unknown mariadb flag spelling is ignored");
 };
 
 done_testing;

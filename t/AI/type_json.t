@@ -87,6 +87,18 @@ subtest blessed_ref_deflation => sub {
         '[4,5,6]',
         "blessed arrayref deflates to a plain JSON array",
     );
+
+    {
+        package Some::JSON::Object;
+        sub TO_JSON { return {from_to_json => $_[0]->{value}} }
+    }
+
+    my $to_json = bless {value => 42}, 'Some::JSON::Object';
+    is(
+        $C->qorm_deflate(class => $C, value => $to_json, affinity => 'string'),
+        '{"from_to_json":42}',
+        "blessed objects with TO_JSON delegate to the JSON encoder",
+    );
 };
 
 subtest canonical_compare => sub {

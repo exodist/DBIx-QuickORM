@@ -102,7 +102,7 @@ sub async_cancel           { my $self = shift; croak "Dialect '" . $self->dialec
 
 The MySQL and MariaDB drivers enable the found-rows client flag by default, so
 the affected-row count reflects rows matched. This returns false only when that
-flag (C<mysql_client_found_rows> / C<mariadb_found_rows>) was explicitly turned
+flag (C<mysql_client_found_rows> / C<mariadb_client_found_rows>) was explicitly turned
 off in the connect attributes.
 
 =cut
@@ -110,7 +110,7 @@ off in the connect attributes.
 sub cas_count_reliable {
     my $self = shift;
     my ($attrs) = @_;
-    for my $key (qw/mysql_client_found_rows mariadb_found_rows/) {
+    for my $key (qw/mysql_client_found_rows mariadb_client_found_rows/) {
         return 0 if exists $attrs->{$key} && !$attrs->{$key};
     }
     return 1;

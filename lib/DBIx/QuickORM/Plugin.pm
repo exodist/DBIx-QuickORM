@@ -21,8 +21,8 @@ C<plugin>/C<plugins> exports) and are given a chance to mutate each build
 frame as it is compiled. A plugin registered at one nesting level applies
 to every build nested inside it.
 
-This base class adds no behavior of its own; subclasses provide a C<munge>
-method (called with the build frame) to do their work.
+This base class adds no behavior of its own; subclasses may override C<munge>
+(called with the build frame) to do their work.
 
 =head1 SYNOPSIS
 
@@ -36,6 +36,22 @@ method (called with the build frame) to do their work.
     }
 
 =cut
+
+=pod
+
+=head1 PUBLIC METHODS
+
+=over 4
+
+=item $plugin->munge(\%frame)
+
+Hook called for every build frame. The base implementation is a no-op.
+
+=back
+
+=cut
+
+sub munge { shift; return }
 
 1;
 

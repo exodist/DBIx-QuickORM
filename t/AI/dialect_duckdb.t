@@ -55,7 +55,8 @@ subtest introspection => sub {
 
     my $users = $con->source('users');
     ok(!$users->column('email')->nullable, "NOT NULL column introspected as not-nullable");
-    ok($users->column('id')->nullable == 0 || $users->column('id')->nullable, "id nullability resolved");
+    my $id_nullable = $users->column('id')->nullable;
+    ok(defined($id_nullable) && ($id_nullable == 0 || $id_nullable == 1), "id nullability resolved to a boolean");
 
     # unique keys: the (a,b) composite plus the single-column PK/unique.
     my $uk = $posts->unique;

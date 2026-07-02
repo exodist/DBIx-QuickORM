@@ -102,10 +102,12 @@ sub merge_hash_of_objs {
     for my $name (keys %$hash_a, keys %$hash_b) {
         next if $seen{$name}++;
 
-        my $a = $hash_a->{$name};
-        my $b = $hash_b->{$name};
+        my $has_a = exists $hash_a->{$name};
+        my $has_b = exists $hash_b->{$name};
+        my $a     = $hash_a->{$name};
+        my $b     = $hash_b->{$name};
 
-        if ($a && $b) {
+        if ($has_a && $has_b) {
             my $r = ref($a);
             my $bl = blessed($a);
 
@@ -117,7 +119,7 @@ sub merge_hash_of_objs {
             next;
         }
 
-        my $v  = $a // $b;
+        my $v  = $has_a ? $a : $b;
         my $r  = ref($v);
         my $bl = blessed($v);
         if    ($bl)           { $out{$name} = $v->clone(%$merge_params) }
@@ -138,7 +140,7 @@ sub clone_hash_of_objs {
     my %seen;
 
     for my $name (keys %$hash) {
-        my $val = $hash->{$name} or next;
+        my $val = $hash->{$name};
         if (blessed($val)) {
             $out{$name} = $hash->{$name}->clone(%$clone_params);
             next;
@@ -150,6 +152,9 @@ sub clone_hash_of_objs {
         }
         elsif ($r eq 'HASH') {
             $out{$name} = clone_hash_of_objs($val, $clone_params);
+        }
+        else {
+            $out{$name} = $val;
         }
     }
 
