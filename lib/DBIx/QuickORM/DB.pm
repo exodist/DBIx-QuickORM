@@ -211,7 +211,14 @@ sub new_dbh {
         croak "Could not connect to the database: $reason";
     }
 
-    $dbh->{AutoInactiveDestroy} = 1 if $attrs->{AutoInactiveDestroy};
+    # A connect callback returns its own handle, so the attributes the DSN path
+    # passes to DBI->connect never reach it. Enforce the same sensible defaults
+    # here (RaiseError, so the eval-based error handling throughout the codebase
+    # works; AutoCommit, so the dialect owns transaction control) as the DSN
+    # path already gets. Harmless on the DSN path, which already has them.
+    for my $attr (qw/RaiseError PrintError AutoCommit AutoInactiveDestroy/) {
+        $dbh->{$attr} = $attrs->{$attr} if defined $attrs->{$attr};
+    }
 
     return $dbh;
 }
