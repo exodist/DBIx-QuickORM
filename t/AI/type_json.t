@@ -65,10 +65,9 @@ subtest deflate => sub {
         "numeric scalar round-trips through deflate and inflate",
     );
 
-    like(
-        dies { $C->qorm_deflate(class => $C, value => {x => 1}) },
-        qr/Could not determine affinity/,
-        "deflate croaks without an affinity",
+    ok(
+        lives { $C->qorm_deflate(class => $C, value => {x => 1}) },
+        "deflate does not require an affinity (it never uses one)",
     );
 };
 
