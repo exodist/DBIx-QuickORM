@@ -25,7 +25,7 @@ DIFFERENCES">.
     DBIx::Class                         DBIx::QuickORM
     ------------------------------      ----------------------------------------
     Schema (class)                      an ORM defined with the DSL, or quick()
-    $schema = ...->connect(...)         $orm = orm('name'); / DBIx::QuickORM->quick(...)
+    $schema = ...->connect(...)         $orm = qorm(orm => 'name'); / DBIx::QuickORM->quick(...)
     $schema->storage                    DBIx::QuickORM::Connection
     ResultSource / Result class         DBIx::QuickORM::Schema::Table (a "source")
     ResultSet                           DBIx::QuickORM::Handle (a query/handle)
@@ -140,7 +140,7 @@ L<DBIx::QuickORM::Manual::Types>.
 =head1 CONNECTING AND LOADING SCHEMA
 
 C<< Schema->connect(@info) >> maps to fetching a configured ORM and using its
-connection (C<< orm('name') >> then C<< ->connection >>/C<< ->handle >>), or
+connection (C<< qorm(orm => 'name') >> then C<< ->connection >>/C<< ->handle >>), or
 to C<< DBIx::QuickORM->quick(...) >> when you just want a connection from a
 DSN. See L<DBIx::QuickORM::Manual::QuickStart> and
 L<DBIx::QuickORM::Manual::Connections>.
