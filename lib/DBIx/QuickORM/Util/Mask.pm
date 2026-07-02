@@ -17,6 +17,12 @@ use overload(
     fallback => 1,
     '""'   => sub { $_[0]->[STR] },               # never inflates - always the display string
     '0+'   => sub { 0 + $_[0]->qorm_unmask },
+    '<=>'  => sub {
+        my ($self, $other, $swap) = @_;
+        $other = $other->qorm_unmask if blessed($other) && $other->isa(__PACKAGE__);
+        my $value = $self->qorm_unmask;
+        return $swap ? $other <=> $value : $value <=> $other;
+    },
     'bool' => sub { 1 },                          # a mask is always a defined wrapper
     '%{}'  => sub { $_[0]->qorm_unmask },          # hash deref delegates to the wrapped object
 );

@@ -23,6 +23,24 @@ use DBIx::QuickORM::Util::Mask;
     use parent -norequire, 'DBIx::QuickORM::Util::Mask';
 }
 
+{
+    package Masked::Test::Comparable;
+    use overload(
+        fallback => 1,
+        '0+'  => sub { die "numification forbidden" },
+        '<=>' => sub {
+            my ($self, $other, $swap) = @_;
+            $other = $other->{value} if ref($other) eq __PACKAGE__;
+            return $swap ? $other <=> $self->{value} : $self->{value} <=> $other;
+        },
+    );
+
+    sub new {
+        my $class = shift;
+        return bless {value => shift}, $class;
+    }
+}
+
 # ---- new(): argument validation ----
 subtest new_validation => sub {
     ok(
@@ -176,6 +194,22 @@ subtest can_delegation => sub {
 subtest overloads => sub {
     my $num = mask(string => "n", generator => sub { 99 });
     is(0 + $num, 99, "0+ overload numifies via the wrapped value");
+
+    my $low  = mask(string => "low",  generator => sub { Masked::Test::Comparable->new(2) });
+    my $same = mask(string => "same", generator => sub { Masked::Test::Comparable->new(2) });
+    my $high = mask(string => "high", generator => sub { Masked::Test::Comparable->new(5) });
+
+    ok($low < $high, "numeric less-than delegates to the wrapped object's comparison");
+    ok($high > $low, "numeric greater-than delegates to the wrapped object's comparison");
+    ok($low == $same, "numeric equality delegates to the wrapped object's comparison");
+    ok($low < 3, "numeric comparison to a plain scalar works");
+    ok(3 > $low, "reversed numeric comparison to a plain scalar works");
+
+    like(
+        dies { 0 + $low },
+        qr/numification forbidden/,
+        "direct numification still uses the wrapped value's numification overload",
+    );
 
     my $m = mask(string => "d", generator => sub { Masked::Test::Obj->new });
     ok($m, "bool overload is always true");
