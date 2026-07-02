@@ -502,7 +502,9 @@ You can do this with a call to ->refresh().
 sub _field {
     my $self  = shift;
     my $meth  = shift;
-    my $field = shift or croak "Must specify a field name";
+    croak "Must specify a field name" unless @_;
+    my $field = shift;
+    croak "Must specify a field name" unless defined $field && length $field;
 
     croak "This row does not have a '$field' field" unless $self->has_field($field);
 
