@@ -2725,6 +2725,11 @@ Build the combined primary-key-plus-guard where clause. Field-name guards are
 wrapped in L<DBIx::QuickORM::Raw> so their stored values bind as-is instead of
 being deflated a second time.
 
+=item $val = $h->_cas_raw_stored_guard($row, $field)
+
+Return a field-list guard's stored raw value, croaking if the row has not
+fetched that field.
+
 =item $resolver = $h->_cas_resolver($row, \%changes, $pk_fields)
 
 Return a coderef that reads the affected-row count from a finished statement
@@ -2798,7 +2803,7 @@ sub _cas_guard_advances {
         # A hashref guard may hold an operator or literal rather than a plain
         # value; if we cannot read a scalar guard value we cannot compare, so we
         # assume the guard advances rather than warn on something we misread.
-        my $old = $hash_guard ? $guard_where->{$field} : $row->raw_stored_field($field);
+        my $old = $hash_guard ? $guard_where->{$field} : $self->_cas_raw_stored_guard($row, $field);
         return 1 if ref($old);
 
         # compare_field is true when the values are equal; any difference advances
@@ -2829,11 +2834,22 @@ sub _cas_where {
         # The stored value is already in database form. Wrap it so the bind
         # path leaves it untouched instead of deflating it again; an undef
         # value becomes an IS NULL test rather than a bound NULL.
-        my $val = $row->raw_stored_field($field);
+        my $val = $self->_cas_raw_stored_guard($row, $field);
         $where{$field} = defined($val) ? {'-value' => DBIx::QuickORM::Raw->new($val)} : undef;
     }
 
     return \%where;
+}
+
+sub _cas_raw_stored_guard {
+    my $self = shift;
+    my ($row, $field) = @_;
+
+    my $stored = $row->stored_data;
+    croak "cas() guard field '$field' was not fetched for this row"
+        unless $stored && exists $stored->{$field};
+
+    return $row->raw_stored_field($field);
 }
 
 sub _cas_resolver {
