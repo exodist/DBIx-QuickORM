@@ -52,6 +52,23 @@ subtest column_affinity => sub {
     );
 };
 
+subtest field_type => sub {
+    require DBIx::QuickORM::Type::JSON;
+
+    my $json = bless {}, 'DBIx::QuickORM::Type::JSON';
+    my $table = DBIx::QuickORM::Schema::Table->new(
+        name    => 'docs',
+        columns => {
+            id      => col('id',      1),
+            payload => col('payload', 2, type => $json),
+            raw     => col('raw',     3, type => \'TEXT'),
+        },
+    );
+
+    ref_is($table->field_type('payload'), $json, "field_type returns blessed type instances");
+    is($table->field_type('raw'), undef, "field_type ignores raw SQL scalar-ref types");
+};
+
 subtest table_name_db_name_fallback => sub {
     my $by_db = DBIx::QuickORM::Schema::Table->new(
         db_name => 'tbl_users',

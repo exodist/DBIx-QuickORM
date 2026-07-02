@@ -395,8 +395,7 @@ sub field_type {
     my ($field) = @_;
     my $col = $self->_column($field) or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
     my $type = $col->type or return undef;
-    return undef if ref($type);
-    return $type if $type->DOES('DBIx::QuickORM::Role::Type');
+    return $type if ref($type) && blessed($type) && $type->DOES('DBIx::QuickORM::Role::Type');
     return undef;
 }
 

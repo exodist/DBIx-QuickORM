@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Columns declared with blessed type instances now use those instances for field inflate/deflate.
     - Table names are now quoted in FROM clauses, fixing queries against reserved-word or mixed-case table names.
     - Non-RETURNING inserts now preserve caller-supplied primary keys instead of replacing them with last_insert_id().
     - JSON typed columns can now read back scalar JSON values written by the ORM, such as strings and numbers.

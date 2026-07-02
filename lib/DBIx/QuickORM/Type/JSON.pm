@@ -7,7 +7,6 @@ our $VERSION = '0.000028';
 use DBIx::QuickORM::Util qw/parse_conflate_args/;
 
 use Carp qw/croak/;
-use Scalar::Util qw/reftype blessed/;
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Type';
 
@@ -66,14 +65,11 @@ sub qorm_deflate {
     my $affinity = $params->{affinity} or croak "Could not determine affinity";
     my $class    = $params->{class} // __PACKAGE__;
 
-    if (blessed($val)) {
-        my $r = reftype($val) // '';
-        if    ($r eq 'HASH')  { $val = {%$val} }
-        elsif ($r eq 'ARRAY') { $val = [@$val] }
-        else                  { die "Not sure what to do with $val" }
-    }
-
-    return $class->JSON->encode($val);
+    my $encoded;
+    my $ok = eval { $encoded = $class->JSON->encode($val); 1 };
+    my $err = $@;
+    croak "Failed to encode value to JSON: $err" unless $ok;
+    return $encoded;
 }
 
 sub qorm_compare {
