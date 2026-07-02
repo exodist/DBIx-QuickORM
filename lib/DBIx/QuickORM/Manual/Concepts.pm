@@ -20,9 +20,9 @@ DBIx::QuickORM does things.
 
 =head1 DIALECTS
 
-A dielect tell DBIx::QuickORM hwo to interact with and communicate with a
-database. Not all SQL databases use identical syntax or extensions, a dialects
-job to to define behaviors a specific database understands.
+A dialect tells DBIx::QuickORM how to interact and communicate with a
+database. Not all SQL databases use identical syntax or extensions; it is a
+dialect's job to define the behaviors a specific database understands.
 
 L<DBIx::QuickORM::Dialect> is the base class for dialects. All dialects should
 subclass this base class.
@@ -42,6 +42,10 @@ For interacting with PostgreSQL databases.
 =item L<DBIx::QuickORM::Dialect::SQLite>
 
 For interacting with SQLite databases.
+
+=item L<DBIx::QuickORM::Dialect::DuckDB>
+
+For interacting with DuckDB databases.
 
 =item L<DBIx::QuickORM::Dialect::MySQL>
 

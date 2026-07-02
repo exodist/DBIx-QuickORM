@@ -1,7 +1,6 @@
 package DBIx::QuickORM::Handle;
 use strict;
 use warnings;
-use feature qw/state/;
 
 our $VERSION = '0.000028';
 
@@ -1670,16 +1669,15 @@ sub _make_async_sth {
         $class = 'DBIx::QuickORM::STH::Async';
     }
 
-    my ($sth, $res) = $self->_execute($dbh, $sql, {$dialect->async_prepare_args});
+    my ($sth) = $self->_execute($dbh, $sql, {$dialect->async_prepare_args});
 
     my $out = $class->new(
         %params,
-        connection   => $con,
-        source       => $sql->{+SOURCE},
-        dbh          => $dbh,
-        sth          => $sth,
-        sql          => $sql,
-        async_result => $res,
+        connection => $con,
+        source     => $sql->{+SOURCE},
+        dbh        => $dbh,
+        sth        => $sth,
+        sql        => $sql,
     );
 
     $con->$meth($out);
@@ -1689,6 +1687,10 @@ sub _make_async_sth {
 sub _make_forked_sth {
     my $self = shift;
     my ($sql, %params) = @_;
+
+    # The child protocol closes over $sql and finalizes via terminal frames, so
+    # a forked handle uses neither the sql nor no_rows keys the read paths pass.
+    delete $params{no_rows};
 
     my $con = $self->{+CONNECTION};
 
@@ -1705,7 +1707,6 @@ sub _make_forked_sth {
             connection => $con,
             source     => $sql->{+SOURCE},
             pid        => $pid,
-            sql        => $sql,
             pipe       => $rh,
         );
 
