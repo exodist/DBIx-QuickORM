@@ -270,9 +270,10 @@ sub init {
     }
 
     if (my $pk = $self->{+PRIMARY_KEY}) {
+        croak "The 'primary_key' attribute must be an arrayref of column names${debug}" unless ref($pk) eq 'ARRAY';
         for my $cname (@$pk) {
-            my $col = $self->{+COLUMNS}->{$cname} or croak "Primary Key column '$cname' is not present in the column list";
-            croak "Primary key column '$cname' is set to be omitted, this is not allowed" if $col->omit;
+            my $col = $self->{+COLUMNS}->{$cname} or croak "Primary Key column '$cname' is not present in the column list${debug}";
+            croak "Primary key column '$cname' is set to be omitted, this is not allowed${debug}" if $col->omit;
         }
     }
 
