@@ -153,10 +153,10 @@ sub invalidate {
 
     $self->{+INVALID} = $reason;
 
-    my @old_stack = @{$self->{+STACK}};
-
-    my $active = $self->active(no_fatal => 1) // (@old_stack ? $old_stack[0] : undef);
-
+    # Only warn when the resolved active frame genuinely holds pending data;
+    # falling back to a bottom frame that a rolled-back transaction left behind
+    # produced spurious "pending data" warnings.
+    my $active  = $self->active(no_fatal => 1);
     my $pending = $active ? $active->{+PENDING} : undef;
 
     carp "Row invalidated with pending data" if $pending && keys %$pending;
@@ -313,7 +313,13 @@ sub change_state {
     my $self = shift;
     my ($state) = @_;
 
-    my $active = $self->active(no_fatal => 1) or return $self->_up_state($state);
+    my $active = $self->active(no_fatal => 1);
+    unless ($active) {
+        # Resurrecting an invalidated row: drop the stale invalidation reason so
+        # a later access does not report the old reason on a now-valid row.
+        delete $self->{+INVALID};
+        return $self->_up_state($state);
+    }
 
     my $row_txn   = $active->{+TRANSACTION};
     my $state_txn = $state->{+TRANSACTION};
