@@ -1,5 +1,8 @@
 {{$NEXT}}
 
+    Bug Fixes:
+    - Row-bound handle operations now reject rows from a different source or connection instead of applying their primary keys to the wrong query.
+
 0.000027  2026-07-01 11:18:00-07:00 America/Los_Angeles
 
     Features:

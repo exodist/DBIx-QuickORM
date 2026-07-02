@@ -218,6 +218,10 @@ Validate and normalize attributes after construction. Resolves mutually
 exclusive options, derives the WHERE clause from a bound row, and reconciles
 C<fields> with C<omit>.
 
+=item $h->_check_row
+
+Validate that a bound row belongs to this handle's connection and source.
+
 =item $omit = $h->_normalize_omit($omit, $pk_fields)
 
 Coerce an C<omit> specification into a hashref and reject attempts to omit
@@ -255,6 +259,7 @@ sub init {
 
     if (my $row = $self->{+ROW}) {
         croak "Invalid row: $row" if $row && !$row->DOES('DBIx::QuickORM::Role::Row');
+        $self->_check_row($row);
 
         croak "You cannot provide both a 'row' and a 'where'" if $self->{+WHERE};
 
@@ -276,6 +281,21 @@ sub init {
             delete $self->{+OMIT};
         }
     }
+}
+
+sub _check_row {
+    my $self = shift;
+    my ($row) = @_;
+
+    my $row_con = $row->connection;
+    my $con     = $self->{+CONNECTION};
+    croak "The row is bound to a different connection than this handle" unless $row_con == $con;
+
+    my $row_source = $row->source;
+    my $source     = $self->{+SOURCE};
+    return if $row_source->source_orm_name eq $source->source_orm_name;
+
+    croak "The row is from source '" . $row_source->source_orm_name . "', but this handle uses source '" . $source->source_orm_name . "'";
 }
 
 sub _normalize_omit {
