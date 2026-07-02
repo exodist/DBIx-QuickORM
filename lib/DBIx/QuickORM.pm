@@ -529,6 +529,11 @@ sub db {
             server => $top->{name} // $top->{created},
         };
 
+        # The variant (alt) hashref is inherited from the server frame via the
+        # shallow copy above; sharing it would let a variant redefined on this
+        # db mutate the server and its sibling dbs. Deep-copy it.
+        $frame->{alt} = $self->_clone_ref($top->{alt}) if $top->{alt};
+
         delete $frame->{name};
         delete $frame->{meta}->{name};
         delete $frame->{meta}->{dbs};
@@ -1281,6 +1286,7 @@ sub link {
         ($other) = @nodes;
     }
     else {
+        croak "link requires exactly two nodes (a local and an other), got " . scalar(@nodes) unless @nodes == 2;
         ($local, $other) = @nodes;
     }
 
