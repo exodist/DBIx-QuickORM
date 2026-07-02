@@ -245,7 +245,7 @@ sub parse {
     my $aliases = delete $link->{+ALIASES};
 
     my @keys = keys %$link;
-    if (@keys == 1) {
+    if (@keys == 1 && !defined $other_table) {
         ($other_table) = @keys;
         my $val = delete $link->{$other_table};
 
@@ -267,6 +267,13 @@ sub parse {
             $other_columns = delete $link->{+OTHER_COLUMNS} // delete $link->{other_fields} // delete $link->{other};
         }
     }
+
+    # Drop link-object-internal keys a spec might carry, then reject anything
+    # genuinely unknown so a typo is surfaced rather than silently ignored or
+    # (with other_table already set) misread as the other-table name.
+    delete @{$link}{qw/key created compiled/};
+    croak "Unknown link specification key(s): " . join(', ', sort keys %$link)
+        if keys %$link;
 
     $local_table //= $source ? $source->name : croak "No local_table or source provided";
     croak "no other_table provided" unless $other_table;

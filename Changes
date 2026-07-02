@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - A hashref link spec with an unknown key now croaks clearly instead of misreading the key as the other-table name.
     - Extending a cloned Join (re-joining a table already present) no longer corrupts the original join's alias lookup.
     - Committing or rolling back an outer transaction object from inside a nested transaction's action now croaks instead of silently resolving the inner transaction.
     - A blessed row_manager instance already in use by one connection can no longer be silently rebound to another; it croaks instead of corrupting the first connection's state.
