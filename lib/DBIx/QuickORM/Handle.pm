@@ -270,6 +270,12 @@ sub init {
     if (my $omit = $self->{+OMIT}) {
         croak "Cannot mix 'omit' and a non-arrayref field specification ('$fields')" if ref($fields) ne 'ARRAY';
 
+        # A wildcard fetch list means the columns are not enumerable (e.g. a
+        # derived-table/subquery source), so there is nothing to filter and the
+        # omit would silently no-op. Say so instead.
+        croak "Cannot omit fields on a source whose columns are not enumerable (its fetch list is '*')"
+            if @$fields == 1 && ($fields->[0] // '') eq '*';
+
         my $pk_fields = $source->primary_key;
         if ($omit = $self->_normalize_omit($omit, $pk_fields)) {
             my %seen;
@@ -1450,6 +1456,9 @@ sub source_db_moniker {
 
 sub source_orm_name { my $self = shift; return $self->{+SUBQUERY_ALIAS} // 'subquery' }
 
+# A derived table is read-only; writes through it must croak cleanly.
+sub is_writable { 0 }
+
 sub primary_key        { my $self = shift; return undef }
 sub row_class          { my $self = shift; return undef }
 sub source_has_aliases { my $self = shift; return 0 }
@@ -2140,6 +2149,8 @@ sub _insert {
 
     my $upsert = $params{upsert};
 
+    croak "Cannot " . ($upsert ? 'upsert' : 'insert') . " through a derived-table (subquery) source" unless $self->{+SOURCE}->is_writable;
+
     croak "Cannot insert rows using a handle with data_only set"   if $self->{+DATA_ONLY};
     croak "Cannot insert rows using a handle with a limit set"     if defined $self->{+LIMIT};
     croak "Cannot insert rows using a handle with an offset set"   if defined $self->{+OFFSET};
@@ -2360,6 +2371,8 @@ reported as a loss.
 sub delete {
     my $self = shift->_row_or_hashref(WHERE() => @_);
 
+    croak "Cannot delete through a derived-table (subquery) source" unless $self->{+SOURCE}->is_writable;
+
     croak "Cannot delete rows using a handle with data_only set" if $self->{+DATA_ONLY};
 
     # A bound row normally provides the WHERE clause via its primary key. With
@@ -2461,6 +2474,8 @@ sub update {
 
     my $con = $self->{+CONNECTION};
     $con->pid_and_async_check;
+
+    croak "Cannot update through a derived-table (subquery) source" unless $self->{+SOURCE}->is_writable;
 
     croak "update() with data_only set is not currently supported"        if $self->{+DATA_ONLY};
     croak "update() with a 'limit' clause is not currently supported"     if defined $self->{+LIMIT};
@@ -2633,6 +2648,8 @@ sub cas {
 
     my $con = $self->{+CONNECTION};
     $con->pid_and_async_check;
+
+    croak "Cannot use cas() through a derived-table (subquery) source" unless $self->{+SOURCE}->is_writable;
 
     croak "cas() requires a changes hashref"           unless ref($changes) eq 'HASH';
     croak "cas() is not supported with data_only set"  if $self->{+DATA_ONLY};

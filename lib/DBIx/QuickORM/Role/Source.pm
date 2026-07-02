@@ -75,6 +75,23 @@ nothing to translate.
 
 =back
 
+=head1 PROVIDED METHODS
+
+=over 4
+
+=item $bool = $source->cachable
+
+True when the source has a primary key (so its rows can be identity-mapped and
+cached), false otherwise.
+
+=item $bool = $source->is_writable
+
+True for a real source that C<INSERT> / C<UPDATE> / C<DELETE> can target. A
+derived-table (subquery) source overrides this to false so writes croak with a
+clear message instead of failing deep in statement construction.
+
+=back
+
 =cut
 
 sub cachable {
@@ -82,6 +99,8 @@ sub cachable {
     return 1 if @$pk;
     return 0;
 }
+
+sub is_writable { 1 }
 
 1;
 
