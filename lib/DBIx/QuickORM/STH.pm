@@ -24,6 +24,7 @@ use Object::HashBase qw{
     +ready
     <result
     <done
+    <owner_pid
 
     on_ready
     +fetch_cb
@@ -178,7 +179,13 @@ sub init {
     croak "'sth' is a required attribute"        unless $self->{+STH};
     croak "'dbh' is a required attribute"        unless $self->{+DBH};
     croak "'result' is a required attribute"     unless exists($self->{+RESULT}) || $self->deferred_result;
+
+    # The process that owns this handle. An inherited copy in a forked child
+    # must not touch the shared pipe / driver socket during destruction.
+    $self->{+OWNER_PID} //= $$;
 }
+
+sub in_owner_process { $_[0]->{+OWNER_PID} == $$ }
 
 =pod
 
