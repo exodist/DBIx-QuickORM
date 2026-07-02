@@ -218,8 +218,12 @@ sub clone {
     return bless(
         {
             %$self,
-            ORDER()      => [@{$self->{+ORDER}}],
-            LOOKUP()     => {%{$self->{+LOOKUP}}},
+            ORDER()  => [@{$self->{+ORDER}}],
+            # The LOOKUP values are arrayrefs of aliases that _join push()es
+            # onto; a shallow copy would share them, so extending the clone
+            # (a self-join / re-join of a table already present) would corrupt
+            # the original. Deep-copy each alias list.
+            LOOKUP()     => {map { $_ => [@{$self->{+LOOKUP}{$_}}] } keys %{$self->{+LOOKUP}}},
             COMPONENTS() => {%{$self->{+COMPONENTS}}},
             %params,
         },
