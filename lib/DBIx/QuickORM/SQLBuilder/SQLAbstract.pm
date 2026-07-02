@@ -223,7 +223,7 @@ sub qorm_upsert {
     # needs VALUES() so MySQL still reports the row via last_insert_id.
     unless (@inject) {
         my $col = $dbh->quote_identifier($pk_db->[0]);
-        push @inject => $conf =~ m/ON DUPLICATE KEY UPDATE/i ? "$col = VALUES($col)" : "$col = $col";
+        push @inject => $params{dialect}->upsert_noop_assignment($col);
     }
 
     $conf .= " " . join(', ' => @inject);
