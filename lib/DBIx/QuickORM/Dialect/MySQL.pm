@@ -378,6 +378,13 @@ sub upsert_statement {
     return "ON DUPLICATE KEY UPDATE";
 }
 
+sub upsert_noop_assignment {
+    my $self = shift;
+    my ($quoted_col) = @_;
+    # MySQL needs VALUES(col) so it still reports the row via last_insert_id.
+    return "$quoted_col = VALUES($quoted_col)";
+}
+
 ###############################################################################
 # {{{ Schema Builder Code
 ###############################################################################
