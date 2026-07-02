@@ -259,7 +259,15 @@ sub _autorow_hook {
     };
 
     local $@;
-    my $parent = load_class($base) // load_class('DBIx::QuickORM::Row') or die $@;
+    my $parent = load_class($base);
+    unless ($parent) {
+        # Only fall back to the stock Row class when the base genuinely does not
+        # exist on disk; a base that exists but fails to compile must surface
+        # its error rather than silently losing the user's methods.
+        my $err = $@;
+        die $err unless $err =~ m/Can't locate .+ in \@INC/;
+        $parent = load_class('DBIx::QuickORM::Row') or die $@;
+    }
 
     return sub {
         my %params = @_;
@@ -270,13 +278,18 @@ sub _autorow_hook {
         my $package = "$base\::$postfix";
 
         local $@;
-        load_class($package);
+        unless (load_class($package)) {
+            # A missing per-table row class is expected (autofill generates it);
+            # a compile error in an existing one must not be swallowed.
+            my $err = $@;
+            die $err unless $err =~ m/Can't locate .+ in \@INC/;
+        }
 
         my $isa = do { no strict 'refs'; \@{"$package\::ISA"} };
         push @$isa => $parent unless @$isa;
 
         my $file = $package;
-        $file =~ s{::}{/};
+        $file =~ s{::}{/}g;
         $file .= ".pm";
         $INC{$file} ||= $caller_file;
 
