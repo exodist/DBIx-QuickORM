@@ -198,4 +198,44 @@ subtest savepoint_metadata_survives_completion => sub {
     is($saw, 1, "post-completion callbacks still see is_savepoint true for a savepoint txn");
 };
 
+subtest cannot_resolve_outer_txn_from_nested_action => sub {
+    my $con = connect_orm();
+
+    # Committing/rolling back an OUTER transaction object from inside a nested
+    # action used to unwind (via last QORM_TRANSACTION) to the innermost label
+    # and resolve the wrong (inner) transaction. It now croaks, and the whole
+    # structure rolls back cleanly.
+    my $err = dies {
+        $con->txn(sub {
+            my $outer = shift;
+            $con->txn(sub { $outer->commit });
+            $con->handle('things')->insert({name => 'should_not_persist'});
+        });
+    };
+    like($err, qr/outer transaction from within a nested transaction/, "committing an outer txn from a nested action croaks");
+
+    my $err2 = dies {
+        $con->txn(sub {
+            my $outer = shift;
+            $con->txn(sub { $outer->rollback });
+        });
+    };
+    like($err2, qr/outer transaction from within a nested transaction/, "rolling back an outer txn from a nested action croaks");
+
+    ok(!$con->in_txn, "no lingering transaction after the refusals");
+
+    ok(lives {
+        $con->txn(sub {
+            $con->txn(sub { $con->handle('things')->insert({name => 'nested_ok'}) });
+        });
+    }, "ordinary nested transactions still work");
+
+    my $dbh = DBI->connect($dsn, '', '', {RaiseError => 1, PrintError => 0});
+    my ($bad)  = $dbh->selectrow_array("SELECT COUNT(*) FROM things WHERE name = 'should_not_persist'");
+    my ($good) = $dbh->selectrow_array("SELECT COUNT(*) FROM things WHERE name = 'nested_ok'");
+    $dbh->disconnect;
+    is($bad, 0, "the refused transaction did not persist anything");
+    is($good, 1, "the ordinary nested transaction persisted");
+};
+
 done_testing;
