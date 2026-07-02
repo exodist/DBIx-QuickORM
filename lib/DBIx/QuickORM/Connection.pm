@@ -565,7 +565,11 @@ sub txn {
 
     my $txn = DBIx::QuickORM::Connection::Transaction->new(
         id            => $self->{+_TXN_COUNTER}++,
-        savepoint     => $sp,
+        # A closure rather than a direct connection reference: a data back-ref
+        # would form a cycle that deep comparisons (Test2's is()) choke on, and
+        # would show up in every dump of a transaction.
+        current_txn_lookup => sub { $self->current_txn },
+        savepoint          => $sp,
         trace         => \@caller,
         on_fail       => $params{on_fail},
         on_success    => $params{on_success},

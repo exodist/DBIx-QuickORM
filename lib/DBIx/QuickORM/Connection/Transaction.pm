@@ -8,6 +8,7 @@ use Carp qw/croak confess/;
 
 use Object::HashBase qw{
     <id
+    +current_txn_lookup
     +savepoint
 
     +on_success
@@ -198,6 +199,21 @@ sub rolled_back {
 # decision in Connection::txn before the result is recorded).
 sub aborted { $_[0]->{+ABORTED} ? 1 : 0 }
 
+sub _assert_innermost {
+    my $self = shift;
+    my ($op) = @_;
+
+    # last QORM_TRANSACTION unwinds to the innermost dynamically-enclosing
+    # transaction callback, which is not necessarily this transaction's. When a
+    # nested (callback-managed) transaction is open, committing or rolling back
+    # an outer transaction object would resolve the wrong (inner) one, so refuse.
+    my $lookup = $self->{+CURRENT_TXN_LOOKUP} or return;
+    my $current = $lookup->() or return;
+    return if $current == $self;
+
+    croak "Cannot $op an outer transaction from within a nested transaction; resolve the innermost transaction first";
+}
+
 sub state {
     my $self = shift;
     my $r = $self->{+RESULT};
@@ -254,6 +270,8 @@ sub rollback {
 
     return if $self->{+NO_LAST};
 
+    $self->_assert_innermost('roll back');
+
     no warnings 'exiting';
     last QORM_TRANSACTION;
 }
@@ -302,6 +320,8 @@ sub commit {
     $self->finalize(1) if $self->{+FINALIZE};
 
     return if $self->{+NO_LAST};
+
+    $self->_assert_innermost('commit');
 
     no warnings 'exiting';
     last QORM_TRANSACTION;
