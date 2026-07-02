@@ -207,6 +207,9 @@ sub quick {
     require DBIx::QuickORM::DB;
     my %db_params = (dialect => $dialect_class, db_name => $db_name);
     if ($creds) {
+        if (my @bad = grep { $_ !~ /^(?:dsn|user|pass|attrs|dbd)$/ } keys %$creds) {
+            croak "Unknown credentials key(s): " . join(', ' => sort @bad) . " (valid: dsn, user, pass, attrs, dbd)";
+        }
         $db_params{dsn}        = $creds->{dsn}   if defined $creds->{dsn};
         $db_params{user}       = $creds->{user}  if defined $creds->{user};
         $db_params{pass}       = $creds->{pass}  if defined $creds->{pass};
@@ -1013,17 +1016,20 @@ sub columns {
 
     my $top = $self->_in_builder(qw{table});
 
-    my (@names, $other);
+    my (@names, $other, $cb);
     for my $arg (@_) {
         my $ref = ref($arg);
         if    (!$ref)          { push @names => $arg }
         elsif ($ref eq 'HASH') { croak "Cannot provide multiple hashrefs" if $other; $other = $arg }
+        elsif ($ref eq 'CODE') { croak "Only one builder is supported"    if $cb;    $cb = $arg }
         else                   { croak "Not sure what to do with '$arg' ($ref)" }
     }
 
-    return [map { $self->column($_, $other) } @names] if defined wantarray;
+    my @extra = grep { defined } ($other, $cb);
 
-    $self->column($_, $other) for @names;
+    return [map { $self->column($_, @extra) } @names] if defined wantarray;
+
+    $self->column($_, @extra) for @names;
 
     return;
 }
