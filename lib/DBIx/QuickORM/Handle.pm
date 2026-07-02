@@ -258,7 +258,7 @@ sub init {
     }
 
     if (my $row = $self->{+ROW}) {
-        croak "Invalid row: $row" if $row && !$row->DOES('DBIx::QuickORM::Role::Row');
+        croak "Invalid row: $row" unless blessed($row) && $row->DOES('DBIx::QuickORM::Role::Row');
         $self->_check_row($row);
 
         croak "You cannot provide both a 'row' and a 'where'" if $self->{+WHERE};
@@ -3083,7 +3083,7 @@ sub first {
 sub all {
     my $self = shift->_row_or_hashref(WHERE() => @_);
 
-    croak "all() cannot be used asynchronously, use iterate() to get an async iterator instead"
+    croak "all() cannot be used asynchronously, use iterator() to get an async iterator instead"
         unless $self->is_sync;
 
     my $sth = $self->_do_select();
