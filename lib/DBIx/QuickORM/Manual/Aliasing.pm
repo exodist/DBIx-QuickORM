@@ -85,8 +85,8 @@ C<db_name> inside the column block:
     table people => sub {
         primary_key 'people_id';
 
-        column people_id => sub { db_name 'id'   };
-        column fullname  => sub { db_name 'name' };
+        column people_id => sub { db_name 'id';   affinity 'numeric' };
+        column fullname  => sub { db_name 'name'; affinity 'string'  };
         column data      => sub { db_name 'json'; type 'JSON' };
     };
 
@@ -97,11 +97,15 @@ Now your code uses the ORM names throughout:
 
     my $bob = $h->one({fullname => 'Bob'});
     print $bob->field('fullname');
-    print $bob->people_id;
+    print $bob->field('people_id');
 
-while the generated SQL uses the database names (C<id>, C<name>, C<json>). The
-primary key, where-clauses, C<order_by>, the returned column list, and the keys
-of C<data_only> result hashes are all in ORM names.
+Read column values with C<< $row->field($orm_name) >>, always using the ORM
+name. (If you generate row classes with C<autorow> you also get named
+accessors, so C<< $bob->people_id >> works too; a plain row only has
+C<< ->field(...) >>.) Meanwhile the generated SQL uses the database names
+(C<id>, C<name>, C<json>). The primary key, where-clauses, C<order_by>, the
+returned column list, and the keys of C<data_only> result hashes are all in ORM
+names.
 
 Two columns in the same table may not map to the same database name; that is
 rejected when the schema is built.
