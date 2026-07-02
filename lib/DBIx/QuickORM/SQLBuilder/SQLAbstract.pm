@@ -178,7 +178,10 @@ sub qorm_upsert {
 
     my $returning = "";
     my $statement = $sql->{statement};
-    ($statement, $returning) = ($1, $2) if $statement =~ m/(.*)\s+(returning\b.*)\z/is;
+    # Only split off a trailing RETURNING clause if one was actually requested;
+    # otherwise a literal write value containing the word "returning" (on a
+    # dialect with no RETURNING support) would be mistaken for the clause.
+    ($statement, $returning) = ($1, $2) if $params{returning} && $statement =~ m/(.*)\s+(returning\b.*)\z/is;
 
     my $pk_db = [ map { $source->field_db_name($_) } @$pk ];
     my $dbh   = $params{dialect}->dbh;
