@@ -6,7 +6,6 @@ our $VERSION = '0.000028';
 
 use Carp qw/croak/;
 use List::Util qw/zip/;
-use Scalar::Util qw/blessed/;
 
 use Role::Tiny;
 
@@ -296,7 +295,6 @@ requires qw{
     raw_pending_fields
     field_is_desynced
 };
-
 
 #####################
 # }}} Field methods #

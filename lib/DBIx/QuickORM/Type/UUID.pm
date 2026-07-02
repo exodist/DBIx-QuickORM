@@ -9,7 +9,6 @@ with 'DBIx::QuickORM::Role::Type';
 
 use DBIx::QuickORM::Util qw/parse_conflate_args/;
 
-use Scalar::Util qw/blessed/;
 use UUID qw/uuid7 parse unparse/;
 use Carp qw/croak/;
 

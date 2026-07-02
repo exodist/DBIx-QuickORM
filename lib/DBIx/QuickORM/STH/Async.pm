@@ -8,9 +8,6 @@ use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::STH';
 with 'DBIx::QuickORM::Role::Async';
 
-use Carp qw/croak/;
-use Time::HiRes qw/sleep/;
-
 use parent 'DBIx::QuickORM::STH';
 use Object::HashBase qw{
     <got_result
