@@ -33,6 +33,12 @@ sub DESTROY {
 
     return if $self->done;
 
+    # An inherited copy in a forked child shares the owner's pipe read-end (Fork)
+    # or driver socket (Async/Aside). Waiting, reading, cancelling, or fetching
+    # here would steal the owner's frames or corrupt its connection protocol, so
+    # a non-owner process must touch nothing and let the owner finalize.
+    return if $self->can('in_owner_process') && !$self->in_owner_process;
+
     unless ($self->got_result) {
         # A handle wrapping a write that must run to completion (cancel_on_destroy
         # false) waits for the child rather than aborting it mid-write.
