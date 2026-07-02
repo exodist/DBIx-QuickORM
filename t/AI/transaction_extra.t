@@ -193,6 +193,26 @@ subtest auto_retry_txn_persists => sub {
     is(disk_names(), [sort(@$before, 'via_retry')], "auto_retry_txn persisted the row");
 };
 
+subtest destroy_parent_before_child_savepoint_does_not_wedge => sub {
+    # Perl does not guarantee the destruction order of lexicals, so a parent
+    # transaction can be destroyed while a child savepoint is still live. That
+    # must not leave the root BEGIN open and permanently wedge the connection.
+    my $h = $con->handle('items');
+    {
+        local $SIG{__WARN__} = sub {};    # abandoned txns warn on rollback; expected here
+        my $inner;
+        { my $outer = $con->txn; $inner = $con->txn; }    # parent (root) destroyed first
+        undef $inner;                                     # then the orphaned child
+    }
+
+    ok(!$con->in_txn, "no transaction is left open after out-of-order destruction");
+    is(scalar(grep { defined } @{$con->transactions}), 0, "the transaction stack is empty");
+
+    ok(lives { $con->txn(sub { $h->insert({name => 'after_wedge'}) }) }, "a later transaction still runs");
+    ok(scalar(grep { $_ eq 'after_wedge' } @{disk_names()}), "and its work actually persists to disk");
+    ok(lives { $con->reconnect }, "reconnect is not blocked by a phantom active transaction");
+};
+
 $probe->disconnect;
 
 done_testing;
