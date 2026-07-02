@@ -51,6 +51,28 @@ subtest update_guard => sub {
     is($h->count({name => 'z'}), 0, "no rows were updated");
 };
 
+subtest read_guard => sub {
+    # Reads must guard the same way writes do: without a primary key there is
+    # no WHERE to identify the bound row, so a read would scan the whole table
+    # (and could silently return the wrong row) instead of the bound one.
+    for my $method (qw/all first one iterator/) {
+        like(
+            dies { $con->handle($row2)->$method },
+            qr/no primary key/,
+            "row-bound $method() croaks when no WHERE can be derived",
+        );
+    }
+
+    like(
+        dies { $con->handle($row2)->data_only->first },
+        qr/no primary key/,
+        "row-bound data_only read croaks instead of returning the wrong row",
+    );
+
+    # Ordinary where-based reads are unaffected.
+    ok(lives { $h->where({name => 'a'})->all }, "where-based reads still work without a primary key");
+};
+
 subtest unbound_operations_still_work => sub {
     ok(lives { $h->where({name => 'b'})->update({name => 'bb'}) }, "where-based update still works without a pk")
         or note $@;
