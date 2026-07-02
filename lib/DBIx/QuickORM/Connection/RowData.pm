@@ -521,7 +521,11 @@ sub _merge_state {
         }
     }
     elsif (exists $merge->{+STORED}) {
-        delete $into->{+STORED};
+        # A stored-clear marker (from a delete). On a transaction frame it must
+        # survive as an explicit undef so it still clears the layer below when
+        # this frame merges down on commit; only the base frame may delete it.
+        if ($into->{+TRANSACTION}) { $into->{+STORED} = undef }
+        else                       { delete $into->{+STORED} }
         delete $into->{+DESYNC};
         delete $merge->{+DESYNC};
     }
@@ -534,7 +538,11 @@ sub _merge_state {
         $into->{+DESYNC}  = $into->{+DESYNC}  ? {%{$into->{+DESYNC}},  %$desync}  : $desync if $desync;
     }
     elsif (exists $merge->{+PENDING}) {
-        delete $into->{+PENDING};
+        # A pending-clear marker (from a successful insert/update). Keep it as
+        # an explicit undef on a transaction frame so the pending-clear still
+        # propagates to the layer below on commit; only the base frame deletes.
+        if ($into->{+TRANSACTION}) { $into->{+PENDING} = undef }
+        else                       { delete $into->{+PENDING} }
     }
 
     delete $into->{+PENDING} if $into->{+PENDING} && !keys %{$into->{+PENDING}};
