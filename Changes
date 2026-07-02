@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - by_id() now rejects an undefined primary key value instead of silently degrading to a "primary key IS NULL" lookup that can never match.
     - Upserts on dialects without RETURNING support no longer corrupt a literal write value that contains the word "returning".
     - DSL variants, coderef defaults, table-class metadata, and builtin-shaped calls now preserve the intended user values.
     - JSON deflate no longer dies on top-level booleans and now honors TO_JSON for blessed values.

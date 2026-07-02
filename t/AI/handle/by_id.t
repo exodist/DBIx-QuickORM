@@ -59,4 +59,12 @@ subtest malformed_primary_key_inputs => sub {
     );
 };
 
+subtest undefined_primary_key_values => sub {
+    # An undef primary key value must be surfaced, not silently degraded to a
+    # "WHERE id IS NULL" lookup that can never match a NOT NULL primary key.
+    like(dies { $users->by_id({id => undef}) }, qr/Undefined primary key value in by_id/, "hash form rejects an undef pk value");
+    like(dies { $users->by_id([undef]) },       qr/Undefined primary key value in by_id/, "array form rejects an undef pk value");
+    like(dies { $users->by_id(undef) },         qr/Undefined primary key value in by_id/, "scalar form rejects an undef pk value");
+};
+
 done_testing;
