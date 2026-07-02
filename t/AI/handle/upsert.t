@@ -78,4 +78,44 @@ subtest literal_value_containing_returning => sub {
     is($h2->by_id(1)->field('note'), 'contains returning token', "literal value was written intact");
 };
 
+subtest literal_returning_without_returning_clause => sub {
+    # On a dialect with no RETURNING-on-insert support the built statement has
+    # no RETURNING clause, so a literal write value containing the word
+    # "returning" must not be mistaken for one and split. Exercise qorm_upsert
+    # directly since the SQLite Handle path always requests RETURNING.
+    {
+        my $dbh = DBI->connect($dsn, '', '', {RaiseError => 1, PrintError => 0});
+        $dbh->do('CREATE TABLE lit (id INTEGER PRIMARY KEY, note TEXT)');
+        $dbh->disconnect;
+    }
+
+    my $con2 = DBIx::QuickORM->quick(credentials => {dsn => $dsn});
+    my $h2   = $con2->handle('lit');
+    my $sb   = $h2->sql_builder;
+
+    my $sql = $sb->qorm_upsert(
+        source  => $h2->source,
+        dialect => $con2->dialect,
+        insert  => {id => 1, note => \"'x returning y'"},
+    );
+    like(
+        $sql->{statement},
+        qr/VALUES \(\?, 'x returning y'\) ON CONFLICT/,
+        "conflict clause follows the intact literal value instead of being spliced into it",
+    );
+    unlike($sql->{statement}, qr/returning\s+"/i, "no RETURNING clause emitted when none was requested");
+
+    my $sql2 = $sb->qorm_upsert(
+        source    => $h2->source,
+        dialect   => $con2->dialect,
+        insert    => {id => 1, note => \"'x returning y'"},
+        returning => ['id'],
+    );
+    like(
+        $sql2->{statement},
+        qr/ON CONFLICT.*RETURNING "id"\s*\z/s,
+        "a real RETURNING clause is still separated correctly and placed last",
+    );
+};
+
 done_testing;
