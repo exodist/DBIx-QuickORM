@@ -237,6 +237,11 @@ sub define_autorow {
         my $accessor = $self->hook(field_accessor => {table => $table, name => $field, field => $field, column => $column}, $field);
         next unless $accessor;
 
+        croak join "\n",
+            "Cannot generate the '$accessor' accessor on row class '$row_class': the '$field' column and $claimed{$accessor} both map to it.",
+            "Provide an 'autoname field_accessor' name hook that returns a distinct name for each column."
+            if $claimed{$accessor};
+
         no strict 'refs';
         next if defined &{"$row_class\::$accessor"};
 
