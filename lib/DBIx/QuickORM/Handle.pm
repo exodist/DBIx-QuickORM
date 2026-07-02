@@ -977,11 +977,14 @@ is executed in a forked process with a new db connection, the results will be
 returned to the parent.
 
 This can be used to emulate async operations on databases that do not support
-them, such as L<DBD::SQlite>.
+them, such as L<DBD::SQLite>.
 
 =item $new_h = $h->data_only()
 
+=item $new_h = $h->data_only($bool)
+
 The newly returned handle will return hashrefs instead of blessed row objects.
+Pass a boolean to toggle the flag in either direction.
 
 =item $new_h = $h->distinct()
 
@@ -992,8 +995,8 @@ Pass a boolean to toggle the flag in either direction.
 
 =item $new_h = $h->all_fields()
 
-Make sure the handle selects all fields when fetching rows. Normally some rows
-may be omitted by default based on if they have an C<omit> flag set.
+Make sure the handle selects all fields when fetching rows. Normally some
+fields may be omitted by default based on if they have an C<omit> flag set.
 
 =item $new_h = $h->and($WHERE)
 
@@ -1154,7 +1157,7 @@ argument.
 
 =item $new_h = $h->sql_builder($sql_builder)
 
-Can be used to get the SQL Builder that is already set, or create a clone fo
+Can be used to get the SQL Builder that is already set, or create a clone of
 the handle with a new sql_builder set.
 
 =item $connection = $h->connection()
@@ -1168,15 +1171,15 @@ handle that uses a new connection.
 
 =item $new_h = $h->source($source)
 
-Can be used to get the connection of a source, or to create a clone of the
-source that uses a new connection.
+Can be used to get the source of a handle, or to create a clone of the
+handle that uses a new source.
 
 =item $row = $h->row()
 
 =item $new_h = $h->row($row)
 
-Can be used to get the connection of a row, or to create a clone of the
-row that uses a new connection.
+Can be used to get the row bound to a handle, or to create a clone of the
+handle that uses a new row.
 
 =item $fields = $h->fields()
 
@@ -3035,13 +3038,13 @@ Return a row matching the conditions on the handle, if any. Will return undef
 if there are no matching rows. Will throw an exception if the query returns
 more than 1 row.
 
-In dat_only mode this will return the hashref of the returned row.
+In data_only mode this will return the hashref of the returned row.
 
 =item $row = $h->first()
 
 Similar to one() above, but will not die if more than 1 row matches the query.
 
-In dat_only mode this will return the hashref of the returned row.
+In data_only mode this will return the hashref of the returned row.
 
 =item @rows = $h->all
 
