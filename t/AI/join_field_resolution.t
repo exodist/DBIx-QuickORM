@@ -45,10 +45,11 @@ subtest as_must_be_identifier => sub {
 
     like(
         dies { my $x = $join->left_join(link => $abooks, as => 'x.y') },
-        qr/not a valid identifier/,
+        qr/may not contain a '\.'/,
         "a caller-supplied alias containing a dot is rejected",
     );
-    ok(lives { my $x = $join->left_join(link => $abooks, as => 'good') }, "a valid identifier alias is accepted");
+    ok(lives { my $x = $join->left_join(link => $abooks, as => 'good') }, "a dot-free alias is accepted");
+    ok(lives { my $x = $join->left_join(link => $abooks, as => 'odd alias') }, "a non-dot alias (quoted as an identifier) is accepted");
 };
 
 subtest self_join_primary_ambiguity => sub {

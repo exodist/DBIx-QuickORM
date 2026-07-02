@@ -507,11 +507,12 @@ sub _join {
     my $from = $params{from};
     my $type = $params{type};
 
-    # A caller-supplied alias becomes a SQL identifier and is used as a prefix
-    # for alias.field protos and fracture's row splitting, so a dot (or other
-    # non-word character) in it would resolve inconsistently.
-    croak "Join alias '$as' is not a valid identifier (must match \\A\\w+\\z)"
-        if defined($as) && $as !~ m/\A\w+\z/;
+    # A caller-supplied alias is quoted as a SQL identifier (so spaces etc. are
+    # fine), but it is also the prefix in alias.field protos and fracture's
+    # row splitting, both of which split on a dot -- so a dot in the alias would
+    # resolve inconsistently. Reject only that.
+    croak "Join alias '$as' may not contain a '.' (it delimits alias.field references)"
+        if defined($as) && index($as, '.') >= 0;
 
     until ($as) {
         my $try = $self->{+JOIN_AS}++;
