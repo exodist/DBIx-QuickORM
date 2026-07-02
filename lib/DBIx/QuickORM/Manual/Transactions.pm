@@ -258,7 +258,7 @@ Row objects are transaction-aware: a row tracks its data through the
 transaction / savepoint stack, so changes made inside a transaction are unwound
 correctly when that transaction (or savepoint) rolls back. The mechanics of
 this are described elsewhere rather than repeated here; see
-L<DBIx::QuickORM::Manual::Concepts> for the concepts and
+L<DBIx::QuickORM::Row> for how a row stages and unwinds pending changes, and
 L<DBIx::QuickORM::Connection> for the connection-level details.
 
 =head1 TRANSACTIONS AND ASYNC QUERIES
@@ -291,9 +291,10 @@ The transaction / savepoint object.
 Asynchronous, aside, and forked queries and how they interact with
 transactions.
 
-=item L<DBIx::QuickORM::Manual::Concepts>
+=item L<DBIx::QuickORM::Row>
 
-Key concepts, including transaction-aware row state.
+The row object, including transaction-aware row state - pending changes staged
+against the current transaction or savepoint that unwind when it rolls back.
 
 =back
 
