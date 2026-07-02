@@ -49,4 +49,20 @@ subtest columns_with_trailing_builder => sub {
     is($cols->{b}->{affinity}, 'string', "columns() applied the builder to column b");
 };
 
+subtest schema_link_requires_two_nodes => sub {
+    like(
+        dies {
+            package My::Test::DSL::B10;
+            use DBIx::QuickORM;
+            schema b10 => sub {
+                table a => sub { column id  => sub { primary_key; affinity 'numeric' } };
+                table b => sub { column bid => sub { primary_key; affinity 'numeric' } };
+                link {table => 'a', columns => ['id']};    # only one node
+            };
+        },
+        qr/exactly two nodes/,
+        "a schema-context link with only one node croaks instead of an undef-deref",
+    );
+};
+
 done_testing;
