@@ -30,8 +30,12 @@ fast introduction, and L<DBIx::QuickORM::Manual::Concepts> for the key concepts
 =head1 YOUR ORM PACKAGE
 
 The simplest layout is a single package that uses L<DBIx::QuickORM>, defines an
-C<orm> containing a C<db> (the connection) and a C<schema> (the tables), and
-exports an C<orm()> accessor for your app code.
+C<orm> containing a C<db> (the connection) and a C<schema> (the tables). When
+your app code does C<use My::ORM>, it gets a C<qorm()> accessor.
+C<qorm('name')> returns a ready-to-query L<DBIx::QuickORM::Connection>, while
+C<< qorm(orm => 'name') >> returns the underlying L<DBIx::QuickORM::ORM>
+object. The accessor name can be changed at import time; see
+L<DBIx::QuickORM::Manual::Recipes>.
 
 There are two ways to populate the schema: define it by hand (manual schema) or
 let DBIx::QuickORM introspect the live database and fill it in for you
@@ -75,7 +79,7 @@ does not require the database to exist when the schema is defined.
                 };
 
                 column added => sub {
-                    type 'Stamp';            # Short for DBIx::QuickORM::Type::Stamp
+                    type 'DateTime';         # Short for DBIx::QuickORM::Type::DateTime
                     not_null;
 
                     # Exact SQL to use if DBIx::QuickORM generates the table SQL
@@ -112,56 +116,65 @@ naming).
             pass $PASS;
         };
 
-        # Define your schema
-        schema myschema => sub {
-            # The class name is optional, the one shown here is the default
-            autofill 'DBIx::QuickORM::Schema::Autofill' => sub {
-                autotype 'UUID';    # Automatically handle UUID fields
-                autotype 'JSON';    # Automatically handle JSON fields
+        # Introspect the connected database and fill in the schema. The
+        # autofill builder goes directly inside orm(), not inside schema() -
+        # it produces the schema for you. The class name is optional; the one
+        # shown here is the default.
+        autofill 'DBIx::QuickORM::Schema::Autofill' => sub {
+            autotype 'UUID';    # Automatically handle UUID fields
+            autotype 'JSON';    # Automatically handle JSON fields
 
-                # Do not autofill these tables
-                autoskip table => qw/foo bar baz/;
+            # Do not autofill these tables. autoskip takes a single name per
+            # call, so call it once per table you want to skip.
+            autoskip table => 'foo';
+            autoskip table => 'bar';
+            autoskip table => 'baz';
 
-                # Will automatically create My::Row::Table classes for you with
-                # accessors for links and fields If My::Table::Row can be
-                # loaded (IE My/Row/Table.pm exists) it will load it then
-                # autofill anything missing.
-                autorow 'My::Row';
+            # To skip a single column instead of a whole table, name both the
+            # table and the column:
+            autoskip column => 'some_table', 'some_column';
 
-                # autorow can also take a subref that accepts a table name as
-                # input and provides the class name for it, here is the default
-                # one used if none if provided:
-                autorow 'My::Row' => sub {
-                    my $name = shift;
-                    my @parts = split /_/, $name;
-                    return join '' => map { ucfirst(lc($_)) } @parts;
-                };
+            # autorow will automatically create row classes for you with
+            # accessors for links and fields. With a base of 'My::Row', a
+            # table named "table" becomes My::Row::Table; if My/Row/Table.pm
+            # exists it is loaded and anything missing is autofilled.
+            autorow 'My::Row';
 
-                # You can provide custom names for tables. It will still refer
-                # to the correct name in queries, but will provide an alternate
-                # name for the orm to use in perl code.
-                autoname table => sub {
-                    my %params = @_;
-                    my $table_hash = $params{table}; # unblessed ref that will become a table
-                    my $name = $params{name}; # The name of the table
-                    ...
-                    return $new_name;
-                };
+            # autorow can instead take a subref that accepts a table name and
+            # returns the class name to use. Use this form OR the plain form
+            # above, not both - a second autorow call croaks. The subref below
+            # is the default name generator, used if none is provided:
+            #
+            #   autorow 'My::Row' => sub {
+            #       my $name = shift;
+            #       my @parts = split /_/, $name;
+            #       return join '' => map { ucfirst(lc($_)) } @parts;
+            #   };
 
-                # You can provide custom names for link (foreign key) accessors when using autorow
-                autoname link_accessor => sub {
-                    my %params = @_;
-                    my $link = $params{link};
+            # You can provide custom names for tables. It will still refer to
+            # the correct name in queries, but will provide an alternate name
+            # for the orm to use in perl code.
+            autoname table => sub {
+                my %params = @_;
+                my $table_hash = $params{table}; # unblessed ref that will become a table
+                my $name = $params{name}; # The name of the table
+                ...
+                return $new_name;
+            };
 
-                    return "obtain_" . $link->other_table if $params{link}->unique;
-                    return "select_" . $link->other_table . "s";
-                };
+            # You can provide custom names for link (foreign key) accessors when using autorow
+            autoname link_accessor => sub {
+                my %params = @_;
+                my $link = $params{link};
 
-                # You can provide custom names for field accessors when using autorow
-                autoname field_accessor => sub {
-                    my %params = @_;
-                    return "get_$params{name}";
-                };
+                return "obtain_" . $link->other_table if $params{link}->unique;
+                return "select_" . $link->other_table . "s";
+            };
+
+            # You can provide custom names for field accessors when using autorow
+            autoname field_accessor => sub {
+                my %params = @_;
+                return "get_$params{name}";
             };
         };
     };
@@ -248,19 +261,21 @@ combine them. You can also define a C<server> that has multiple databases.
         schema 'otherapp';
     };
 
-Then to use them:
+Then to use them (each C<qorm('name')> call returns a ready-to-query
+L<DBIx::QuickORM::Connection>; use C<< qorm(orm => 'name') >> if you want the
+L<DBIx::QuickORM::ORM> object itself):
 
     use My::ORM;
 
-    my $myapp    = orm('myapp');
-    my $otherapp = orm('otherapp');
+    my $myapp    = qorm('myapp');
+    my $otherapp = qorm('otherapp');
 
 Also note that C<< alt(variant => sub { ... }) >> can be used in any of the
 above builders to create MySQL/PostgreSQL/etc. variants on the databases and
 schemas. Then access them like:
 
-    my $myapp_pgsql = orm('myapp:pgsql');
-    my $myapp_mysql = orm('myapp:myql');
+    my $myapp_pgsql = qorm('myapp:pgsql');
+    my $myapp_mysql = qorm('myapp:mysql');
 
 The MySQL/PostgreSQL variant recipe is covered in full in
 L<DBIx::QuickORM::Manual::Recipes>.
@@ -268,7 +283,7 @@ L<DBIx::QuickORM::Manual::Recipes>.
 =head1 MORE RECIPES
 
 This guide does not cover every composition trick. For defining the database
-connection separately and attaching it later, renaming the exported C<orm()>
+connection separately and attaching it later, renaming the exported C<qorm()>
 accessor, supporting nearly-identical MySQL and PostgreSQL databases from one
 codebase, and other focused tasks, see L<DBIx::QuickORM::Manual::Recipes>.
 
