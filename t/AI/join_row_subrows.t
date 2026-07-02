@@ -23,10 +23,12 @@ require DBIx::QuickORM::Join::Row;
 }
 
 # Build a Join::Row directly (its real init needs a live connection/manager);
-# 'c' is intentionally absent from by_alias to model a LEFT-JOIN miss.
+# 'c' is intentionally absent from by_alias to model a LEFT-JOIN miss. Note
+# Join::Row stores source/connection as closures (source() calls the slot).
 sub join_row {
+    my $join = t::FakeJoin->new;
     bless {
-        source   => t::FakeJoin->new,
+        source   => sub { $join },
         by_alias => {
             a => t::FakeSubRow->new(valid => 1, tag => 'A'),
             b => t::FakeSubRow->new(valid => 1, tag => 'B'),
