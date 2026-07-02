@@ -199,6 +199,16 @@ sub init {
         croak "Manager '$manager' does not subclass 'DBIx::QuickORM::RowManager'"
             unless $manager->DOES('DBIx::QuickORM::RowManager');
 
+        # A blessed manager instance carries per-connection state (its connection
+        # and transaction stack). If it is already the live manager of a
+        # different connection, rebinding it here would silently repoint that
+        # connection's row cache and transaction stack at us. Refuse rather than
+        # corrupt the other connection.
+        if (my $other = $manager->connection) {
+            croak "This row_manager instance is already in use by another connection; pass a class name or a fresh instance per connection"
+                if $other != $self && $other->manager && $other->manager == $manager;
+        }
+
         $manager->set_connection($self);
 
         # The HashBase setter stores a strong reference, which would create a

@@ -110,6 +110,23 @@ subtest blessed_manager_validation => sub {
     ok(Scalar::Util::isweak($manager->{connection}), "the manager's connection reference is weak (no cycle)");
 };
 
+subtest live_manager_cannot_be_shared => sub {
+    # A blessed manager that is already the live manager of another connection
+    # must not be silently rebound: doing so repoints that connection's row
+    # cache and transaction stack at the new connection.
+    my $con1 = connect_orm();
+    my $orm  = $con1->orm;
+    my $mgr  = $con1->manager;
+
+    require DBIx::QuickORM::Connection;
+
+    ref_is($mgr->connection, $con1, "the manager belongs to its connection");
+    my $err = dies { DBIx::QuickORM::Connection->new(orm => $orm, manager => $mgr) };
+    like($err, qr/already in use by another connection/, "rebinding a live connection's manager croaks");
+    ref_is($con1->manager, $mgr, "the original connection keeps its manager");
+    ref_is($mgr->connection, $con1, "and the manager still points at the original connection");
+};
+
 subtest auto_retry_terminal_failure => sub {
     my $con = connect_orm();
 
