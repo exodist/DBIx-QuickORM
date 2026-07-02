@@ -2211,11 +2211,11 @@ sub _insert {
                 };
             }
             elsif($has_pk) {
-                my $kv = $dbh->last_insert_id(undef, undef, $self->{+SOURCE}->source_db_moniker);
-                $row_data = {
-                    %$data,
-                    $has_pk->[0] => $kv,
-                };
+                $row_data = { %$data };
+                unless (defined $row_data->{$has_pk->[0]}) {
+                    my $kv = $dbh->last_insert_id(undef, undef, $self->{+SOURCE}->source_db_moniker);
+                    $row_data->{$has_pk->[0]} = $kv;
+                }
             }
             else {
                 $row_data = { %$data };

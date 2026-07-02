@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Non-RETURNING inserts now preserve caller-supplied primary keys instead of replacing them with last_insert_id().
     - JSON typed columns can now read back scalar JSON values written by the ORM, such as strings and numbers.
     - Masked inflated values now delegate numeric comparisons to the wrapped object instead of forcing direct numification.
     - Row-bound handle operations now reject rows from a different source or connection instead of applying their primary keys to the wrong query.

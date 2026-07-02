@@ -44,6 +44,33 @@ subtest pk_value_zero => sub {
 
 };
 
+subtest non_returning_insert_preserves_supplied_pk => sub {
+    {
+        my $dbh = DBI->connect($dsn, '', '', {RaiseError => 1, PrintError => 0});
+        $dbh->do('CREATE TABLE natural (id TEXT PRIMARY KEY, name TEXT NOT NULL)');
+        $dbh->disconnect;
+    }
+
+    my $con2 = DBIx::QuickORM->quick(credentials => {dsn => $dsn});
+
+    {
+        package DBIx::QuickORM::Dialect::SQLite::NoReturningInsert;
+        use parent -norequire, 'DBIx::QuickORM::Dialect::SQLite';
+        sub supports_returning_insert { 0 }
+    }
+
+    bless $con2->dialect, 'DBIx::QuickORM::Dialect::SQLite::NoReturningInsert';
+
+    my $h2  = $con2->handle('natural');
+    my $row = $h2->insert({id => 'abc', name => 'natural'});
+
+    is($row->field('id'), 'abc', "non-returning insert preserves a caller-supplied text primary key");
+
+    my $again = $h2->by_id('abc');
+    ref_is($again, $row, "identity cache is keyed under the supplied primary key");
+    is($h2->count, 1, "only the inserted row exists");
+};
+
 subtest pk_update_to_zero_rekeys_cache => sub {
     {
         my $dbh = DBI->connect($dsn, '', '', {RaiseError => 1, PrintError => 0});
