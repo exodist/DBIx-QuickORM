@@ -13,6 +13,7 @@
     - JSON typed columns can now read back scalar JSON values written by the ORM, such as strings and numbers.
     - Masked inflated values now delegate numeric comparisons to the wrapped object instead of forcing direct numification.
     - Row-bound handle operations now reject rows from a different source or connection instead of applying their primary keys to the wrong query.
+    - update() now validates desync on non-updated fields before staging, preventing a failed update from leaving its changes armed in PENDING.
     - Passing a non-object as `row` to a handle now croaks with the ORM's own message instead of dying on an unblessed-reference method call.
     - The async-mode croak in all() now correctly directs users to iterator() instead of the sync-only iterate().
     - Row _field() no longer rejects a column named "0" due to a truthiness check on the field name.

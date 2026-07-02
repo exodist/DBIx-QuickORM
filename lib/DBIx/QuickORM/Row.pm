@@ -342,6 +342,31 @@ sub update {
 
     $self->_check_stale;
 
+    # Validate desync BEFORE staging so that a croak never leaves
+    # the update's changes armed in PENDING.  The fields being
+    # updated are allowed to be desynced (they are about to be
+    # overwritten), but any *other* desynced field is an error.
+    if ($self->track_desync) {
+        if (my $desync = $self->row_data->{+DESYNC}) {
+            my %remaining = %$desync;
+            delete $remaining{$_} for keys %$changes;
+            croak <<"    EOT" if keys %remaining;
+
+This row is out of sync, this means it was refreshed while it had pending
+changes and the data retrieved from the database does not match what was in
+place when the pending changes were set.
+
+To fix such conditions you need to either use row->discard() to clear the
+pending changes, or you need to call ->force_sync() to clear the desync flags
+allowing you to save the row despite the discrepency.
+
+In addition it would be a good idea to call ->refresh() to have the most up to
+date data.
+
+    EOT
+        }
+    }
+
     # Stage the changes against the current transaction so a rollback
     # discards them along with the transaction's frame.
     $self->{+ROW_DATA}->change_state({TRANSACTION() => $self->connection->current_txn, PENDING() => {%$changes}});
