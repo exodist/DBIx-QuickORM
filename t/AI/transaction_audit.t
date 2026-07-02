@@ -114,6 +114,33 @@ subtest failed_commit_is_recoverable => sub {
     is($count, 0, "the insert really was rolled back");
 };
 
+subtest failed_rollback_does_not_leak_a_silent_commit => sub {
+    my $con = connect_orm();
+
+    my $txn = $con->txn();
+    $con->handle('things')->insert({name => 'sticky'});
+
+    my $fake = My::Test::FakeAsync->new(done => 0);
+    $con->{in_async} = $fake;
+
+    my $err = dies { $txn->rollback };
+    like($err, qr/Cannot stop a transaction while there is an active async query/, "rollback during an active async query throws");
+    ok(!$txn->complete, "transaction is still open after the failed rollback");
+
+    $fake->set_done(1);
+
+    # The failed rollback left the transaction aborted-but-recoverable. A commit
+    # must not silently issue a ROLLBACK and report success; it croaks so the
+    # caller is not misled into thinking the data committed.
+    my $cerr = dies { $txn->commit };
+    like($cerr, qr/already been rolled back/, "commit after a failed rollback croaks instead of silently rolling back");
+    ok(!$txn->complete, "transaction is still recoverable after the refused commit");
+
+    ok(lives { $txn->rollback }, "an explicit rollback still resolves the transaction") or diag $@;
+    ok($txn->rolled_back, "transaction rolled back");
+    is(scalar(@{$con->transactions}), 0, "transaction stack is clean");
+};
+
 subtest on_parent_callbacks => sub {
     my $con = connect_orm();
 

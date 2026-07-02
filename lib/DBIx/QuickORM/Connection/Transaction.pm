@@ -275,6 +275,13 @@ sub commit {
 
     croak "Transaction is already complete" if $self->complete;
 
+    # rollback() sets ABORTED before running finalize; if that finalize was
+    # refused by a guard (e.g. an in-flight async query) the transaction stays
+    # recoverable but aborted. A later commit would silently issue a ROLLBACK
+    # while returning normally, so the caller believes the data committed.
+    croak "Cannot commit a transaction that has already been rolled back"
+        if $self->{+ABORTED};
+
     if ($self->{+VERBOSE} || !$why) {
         my @caller = caller;
         my $trace = "$caller[1] line $caller[2]";

@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Committing a transaction whose rollback was refused by a guard now croaks instead of silently issuing a ROLLBACK while reporting success.
     - auto_retry_txn(action => sub {...}) (the two-element flat form) now retries as documented instead of running the action exactly once.
     - Cancelling an async query no longer tries to collect its result (which croaks) or run its on_ready callback after the cancel.
     - reconnect() after a fork no longer explicitly disconnects the handle inherited from the parent, which could tear down the parent's database session.
