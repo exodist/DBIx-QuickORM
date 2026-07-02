@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - A hashref link spec without local_table resolved on a join now croaks with a clear message instead of dying on a missing name() method.
     - A bare (unqualified) field that exists in more than one joined component now reports a clean ambiguity instead of silently binding to the first match.
     - Inferring a join's from-side now detects an ambiguous table even when it is the primary source (self-join), and alias.field protos split on the first dot consistently; a caller-supplied join alias must be a valid identifier.
     - Resolving links on a join whose components link to the same third table via same-named columns no longer croaks; distinct links are kept and reported as a clean ambiguity.

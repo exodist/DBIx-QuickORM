@@ -61,4 +61,20 @@ subtest self_join_alias_not_duplicated => sub {
     is($got->aliases, ['manager'],      "the merged link's alias list is de-duplicated");
 };
 
+subtest hashref_spec_without_local_table_on_a_join => sub {
+    my $users = DBIx::QuickORM::Schema::Table->new(name => 'users', columns => {id => col('id', 1)}, primary_key => ['id']);
+    my $posts = DBIx::QuickORM::Schema::Table->new(name => 'posts', columns => {id => col('id', 1), user_id => col('user_id', 2)}, primary_key => ['id']);
+    my $link  = L(local_table => 'users', other_table => 'posts', local_columns => ['id'], other_columns => ['user_id'], unique => 0);
+    my $sc    = DBIx::QuickORM::Schema->new(name => 's3', tables => {users => $users, posts => $posts});
+    my $join  = DBIx::QuickORM::Join->new(schema => $sc, primary_source => $users)->left_join($link);
+
+    # A Join has no single local table (no name()), so a hashref spec without
+    # local_table must give a clear message, not die on a missing method.
+    like(
+        dies { $join->resolve_link({other_table => 'posts', local => ['id'], other => ['user_id'], unique => 0}) },
+        qr/Cannot infer local_table/,
+        "a hashref spec without local_table on a join croaks cleanly",
+    );
+};
+
 done_testing;
