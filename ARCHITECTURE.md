@@ -166,12 +166,15 @@ A `Connection` owns one live `DBI` handle and everything tied to it:
 
 ### Reconnect and fork safety
 
-`reconnect` disconnects the old handle and obtains a fresh one from
-`$orm->db->new_dbh`, updating `pid`. If the recorded `pid` differs from the
-current process (a fork happened), `InactiveDestroy` is set on the old
-handle before disconnect so a child does not tear down a parent's
-connection. `auto_retry` reconnects when `$dbh->ping` fails and retries the
-operation.
+`reconnect` releases the old handle and obtains a fresh one from
+`$orm->db->new_dbh`, updating `pid`. When the recorded `pid` matches the
+current process the old handle is disconnected cleanly. When it differs (a
+fork happened) the old handle is a copy of the parent's, sharing the
+parent's socket, so it is **not** disconnected: `InactiveDestroy` alone does
+not suppress an *explicit* `disconnect`, only the implicit one at `DESTROY`,
+and an explicit disconnect would tear down the parent's server session. The
+child instead sets `InactiveDestroy` and drops the reference. `auto_retry`
+reconnects when `$dbh->ping` fails and retries the operation.
 
 ### Query/mutation entry points
 
