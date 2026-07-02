@@ -65,4 +65,69 @@ subtest schema_link_requires_two_nodes => sub {
     );
 };
 
+subtest primary_key_redefine_croaks => sub {
+    like(
+        dies {
+            package My::Test::DSL::I1;
+            use DBIx::QuickORM;
+            schema i1 => sub {
+                table t => sub {
+                    column a => sub { affinity 'numeric'; primary_key };
+                    column b => sub { affinity 'numeric'; primary_key };    # second key
+                };
+            };
+        },
+        qr/primary_key is already defined/,
+        "declaring primary_key twice croaks instead of silently last-wins",
+    );
+
+    ok(
+        lives {
+            package My::Test::DSL::I1b;
+            use DBIx::QuickORM;
+            schema i1b => sub {
+                table t => sub {
+                    column a => sub { affinity 'numeric'; primary_key };
+                    column b => sub { affinity 'numeric'; primary_key({override => 1}) };
+                };
+            };
+        },
+        "primary_key({override => 1}) intentionally replaces the previous key",
+    );
+};
+
+subtest view_vs_table_class_kind_mismatch => sub {
+    {
+        package My::Test::DSL::I5::Tbl;
+        $INC{'My/Test/DSL/I5/Tbl.pm'} = __FILE__;
+        use DBIx::QuickORM type => 'table';
+        table i5tbl => sub {
+            column id => sub { affinity 'numeric'; primary_key };
+        };
+    }
+
+    like(
+        dies {
+            package My::Test::DSL::I5::S;
+            use DBIx::QuickORM;
+            schema i5s => sub {
+                view 'My::Test::DSL::I5::Tbl';    # it defines a Table, not a View
+            };
+        },
+        qr/defines a \S+::Table, not a \S+::View/,
+        "referencing a table class through view() croaks on the kind mismatch",
+    );
+
+    ok(
+        lives {
+            package My::Test::DSL::I5::S2;
+            use DBIx::QuickORM;
+            schema i5s2 => sub {
+                table 'My::Test::DSL::I5::Tbl';    # correct kind
+            };
+        },
+        "referencing the same class through table() still works",
+    );
+};
+
 done_testing;

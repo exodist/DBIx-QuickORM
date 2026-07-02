@@ -1,6 +1,8 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Declaring a table's primary_key twice now croaks (pass { override => 1 } to intentionally replace it) instead of silently keeping only the last declaration.
+    - Referencing a table class through view() (or a view class through table()) now croaks on the kind mismatch instead of silently building the wrong source type.
     - SQLite introspection no longer records a partial (WHERE ...) or expression unique index as a table-level unique constraint (which previously produced spurious desyncs or a garbage unique key).
     - Invalidating a row no longer emits a spurious "pending data" warning from a rolled-back frame, and resurrecting an invalidated row clears its stale invalidation reason.
     - An async single-row proxy now resolves boolean and ready() opportunistically, so a completed-empty result reads as false/ready without needing another method call first.
