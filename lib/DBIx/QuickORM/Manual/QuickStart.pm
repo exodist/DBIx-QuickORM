@@ -128,9 +128,12 @@ L<DBIx::QuickORM::Manual::Querying>.
 
 =head1 INSERT ROWS
 
-Insert with a hashref of column values. You get back the new row object,
-populated with anything the database filled in (auto-increment ids, defaults,
-and so on).
+Insert with a hashref of column values. You get back the new row object with
+its generated primary key filled in (an auto-increment id, say); the other
+fields just reflect the values you supplied. If database-side defaults or
+triggers change the stored data, use C<insert_and_refresh> (or turn on
+C<auto_refresh>) to re-read the full row - see
+L<DBIx::QuickORM::Manual::Querying>.
 
     my $bob = $con->insert(users => {name => 'bob', email => 'bob@example.com'});
 
