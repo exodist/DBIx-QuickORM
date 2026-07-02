@@ -299,7 +299,11 @@ field name. Croaks if the field cannot be resolved unless C<no_fatal> is set.
 sub _field_source {
     my $self = shift;
     my ($proto, %params) = @_;
-    my ($field, $from) = reverse split /\./, $proto;
+
+    # Split on the FIRST dot only, so this resolves the same way as Join::Row
+    # (which uses split ..., 2) for a field db-name or alias containing a dot.
+    my ($from, $field) = split(/\./, $proto, 2);
+    ($from, $field) = (undef, $from) unless defined $field;
 
     if (defined $from) {
         my $c = $self->{+COMPONENTS}->{$from};
@@ -310,12 +314,20 @@ sub _field_source {
         return ($from, $c->{table}, $field);
     }
 
+    # A bare (unqualified) field must be unambiguous: scan every component and
+    # refuse a silent first-match when more than one carries the field.
+    my @matches;
     for my $alias (@{$self->{+ORDER}}) {
         my $c = $self->{+COMPONENTS}->{$alias};
-        my $t = $c->{table};
-        next unless $t->has_field($field);
-        return ($alias, $t, $field);
+        push @matches => [$alias, $c->{table}] if $c->{table}->has_field($field);
     }
+
+    if (@matches > 1) {
+        return undef if $params{no_fatal};
+        croak "Field '$field' is ambiguous in this join (found in: " . join(', ' => map { $_->[0] } @matches) . "); qualify it as alias.$field";
+    }
+
+    return @{$matches[0]}[0, 1], $field if @matches;
 
     return undef if $params{no_fatal};
     croak "This join does not have a '$field' field";
@@ -495,6 +507,12 @@ sub _join {
     my $from = $params{from};
     my $type = $params{type};
 
+    # A caller-supplied alias becomes a SQL identifier and is used as a prefix
+    # for alias.field protos and fracture's row splitting, so a dot (or other
+    # non-word character) in it would resolve inconsistently.
+    croak "Join alias '$as' is not a valid identifier (must match \\A\\w+\\z)"
+        if defined($as) && $as !~ m/\A\w+\z/;
+
     until ($as) {
         my $try = $self->{+JOIN_AS}++;
         next if $self->{+COMPONENTS}->{$try};
@@ -517,12 +535,20 @@ sub _join {
 
         unless ($from) {
             my $lt = $link->local_table;
-            if ($lt eq $self->{+PRIMARY_SOURCE}->name) {
-                $from = $self->{+ORDER}->[0];
+            my $n  = $self->{+LOOKUP}->{$lt};
+
+            # Consult the alias lookup first so an ambiguous table (e.g. the
+            # primary joined to itself) is caught even when it is the primary
+            # source; the primary shortcut only applies when the table has a
+            # single alias.
+            if ($n && @$n > 1) {
+                croak "Table '$lt' has been joined multiple times, you must specify which name to use in the join";
             }
-            elsif (my $n = $self->{+LOOKUP}->{$lt}) {
-                croak "Table '$lt' has been joined multiple times, you must specify which name to use in the join" if @$n > 1;
+            elsif ($n && @$n == 1) {
                 $from = $n->[0];
+            }
+            elsif ($lt eq $self->{+PRIMARY_SOURCE}->name) {
+                $from = $self->{+ORDER}->[0];
             }
             else {
                 croak "Table '$lt' is not yet in the join";
