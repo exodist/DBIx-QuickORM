@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Destroying a parent transaction while a child savepoint is still open no longer wedges the connection with a phantom open transaction.
     - A delete or update committed by a savepoint now correctly clears/updates the row state of the enclosing transaction instead of leaving stale stored data or a masked update.
     - merge_hash_of_objs no longer crashes when the second hash maps a key to an explicit undef while the first holds a reference.
     - Affinity detection now recognizes datetime, character, character varying, and smallserial so user-declared columns of those types no longer croak.
