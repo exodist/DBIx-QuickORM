@@ -44,6 +44,16 @@ subtest construction => sub {
     my $defaulted = DBIx::QuickORM::LiteralSource->new("SELECT 1", subquery => 1);
     is($defaulted->source_db_moniker, "( SELECT 1 ) AS subquery",
         "subquery => 1 uses the default alias");
+
+    my $empty = DBIx::QuickORM::LiteralSource->new("SELECT 1", subquery => '');
+    is($empty->source_db_moniker, "( SELECT 1 ) AS subquery",
+        "subquery => '' uses the default alias, not an empty one");
+
+    like(
+        dies { DBIx::QuickORM::LiteralSource->new("SELECT 1", subquery => 0) },
+        qr/not a valid identifier/,
+        "subquery => 0 croaks instead of emitting an invalid 'AS 0'",
+    );
 };
 
 subtest role_source_interface => sub {

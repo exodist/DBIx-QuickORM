@@ -212,8 +212,8 @@ sub qorm_upsert {
             next;
         }
 
-        my ($sql, @lits) = @$v;
-        push @inject => "$col = $$sql";
+        my ($lit_sql, @lits) = @$v;
+        push @inject => "$col = $$lit_sql";
         push @$binds => {field => $db_field, value => $_, type => 'field', param => $counter++} for @lits;
     }
     # When every field is part of the primary key there is nothing to update
@@ -277,7 +277,7 @@ sub _delete_args {
     confess "delete() with an 'order_by' clause is not currently supported" if $params->{order_by};
     confess "delete() with 'distinct' set is not currently supported"       if $params->{distinct};
 
-    my $where = $params->{where} // undef;
+    my $where = $params->{where};
     my $returning = $params->{returning};
 
     return ($where, $returning ? {returning => $returning} : ());
@@ -314,6 +314,8 @@ sub _select_args {
 sub _where_args {
     my $self = shift;
     my ($params) = @_;
+
+    confess "where() with 'distinct' set is not currently supported" if $params->{distinct};
 
     my $where = $params->{where};
     my $order = $params->{order_by};
