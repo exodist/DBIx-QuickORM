@@ -1,6 +1,8 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Resolving links on a join whose components link to the same third table via same-named columns no longer croaks; distinct links are kept and reported as a clean ambiguity.
+    - A self-join no longer duplicates a link's aliases when merging its repeated links, fixing a false "Ambiguous link" error.
     - Join::Row field accessors now return undef for a LEFT-JOIN-missed sub-row and croak cleanly on an unknown alias instead of dying on an undefined value.
     - Join::Row is_valid now requires every sub-row to be valid, so a join row with an invalidated sub-row is no longer both valid and invalid.
     - A hashref link spec with an unknown key now croaks clearly instead of misreading the key as the other-table name.
