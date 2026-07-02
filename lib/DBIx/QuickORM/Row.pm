@@ -532,7 +532,9 @@ sub _field {
                 croak "Cannot fetch field '$field': this row no longer exists in the database";
             }
 
-            $st->{$field} = $data->{$field};
+            $self->{+ROW_DATA}->change_state({TRANSACTION() => $self->connection->current_txn, STORED() => {$field => $data->{$field}}});
+            $row_data = $self->row_data;
+            $st       = $row_data->{+STORED};
         }
 
         return $self->$meth($st, $field);

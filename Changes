@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Lazy field fetches inside transactions now roll back with the transaction instead of leaking into the row's base state.
     - CAS field-list guards now croak when the guarded field was not fetched instead of treating it as NULL.
     - by_id() now validates primary-key arguments, honors extra hash constraints on loaded rows, and returns hashrefs in data_only mode even on cache hits.
     - Upserts now preserve RETURNING clauses when literal write SQL contains the word "returning".

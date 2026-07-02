@@ -134,6 +134,26 @@ subtest fetch_during_savepoint_fill_protects_base => sub {
     is(db_value(name => $pk), 'fillme', "database matches");
 };
 
+subtest lazy_field_fetch_during_transaction_rolls_back => sub {
+    my $row = $h->insert({name => 'lazy_txn', size => 7});
+    my $pk  = $row->field('widget_id');
+
+    undef $row;
+    $row = $h->fields(['widget_id', 'name'])->by_id($pk);
+    ok(!exists $row->stored_data->{size}, "size was not fetched initially");
+
+    my $txn = $con->txn;
+    $h->count;
+    $con->dbh->do('UPDATE widgets SET size = ? WHERE widget_id = ?', undef, 8, $pk);
+
+    is($row->field('size'), 8, "lazy fetch sees the in-transaction value");
+
+    $txn->rollback;
+
+    is(db_value(size => $pk), 7, "database rolled back to the original value");
+    is($row->field('size'), 7, "row does not retain the rolled-back lazy fetch value");
+};
+
 subtest commit_chain_merges_step_by_step => sub {
     my $row = $h->insert({name => 'stepwise', size => 6});
     my $pk  = $row->field('widget_id');
