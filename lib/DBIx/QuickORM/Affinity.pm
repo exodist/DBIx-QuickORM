@@ -85,11 +85,14 @@ sub compare_affinity_values {
 
 my %AFFINITY_BY_TYPE = (
     # Stringy
-    char   => 'string',
-    json   => 'string',
-    string => 'string',
-    text   => 'string',
-    bpchar => 'string',
+    char      => 'string',
+    character => 'string',
+    json      => 'string',
+    string    => 'string',
+    text      => 'string',
+    bpchar    => 'string',
+
+    'character varying' => 'string',
 
     # Special
     enum  => 'string',
@@ -123,6 +126,7 @@ my %AFFINITY_BY_TYPE = (
     numeric => 'numeric',
     real    => 'numeric',
     serial  => 'numeric',
+    smallserial => 'numeric',
     smallint => 'numeric',
     ubigint  => 'numeric',
     uhugeint => 'numeric',
@@ -132,6 +136,7 @@ my %AFFINITY_BY_TYPE = (
 
     # Date/Time
     date        => 'string',
+    datetime    => 'string',
     day         => 'string',
     interval    => 'string',
     stamp       => 'string',

@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Affinity detection now recognizes datetime, character, character varying, and smallserial so user-declared columns of those types no longer croak.
     - by_id() now rejects an undefined primary key value instead of silently degrading to a "primary key IS NULL" lookup that can never match.
     - Upserts on dialects without RETURNING support no longer corrupt a literal write value that contains the word "returning".
     - DSL variants, coderef defaults, table-class metadata, and builtin-shaped calls now preserve the intended user values.
