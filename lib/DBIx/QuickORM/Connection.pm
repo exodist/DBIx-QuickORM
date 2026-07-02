@@ -1167,23 +1167,51 @@ sub _txn_finalizer {
         $txnx->throw("Cannot stop a transaction while there is an active async query")
             if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
 
-        $txnx->throw("Internal Error: Transaction stack mismatch")
-            unless @$txns && (($txnx->in_destroy && !$txns->[-1]) || $txns->[-1] == $txnx);
-
         $ran++;
-        pop @$txns;
 
         my $aborted = $txnx->aborted;
         my $res     = $ok && !$aborted;
 
-        if ($sp) {
-            if   ($res) { $dialect->commit_savepoint(savepoint => $sp) }
-            else        { $dialect->rollback_savepoint(savepoint => $sp) }
+        # Find our own entry by identity rather than assuming we are top of the
+        # stack. Perl does not guarantee the destruction order of lexicals, so a
+        # parent transaction can be destroyed while a child savepoint is still
+        # live on the stack; a blind pop there would remove the child and leave
+        # the root BEGIN open forever, wedging the connection. Weak entries
+        # anywhere may already be dead, so skip them.
+        my $idx;
+        for (my $i = $#$txns; $i >= 0; $i--) {
+            my $e = $txns->[$i];
+            next unless defined($e) && $e == $txnx;
+            $idx = $i;
+            last;
         }
-        else {
-            if   ($res) { $dialect->commit_txn }
-            else        { $dialect->rollback_txn }
+
+        if (defined $idx) {
+            # Live entries above us are inner transactions orphaned by our
+            # resolution (their enclosing transaction is closing). Resolving us
+            # at the dialect level already discards their work in the database,
+            # so neuter and roll back their objects here — their own DESTROY then
+            # becomes a no-op.
+            my @orphans = grep { defined } @{$txns}[$idx + 1 .. $#$txns];
+            splice(@$txns, $idx);
+
+            if ($sp) {
+                if   ($res) { $dialect->commit_savepoint(savepoint => $sp) }
+                else        { $dialect->rollback_savepoint(savepoint => $sp) }
+            }
+            else {
+                if   ($res) { $dialect->commit_txn }
+                else        { $dialect->rollback_txn }
+            }
+
+            for my $orphan (reverse @orphans) {
+                $orphan->set_finalize(undef);
+                $orphan->terminate(0, ["Enclosing transaction was resolved"]);
+            }
         }
+        # else: an enclosing transaction's finalizer already resolved and removed
+        # us; skip the dialect (avoid a double rollback) and just run our own
+        # termination bookkeeping below.
 
         my ($ok2, $err2) = $txnx->terminate($res, \@errors);
         unless ($ok2) {
