@@ -6,7 +6,6 @@ our $VERSION = '0.000028';
 
 use DBIx::QuickORM::Util qw/parse_conflate_args/;
 
-use Carp qw/croak/;
 use Scalar::Util qw/blessed reftype/;
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Type';
@@ -60,11 +59,10 @@ sub qorm_inflate {
 }
 
 sub qorm_deflate {
-    my $params   = parse_conflate_args(@_);
-    my $val      = $params->{value};
+    my $params = parse_conflate_args(@_);
+    my $val    = $params->{value};
     return undef unless defined $val;
-    my $affinity = $params->{affinity} or croak "Could not determine affinity";
-    my $class    = $params->{class} // __PACKAGE__;
+    my $class  = $params->{class} // __PACKAGE__;
 
     if (blessed($val) && !$val->can('TO_JSON')) {
         my $r = reftype($val) // '';
