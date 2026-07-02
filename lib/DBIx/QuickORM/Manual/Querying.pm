@@ -48,7 +48,7 @@ compose and pass them around freely.
 Every handle operates through a L<DBIx::QuickORM::Connection>. The connection
 itself is the easiest place to make one with C<< $con->handle(...) >>:
 
-    my $con = orm('my_orm');
+    my $con = qorm('my_orm');
 
     # A handle on the whole 'people' table (no query has run yet).
     my $people = $con->handle('people');
@@ -144,14 +144,17 @@ This matters for types whose deflation is not idempotent (encoding a JSON string
 again would double-encode it), and it is the mechanism C<cas> uses for its
 field-name guards.
 
-=head2 ORDER BY and LIMIT
+=head2 ORDER BY, LIMIT, and OFFSET
 
     my $h = $con->handle('people')
         ->where({active => 1})
         ->order_by(['surname', 'first_name'])
-        ->limit(25);
+        ->limit(25)
+        ->offset(50);
 
-C<order_by> accepts a single field, a list of fields, or an arrayref.
+C<order_by> accepts a single field, a list of fields, or an arrayref. C<limit>
+caps the number of rows returned, and C<offset> skips that many matching rows
+first, so C<< ->limit(25)->offset(50) >> fetches the third page of 25.
 
 =head2 Choosing fields
 
@@ -169,6 +172,11 @@ example large blobs). C<all_fields> forces a handle to select every column
 regardless:
 
     my $h = $con->handle('people')->all_fields;
+
+C<distinct> makes the query select only distinct rows (a C<SELECT DISTINCT>),
+which is most useful when you have narrowed the field set:
+
+    my $h = $con->handle('people')->fields(['surname'])->distinct;
 
 =head1 FETCHING ROWS
 
