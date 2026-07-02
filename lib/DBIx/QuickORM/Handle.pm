@@ -1900,16 +1900,33 @@ sub by_id {
     my $pk_fields = $self->_has_pk or croak "Cannot call by_id() on a source that has no primary key";
 
     my $where;
+    my $cacheable = 1;
     my $ref = ref($id);
     #<<<
-    if    ($ref eq 'HASH')  { $where = $id; $id = [ map { $where->{$_} } @$pk_fields ] }
-    elsif ($ref eq 'ARRAY') { $where = +{ mesh($pk_fields, $id) } }
-    elsif (!$ref)           { $id = [ $id ]; $where = +{ mesh($pk_fields, $id) } }
+    if ($ref eq 'HASH') {
+        $where = $id;
+        croak "Missing primary key field '$_' in by_id() hash" for grep { !exists $where->{$_} } @$pk_fields;
+        $id = [ map { $where->{$_} } @$pk_fields ];
+        $cacheable = 0 if keys(%$where) != @$pk_fields;
+    }
+    elsif ($ref eq 'ARRAY') {
+        croak "Incorrect primary key field count in by_id(): expected " . scalar(@$pk_fields) . ", got " . scalar(@$id)
+            unless @$id == @$pk_fields;
+        $where = +{ mesh($pk_fields, $id) };
+    }
+    elsif (!$ref) {
+        croak "Scalar by_id() can only be used with a single-column primary key" unless @$pk_fields == 1;
+        $id = [ $id ];
+        $where = +{ mesh($pk_fields, $id) };
+    }
     #>>>
 
     croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';
 
-    my $row = $self->{+CONNECTION}->state_cache_lookup($source, $id);
+    $self->{+CONNECTION}->pid_check;
+
+    my $row = $cacheable ? $self->{+CONNECTION}->state_cache_lookup($source, $id) : undef;
+    return $row->raw_fields if $row && $self->{+DATA_ONLY};
     return $row //= $self->where($where)->one();
 }
 

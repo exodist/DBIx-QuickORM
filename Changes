@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - by_id() now validates primary-key arguments, honors extra hash constraints on loaded rows, and returns hashrefs in data_only mode even on cache hits.
     - Upserts now preserve RETURNING clauses when literal write SQL contains the word "returning".
     - Handle omit() can now append to an existing omit set, and all_fields() now clears any previous omit.
     - Columns declared with blessed type instances now use those instances for field inflate/deflate.
