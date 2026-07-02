@@ -102,11 +102,11 @@ sub fields_to_fetch { ['*'] }
 
 sub field_affinity { 'string' }
 
-sub field_type     { }
-sub fields_to_omit { }
-sub has_field      { }
-sub primary_key    { }
-sub row_class      { }
+sub field_type     { my $self = shift; return }
+sub fields_to_omit { my $self = shift; return }
+sub has_field      { my $self = shift; return }
+sub primary_key    { my $self = shift; return }
+sub row_class      { my $self = shift; return }
 
 sub field_db_name  { my ($self, $name) = @_; return $name }
 sub field_orm_name { my ($self, $name) = @_; return $name }
