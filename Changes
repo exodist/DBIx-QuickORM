@@ -1,6 +1,9 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Two columns that resolve to the same generated accessor name now croak during autorow generation instead of silently dropping one (matching the existing link-vs-link collision behavior).
+    - Generated field lists (and thus SELECT column order) are now deterministic, ordered by each column's position instead of hash order.
+    - and(), or(), and the join methods (left_join/right_join/inner_join/full_join/cross_join) now croak when called in void context, like the other query-building methods, instead of silently doing nothing.
     - Declaring a table's primary_key twice now croaks (pass { override => 1 } to intentionally replace it) instead of silently keeping only the last declaration.
     - Referencing a table class through view() (or a view class through table()) now croaks on the kind mismatch instead of silently building the wrong source type.
     - SQLite introspection no longer records a partial (WHERE ...) or expression unique index as a table-level unique constraint (which previously produced spurious desyncs or a garbage unique key).

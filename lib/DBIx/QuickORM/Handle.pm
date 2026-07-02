@@ -399,6 +399,7 @@ link against the source and returns a clone whose source is the resulting join.
 
 sub _join {
     my $self = shift;
+    croak "Must not be called in void context" unless defined wantarray;
 
     # An odd argument count means the first argument is the positional link
     # (or table, for cross joins).
@@ -1126,11 +1127,13 @@ sub no_internal_transactions {
     no warnings 'once';
     *and = set_subname 'and' => sub {
         my $self = shift;
+        croak "Must not be called in void context" unless defined wantarray;
         return $self->clone(WHERE() => $self->sql_builder->qorm_and($self->{+WHERE}, @_));
     };
 
     *or = set_subname 'or' => sub {
         my $self = shift;
+        croak "Must not be called in void context" unless defined wantarray;
         return $self->clone(WHERE() => $self->sql_builder->qorm_or($self->{+WHERE}, @_));
     };
 }
