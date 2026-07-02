@@ -104,6 +104,15 @@ subtest merge_hash_of_objs => sub {
         ref_is_not($out->{a}, $second, "result array is a copy, not the same ref");
     };
 
+    subtest mixed_types_second_wins => sub {
+        # Dispatch on the winner ($b). A mixed-type merge used to crash because
+        # the branch was chosen by ref($a) while the value was built from $b.
+        is(merge_hash_of_objs({k => [1, 2]},        {k => 'scalar'})->{k}, 'scalar',      "array then scalar: scalar wins");
+        is(merge_hash_of_objs({k => 's'},           {k => [3, 4]})->{k},   [3, 4],         "scalar then array: array wins");
+        is(merge_hash_of_objs({k => {x => 1}},      {k => 'plain'})->{k},  'plain',        "hash then scalar: scalar wins");
+        is(merge_hash_of_objs({k => 'plain'},       {k => {y => 2}})->{k}, {y => 2},       "scalar then hash: hash wins");
+    };
+
     subtest blessed_both => sub {
         # Both sides blessed -> a->merge(b, %params) is invoked.
         my $a = t::Obj->new(n => 1);
@@ -223,6 +232,22 @@ subtest parse_conflate_args => sub {
             qr/'value' argument must be present/,
             "no determinable value croaks",
         );
+    };
+
+    subtest type_instance_invocant => sub {
+        # $Type->qorm_inflate($raw) and $instance->qorm_inflate($raw) reach
+        # parse_conflate_args as (class-or-instance, $raw). Both must be parsed
+        # as (class => invocant, value => $raw), not rejected.
+        require DBIx::QuickORM::Type::JSON;
+
+        my $by_class = parse_conflate_args('DBIx::QuickORM::Type::JSON', '{"x":1}');
+        is($by_class->{class}, 'DBIx::QuickORM::Type::JSON', "class-name invocant kept as class");
+        is($by_class->{value}, '{"x":1}',                    "the following argument is the value");
+
+        my $inst = bless {}, 'DBIx::QuickORM::Type::JSON';
+        my $by_inst = parse_conflate_args($inst, '{"y":2}');
+        ref_is($by_inst->{class}, $inst, "blessed type instance kept as the class/invocant");
+        is($by_inst->{value}, '{"y":2}', "and its following argument is the value");
     };
 };
 

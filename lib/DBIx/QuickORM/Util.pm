@@ -108,14 +108,16 @@ sub merge_hash_of_objs {
         my $b     = $hash_b->{$name};
 
         if ($has_a && $has_b) {
-            my $r = ref($a);
-            my $bl = blessed($a);
-
-            if    (!defined $b)   { $out{$name} = $b }                              # Explicit undef in second wins
-            elsif ($bl)           { $out{$name} = $a->merge($b, %$merge_params) }
-            elsif ($r eq 'HASH')  { $out{$name} = {%$a, %$b} }
-            elsif ($r eq 'ARRAY') { $out{$name} = [@$b] }                           # Second array wins
-            else                  { $out{$name} = $b }                              # Second value wins
+            # "Second wins": dispatch on $b (the winner), not $a. Building an
+            # ARRAY/HASH result off $b while branching on ref($a) crashed on a
+            # mixed-type merge (e.g. a user override replacing an introspected
+            # scalar-ref with a blessed type, or vice versa). Only fall back to
+            # $a->merge when both sides are blessed and can be merged.
+            if    (!defined $b)          { $out{$name} = $b }                             # Explicit undef in second wins
+            elsif (blessed($b))          { $out{$name} = blessed($a) ? $a->merge($b, %$merge_params) : $b->clone(%$merge_params) }
+            elsif (ref($b) eq 'HASH')    { $out{$name} = ref($a) eq 'HASH' ? {%$a, %$b} : {%$b} }
+            elsif (ref($b) eq 'ARRAY')   { $out{$name} = [@$b] }                          # Second array wins
+            else                         { $out{$name} = $b }                             # Second value wins
 
             next;
         }
@@ -187,7 +189,10 @@ sub parse_conflate_args {
     my ($proto, %params);
     $proto = shift if @_ % 2;
 
-    if (!blessed($_[0]) && eval { $_[0]->does('DBIx::QuickORM::Role::Type') ? 1 : 0 }) {
+    if ((blessed($_[0]) || !ref($_[0])) && @_ > 1 && eval { $_[0]->does('DBIx::QuickORM::Role::Type') ? 1 : 0 }) {
+        # A type class name OR a blessed type instance followed by a value:
+        # $Type->qorm_inflate($raw) and $instance->qorm_inflate($raw) both mean
+        # (class/instance => class, value => $raw).
         (@params{qw/class value/}) = (shift(@_), shift(@_));
         %params = (%params, @_);
     }
