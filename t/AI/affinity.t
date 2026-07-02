@@ -181,4 +181,15 @@ subtest compare_affinity_values => sub {
     };
 };
 
+subtest declared_type_affinity_names => sub {
+    # Regression: user-declared scalar-ref SQL types the audit named must
+    # resolve to an affinity instead of returning undef (which croaks at
+    # Column->affinity).
+    is(affinity_from_type('datetime'),              'string',  "datetime => string");
+    is(affinity_from_type('character'),             'string',  "character => string");
+    is(affinity_from_type('character varying'),     'string',  "character varying => string");
+    is(affinity_from_type('character varying(50)'), 'string',  "sized character varying => string");
+    is(affinity_from_type('smallserial'),           'numeric', "smallserial => numeric");
+};
+
 done_testing;
