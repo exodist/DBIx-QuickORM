@@ -1091,7 +1091,7 @@ sub distinct {
 sub all_fields {
     my $self = shift;
     croak "Must not be called in void context" unless defined wantarray;
-    return $self->clone(FIELDS() => $self->{+SOURCE}->fields_list_all);
+    return $self->clone(FIELDS() => $self->{+SOURCE}->fields_list_all, OMIT() => undef);
 }
 
 sub internal_txns    { my $self = shift; $self->internal_transactions(@_) }
@@ -1293,7 +1293,8 @@ sub omit {
 
     return $self->clone(OMIT() => $_[0]) if @_ == 1 && ref($_[0]) eq 'ARRAY';
 
-    my @omit = @{$self->{+OMIT} // []};
+    my $cur = $self->{+OMIT};
+    my @omit = ref($cur) eq 'HASH' ? keys %$cur : @{$cur // []};
     push @omit => @_;
     return $self->clone(OMIT() => \@omit)
 }
