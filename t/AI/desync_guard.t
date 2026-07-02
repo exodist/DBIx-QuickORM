@@ -112,6 +112,24 @@ subtest update_of_other_field_still_croaks => sub {
     is(db_value(email => $pk), 'new@example.com', "email written");
 };
 
+subtest failed_update_does_not_arm_pending => sub {
+    my ($row, $pk) = desynced_row();
+
+    # update() of a non-desynced field must validate BEFORE staging, so a
+    # croak leaves nothing armed; otherwise a later force_sync->save would
+    # silently write the failed update's value.
+    like(
+        dies { $row->update({email => 'leak@example.com'}) },
+        qr/This row is out of sync/,
+        "update of a non-desynced field croaks while name is desynced",
+    );
+    ok(!defined $row->pending_field('email'), "the failed update did not arm email in pending");
+
+    $row->force_sync;
+    ok(lives { $row->save }, "save works after force_sync past the name desync");
+    is(db_value(email => $pk), 'sync@example.com', "the failed update's email value did not leak to the database");
+};
+
 subtest update_unknown_field_croaks => sub {
     my $row = $h->insert({name => 'fields', age => 2});
     like(
