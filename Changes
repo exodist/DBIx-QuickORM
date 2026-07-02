@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Autorow generation no longer silently swallows a compile error in a user's row/base class (it rethrows instead of substituting the stock Row), and builds the correct %INC key for multi-part class names.
     - Saving or deleting a join row now fans out to its sub-rows in a deterministic foreign-key-safe order (parents before children on save, children first on delete) instead of hash order.
     - An async/aside/forked statement handle inherited by a forked child no longer touches the shared driver socket or pipe when the child is destroyed, avoiding corruption of the owner's connection.
     - Reads on a handle bound to a row whose table has no primary key now croak instead of scanning the whole table (and possibly returning the wrong row).
