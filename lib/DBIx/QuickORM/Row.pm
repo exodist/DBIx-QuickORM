@@ -4,9 +4,8 @@ use warnings;
 
 use Carp qw/confess croak/;
 use Storable qw/dclone/;
-use List::Util qw/zip/;
 use Scalar::Util qw/blessed/;
-use DBIx::QuickORM::Util qw/column_key literal_write_value/;
+use DBIx::QuickORM::Util qw/literal_write_value/;
 
 use DBIx::QuickORM::Affinity();
 use DBIx::QuickORM::Link();

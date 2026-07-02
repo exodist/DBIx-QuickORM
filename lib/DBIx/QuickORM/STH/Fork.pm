@@ -10,7 +10,6 @@ with 'DBIx::QuickORM::Role::Async';
 
 use Carp qw/croak/;
 use POSIX qw/WNOHANG/;
-use Time::HiRes qw/sleep/;
 use Cpanel::JSON::XS qw/decode_json/;
 
 use Object::HashBase qw{

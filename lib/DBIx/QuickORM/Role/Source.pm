@@ -4,8 +4,6 @@ use warnings;
 
 our $VERSION = '0.000028';
 
-use Carp qw/croak confess/;
-
 use Role::Tiny;
 
 =pod
