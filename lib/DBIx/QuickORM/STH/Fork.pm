@@ -260,8 +260,6 @@ sub cancel {
 Return the next row as a hashref, or undef once exhausted. With C<only_one>
 set, a second row is an error.
 
-=back
-
 =cut
 
 sub next {
@@ -279,6 +277,57 @@ sub next {
     }
 
     return $row;
+}
+
+=pod
+
+=item $bool = $sth->cancel_on_destroy
+
+False when an C<on_finish> callback is set: such a handle wraps a write that
+must run to completion, so its destructor waits for the child instead of
+signalling it.
+
+=cut
+
+sub cancel_on_destroy { $_[0]->{+ON_FINISH} ? 0 : 1 }
+
+=pod
+
+=item $sth->set_done
+
+Drive the stream to its terminal frame (when nothing else has), reap the
+child, release the fork slot, mark the handle done, and run any C<on_finish>
+callback if the child completed cleanly. Idempotent.
+
+=back
+
+=cut
+
+sub set_done {
+    my $self = shift;
+
+    return if $self->{+DONE};
+
+    # An inherited copy in a forked child must not reap the owner's child or
+    # release the owner's fork slot; only mark itself spent locally.
+    unless ($self->in_owner_process) {
+        $self->{+DONE} = 1;
+        return;
+    }
+
+    # If nothing drove the stream to its terminal frame (e.g. a forked write
+    # that no one iterated) read it to completion now, so we know whether the
+    # child finished cleanly before running the parent-side completion.
+    $self->_drive_to_terminal unless $self->{+TERMINATED};
+
+    delete $self->{+PIPE};
+    waitpid($self->{+PID}, 0) if $self->{+PID};
+    $self->clear;
+    $self->{+DONE} = 1;
+
+    if (my $on_finish = $self->{+ON_FINISH}) {
+        $on_finish->() if $self->{+CLEAN};
+    }
 }
 
 =pod
@@ -395,61 +444,6 @@ sub _croak_child_error {
 }
 
 =pod
-
-=item $bool = $sth->cancel_on_destroy
-
-False when an C<on_finish> callback is set: such a handle wraps a write that
-must run to completion, so its destructor waits for the child instead of
-signalling it.
-
-=cut
-
-sub cancel_on_destroy { $_[0]->{+ON_FINISH} ? 0 : 1 }
-
-=pod
-
-=item $sth->set_done
-
-Drive the stream to its terminal frame (when nothing else has), reap the
-child, release the fork slot, mark the handle done, and run any C<on_finish>
-callback if the child completed cleanly. Idempotent.
-
-=back
-
-=cut
-
-sub set_done {
-    my $self = shift;
-
-    return if $self->{+DONE};
-
-    # An inherited copy in a forked child must not reap the owner's child or
-    # release the owner's fork slot; only mark itself spent locally.
-    unless ($self->in_owner_process) {
-        $self->{+DONE} = 1;
-        return;
-    }
-
-    # If nothing drove the stream to its terminal frame (e.g. a forked write
-    # that no one iterated) read it to completion now, so we know whether the
-    # child finished cleanly before running the parent-side completion.
-    $self->_drive_to_terminal unless $self->{+TERMINATED};
-
-    delete $self->{+PIPE};
-    waitpid($self->{+PID}, 0) if $self->{+PID};
-    $self->clear;
-    $self->{+DONE} = 1;
-
-    if (my $on_finish = $self->{+ON_FINISH}) {
-        $on_finish->() if $self->{+CLEAN};
-    }
-}
-
-=pod
-
-=head1 PRIVATE METHODS (cont.)
-
-=over 4
 
 =item $sth->_drive_to_terminal
 

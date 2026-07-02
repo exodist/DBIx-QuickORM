@@ -60,7 +60,7 @@ does the rest.
 
 =head1 THE BUILDER CONTRACT
 
-L<DBIx::QuickORM::Role::SQLBuilder> requires seven methods and provides one.
+L<DBIx::QuickORM::Role::SQLBuilder> requires seven methods and provides two.
 
 =head2 REQUIRED METHODS
 
