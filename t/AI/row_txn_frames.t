@@ -236,4 +236,43 @@ subtest update_during_savepoint_rolls_back => sub {
     is(db_value(name => $pk), 'upd_sp', "database reverted as well");
 };
 
+subtest committed_savepoint_delete_clears_stored => sub {
+    # A delete committed by a savepoint must clear the stored data of the frame
+    # below it; the clear marker has to survive the merge-down. Otherwise the
+    # in-memory row keeps reporting in_storage while the database row is gone.
+    my $row = $h->insert({name => 'del_sp', size => 20});
+    my $pk  = $row->field('widget_id');
+
+    my $outer = $con->txn;
+    my $sp    = $con->txn;
+    $row->delete;
+    $sp->commit;
+    $outer->commit;
+
+    ok(!$row->in_storage, "row is no longer stored after the committed savepoint delete");
+    is(db_value(name => $pk), undef, "database row is gone");
+};
+
+subtest committed_savepoint_update_masks_outer_pending => sub {
+    # A successful update inside a committed savepoint clears any pending from
+    # the enclosing transaction; the pending-clear marker must merge down so
+    # the update's value wins instead of the resurrected outer pending.
+    my $row = $h->insert({name => 'upd_orig', size => 21});
+    my $pk  = $row->field('widget_id');
+
+    my $outer = $con->txn;
+    $row->refresh;
+    $row->field(name => 'outer_pending');
+
+    my $sp = $con->txn;
+    $row->update({name => 'inner_saved'});
+    $sp->commit;
+
+    is($row->field('name'), 'inner_saved', "the savepoint update value survives the merge-down");
+    ok(!$row->is_desynced, "row is not left desynced by a resurrected outer pending");
+
+    $outer->commit;
+    is(db_value(name => $pk), 'inner_saved', "database has the updated value");
+};
+
 done_testing;
