@@ -507,7 +507,12 @@ sub db {
         my $server = $self->{+SERVERS}->{$server_name} or croak "'$server_name' is not a defined server";
         my $db = $server->{meta}->{dbs}->{$db_name} or croak "'$db_name' is not a defined database on server '$server_name'";
 
-        return $top->{meta}->{db} = $db if $bld_orm;
+        if ($bld_orm) {
+            # Binding a db to an orm stores the definition; a variant selection
+            # would be silently discarded here, so refuse it rather than ignore.
+            croak "Cannot select a variant ('$variant_name') when binding a db to an orm" if defined $variant_name;
+            return $top->{meta}->{db} = $db;
+        }
         return $self->compile($db, $variant_name);
     }
 
