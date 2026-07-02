@@ -121,7 +121,7 @@ sub is_invalid { $_[0]->{+ROW_DATA}->invalid }
 sub is_valid   { $_[0]->{+ROW_DATA}->valid ? 1 : 0 }
 
 sub in_storage  { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
-sub is_stored   { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
+sub is_stored   { $_[0]->in_storage }
 sub is_desynced { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+DESYNC}  ? 1 : 0 }
 sub has_pending { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+PENDING} ? 1 : 0 }
 
@@ -276,11 +276,7 @@ sub force_sync {
 sub refresh {
     my $self = shift;
 
-    $self->check_pk;
-
-    croak "This row is not in the database yet" unless $self->is_stored;
-
-    my $row = $self->connection->handle($self)->one;
+    my $row = $self->_stored_handle->one;
     return $row if $row;
 
     $self->connection->state_invalidate(source => $self->source, row => $self, reason => "row no longer exists in the database");
@@ -299,21 +295,13 @@ sub discard {
 
 sub delete {
     my $self = shift;
-
-    $self->check_pk;
-
-    croak "This row is not in the database yet" unless $self->is_stored;
-    return $self->connection->handle($self)->delete;
+    return $self->_stored_handle->delete;
 }
 
 sub cas {
     my $self = shift;
     my ($input, $changes) = @_;
-
-    $self->check_pk;
-
-    croak "This row is not in the database yet" unless $self->is_stored;
-    return $self->connection->handle($self)->cas($input, $changes);
+    return $self->_stored_handle->cas($input, $changes);
 }
 
 sub update {
@@ -478,6 +466,11 @@ sub field_is_desynced {
 
 =over 4
 
+=item $handle = $row->_stored_handle
+
+Assert the row has a primary key and is stored, then return a handle bound to
+it. Shared preamble for C<refresh> / C<delete> / C<cas>.
+
 =item $row = $row->_check_stale
 
 Croak when a transaction is open but this row's state predates the current
@@ -509,6 +502,13 @@ Return the deflated/raw value of C<$name> from data hash C<$from>.
 =back
 
 =cut
+
+sub _stored_handle {
+    my $self = shift;
+    $self->check_pk;
+    croak "This row is not in the database yet" unless $self->is_stored;
+    return $self->connection->handle($self);
+}
 
 sub _check_stale {
     my $self = shift;
