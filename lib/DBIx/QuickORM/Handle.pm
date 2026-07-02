@@ -2139,7 +2139,7 @@ sub _insert {
 
     if (my $row = $self->{+ROW}) {
         croak "Cannot provide both a row and data to insert()" if $data;
-        croak "Cannot insert a row that is already stored" if $row->in_storage;
+        croak "Cannot " . ($upsert ? 'upsert' : 'insert') . " a row that is already stored" if $row->in_storage;
         $data = $row->row_data_obj->pending_data or croak "Row has no pending data to insert";
     }
 
