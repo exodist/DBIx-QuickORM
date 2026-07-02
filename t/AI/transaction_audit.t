@@ -65,6 +65,17 @@ subtest auto_retry_txn_forms => sub {
 
     my $err = dies { $con->auto_retry_txn(2, \"nope") };
     like($err, qr/Not sure what to do with second argument/, "bad second argument croaks");
+
+    # Two-element flat form (action => sub): the first argument is not a count,
+    # so it must be parsed as flat params and still retry, not be mistaken for
+    # ($count='action', $cb) which numifies to 0 and never retries.
+    $calls = 0;
+    my $flat_warns = warns {
+        $txn = $con->auto_retry_txn(action => sub { die "boom\n" unless ++$calls > 1 });
+    };
+    is($calls, 2, "(action => sub) flat form retried instead of running once");
+    is($flat_warns, 1, "(action => sub) flat form warned once on the retry");
+    ok($txn->committed, "(action => sub) flat form eventually committed");
 };
 
 {

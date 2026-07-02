@@ -676,21 +676,29 @@ sub auto_retry_txn {
     elsif (@_ == 2) {
         my $ref0 = ref($_[0]);
         my $ref1 = ref($_[1]);
+        my $count_like = !$ref0 && defined($_[0]) && $_[0] =~ /^\d+$/;
         if ($ref0 eq 'HASH' && $ref1 eq 'CODE') {
             %params = %{$_[0]};
             $params{action} = $_[1];
             $count = delete $params{count};
         }
-        elsif ($ref1 eq 'CODE') {
+        elsif ($count_like && $ref1 eq 'CODE') {
             $count = $_[0];
             $params{action} = $_[1];
         }
-        elsif ($ref1 eq 'HASH') {
+        elsif ($count_like && $ref1 eq 'HASH') {
             $count  = $_[0];
             %params = %{$_[1]};
         }
-        else {
+        elsif ($count_like) {
             croak "Not sure what to do with second argument '$_[1]'";
+        }
+        else {
+            # Flat key => value form, e.g. (action => sub {...}). A positional
+            # ($count, $cb) only matches the branches above, where the first
+            # argument actually looks like a count.
+            %params = @_;
+            $count  = delete $params{count};
         }
     }
     else {
