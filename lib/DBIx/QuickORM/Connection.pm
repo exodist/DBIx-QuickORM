@@ -425,8 +425,18 @@ sub reconnect {
         if @{$self->{+TRANSACTIONS} // []};
 
     if (my $dbh = delete $self->{+DBH}) {
-        $dbh->{InactiveDestroy} = 1 unless $self->{+PID} == $$;
-        $dbh->disconnect;
+        if ($self->{+PID} == $$) {
+            # Our own handle: close it cleanly.
+            $dbh->disconnect;
+        }
+        else {
+            # Inherited across a fork: the socket is shared with the parent.
+            # DBI's InactiveDestroy suppresses the implicit disconnect at
+            # DESTROY, but NOT an explicit disconnect(), which would send a
+            # protocol-level terminate and tear down the parent's server
+            # session. Detach without disconnecting.
+            $dbh->{InactiveDestroy} = 1;
+        }
     }
 
     # The old handle is gone, so an in-progress async query on it can never
