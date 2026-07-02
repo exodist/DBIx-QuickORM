@@ -732,9 +732,23 @@ constructor to process.
 These allow custom handlers for unknown arguments. The defaults throw
 exceptions.
 
+=item -unknown => sub { my ($h, $arg) = @_; die ... }
+
+Umbrella for the three above: sets C<-unknown_object>, C<-unknown_ref>, and
+C<-unknown_arg> to the same handler in one call.
+
 =back
 
 =cut
+
+# The complete set of -flag names handle() accepts. A misspelled flag would
+# otherwise be stored silently and never consulted, quietly disabling whatever
+# protection the caller meant to configure.
+my %VALID_HANDLE_FLAG = map { $_ => 1 } qw{
+    allow_override bad_override row_and_where row_and_source
+    unknown_object unknown_ref unknown_arg unknown
+    array hash integer scalar
+};
 
 sub new { my $proto = shift; $proto->handle(@_) }
 
@@ -855,6 +869,7 @@ sub handle {
 
         if ($arg =~ m/^-(.+)$/) {
             my $flag = $1;
+            croak "Unknown handle flag '-$flag'" unless $VALID_HANDLE_FLAG{$flag};
             my $val = shift @_;
             $flags{$flag} = $val;
             if ($flag eq 'unknown') {
