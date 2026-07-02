@@ -176,6 +176,26 @@ subtest parse_hash_spec => sub {
     is($single_with_options->other_table, 'users', "single-key hash form ignores option keys when finding the other table");
     is($single_with_options->unique, 0, "single-key hash form keeps an explicit unique option");
     is($single_with_options->aliases, ['author'], "single-key hash form keeps aliases");
+
+    # A fully specified spec (other_table already set) must not have a leftover
+    # key misread as the other-table name by the single-key convenience branch.
+    my $explicit = DBIx::QuickORM::Link->parse($schema, {
+        local_table => 'posts', table => 'users',
+        local       => ['author_id'], other => ['user_id'], unique => 1,
+    });
+    is($explicit->other_table, 'users', "explicit other-table is not clobbered by the single-key branch");
+    is($explicit->unique, 1, "explicit unique option is honored");
+
+    like(
+        dies {
+            DBIx::QuickORM::Link->parse($schema, {
+                local_table => 'posts', table => 'users',
+                local       => ['author_id'], other => ['user_id'], bogus => 1,
+            });
+        },
+        qr/Unknown link specification key\(s\): bogus/,
+        "an unknown spec key croaks clearly instead of being misread as the other table",
+    );
 };
 
 subtest parse_rejects_scalar_ref => sub {
