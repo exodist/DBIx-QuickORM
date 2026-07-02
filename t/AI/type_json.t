@@ -170,4 +170,12 @@ subtest round_trip_through_sqlite => sub {
     is(Cpanel::JSON::XS::decode_json($raw), $struct, "raw stored JSON decodes back to the struct");
 };
 
+subtest deflate_without_affinity => sub {
+    # JSON deflate does not use the affinity, so it must not croak when one
+    # cannot be determined (e.g. a bare qorm_deflate(value => ...) call).
+    my $out;
+    ok(lives { $out = DBIx::QuickORM::Type::JSON->qorm_deflate(value => {a => 1}) }, "qorm_deflate works without an affinity") or note $@;
+    is($out, '{"a":1}', "and still produces the JSON");
+};
+
 done_testing;
