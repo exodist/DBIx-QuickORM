@@ -294,17 +294,24 @@ sub build_table_keys_from_db {
     my %index;
     for my $row (@$index_rows) {
         my $idx = $index{$row->{name}} //= {};
-        $idx->{type}   = $row->{origin};
-        $idx->{unique} = $row->{unique};
-        push @{$idx->{cols} //= []} => $row->{column};
+        $idx->{type}    = $row->{origin};
+        $idx->{unique}  = $row->{unique};
+        $idx->{partial} = $row->{partial};
+        # An expression index column has no column name; a unique key built from
+        # it would be garbage, so remember it and skip the undef.
+        if (defined $row->{column}) { push @{$idx->{cols} //= []} => $row->{column} }
+        else                        { $idx->{has_expr} = 1 }
     }
 
     # Only indexes flagged unique are unique constraints; a plain CREATE INDEX
     # must not be recorded as one. The flag (not the origin) is the signal:
-    # CREATE UNIQUE INDEX also has origin 'c'.
+    # CREATE UNIQUE INDEX also has origin 'c'. A partial or expression unique
+    # index does not constrain the full column tuple, so it is not a table-level
+    # unique constraint either.
     for my $grp (sort keys %index) {
         my $idx = $index{$grp};
-        $unique{column_key(@{$idx->{cols}})} = $idx->{cols} if $idx->{unique};
+        $unique{column_key(@{$idx->{cols}})} = $idx->{cols}
+            if $idx->{unique} && $idx->{cols} && !$idx->{partial} && !$idx->{has_expr};
         $pk = $idx->{cols} if $idx->{type} eq 'pk';
     }
 
@@ -444,7 +451,9 @@ sub build_indexes_from_db {
     my %out;
     for my $row (@$rows) {
         my $idx = $out{$row->{name}} //= {name => $row->{name}, columns => [], unique => $row->{unique} ? 1 : 0};
-        push @{$idx->{columns}} => $row->{column};
+        # Expression-index parts have no column name; skip them rather than
+        # emitting an undef column into the index definition.
+        push @{$idx->{columns}} => $row->{column} if defined $row->{column};
     }
 
     my @pk = $params{pk_fallback} ? @{$params{pk_fallback}} : $self->_primary_key($table);
@@ -547,7 +556,7 @@ sub _fetch_all_index_info {
     for my $is_temp (0 .. $#MASTERS) {
         my $master = $MASTERS[$is_temp];
         my $sth = $dbh->prepare(<<"        EOT");
-            SELECT m.name, il.name, il.`unique`, il.origin, ii.name
+            SELECT m.name, il.name, il.`unique`, il.origin, il.partial, ii.name
               FROM $master m
               JOIN pragma_index_list(m.name)  AS il
               JOIN pragma_index_info(il.name) AS ii
@@ -555,8 +564,8 @@ sub _fetch_all_index_info {
           ORDER BY m.name, il.name, ii.seqno
         EOT
         $sth->execute();
-        while (my ($tbl, $name, $uniq, $origin, $col) = $sth->fetchrow_array) {
-            push @{$by_table{$is_temp}{$tbl} //= []} => {name => $name, unique => $uniq, origin => $origin, column => $col};
+        while (my ($tbl, $name, $uniq, $origin, $partial, $col) = $sth->fetchrow_array) {
+            push @{$by_table{$is_temp}{$tbl} //= []} => {name => $name, unique => $uniq, origin => $origin, partial => $partial, column => $col};
         }
     }
 
@@ -569,7 +578,7 @@ sub _query_index_info {
 
     my $dbh = $self->{+DBH};
     my $sth = $dbh->prepare(<<"    EOT");
-        SELECT il.name, il.`unique`, il.origin, ii.name
+        SELECT il.name, il.`unique`, il.origin, il.partial, ii.name
           FROM pragma_index_list(?)       AS il,
                pragma_index_info(il.name) AS ii
       ORDER BY il.name, ii.seqno
@@ -577,8 +586,8 @@ sub _query_index_info {
     $sth->execute($table);
 
     my @rows;
-    while (my ($name, $uniq, $origin, $col) = $sth->fetchrow_array) {
-        push @rows => {name => $name, unique => $uniq, origin => $origin, column => $col};
+    while (my ($name, $uniq, $origin, $partial, $col) = $sth->fetchrow_array) {
+        push @rows => {name => $name, unique => $uniq, origin => $origin, partial => $partial, column => $col};
     }
 
     return \@rows;
