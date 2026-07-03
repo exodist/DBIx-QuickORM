@@ -11,8 +11,10 @@ use DBIx::QuickORM::Util qw/load_class/;
 # the introspected schema and again for the merged (introspected + declared)
 # schema. Column accessors must be remembered across both passes so that a
 # relationship declared only in the merged schema is still caught when it
-# collides with a column accessor installed by the introspected pass.
-our %CLAIMED;
+# collides with a column accessor installed by the introspected pass. The
+# registry is kept per-autofill-instance (see define_autorow) rather than in a
+# package global, so it does not leak claims between two independent builds
+# that happen to reuse the same explicit autorow base class.
 
 use Object::HashBase qw{
     <types
@@ -232,7 +234,7 @@ sub define_autorow {
     # Column accessors installed for this row class, remembered across autofill
     # passes so the link loop below can detect a relationship colliding with a
     # column even when the column was installed by an earlier pass.
-    my $columns = $CLAIMED{$row_class} //= {};
+    my $columns = $self->{claimed}{$row_class} //= {};
 
     # Relationship accessors installed during this pass. A second relationship
     # wanting the same name in the same pass is a genuine collision; the same

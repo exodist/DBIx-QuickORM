@@ -75,4 +75,31 @@ subtest no_false_collision => sub {
     ok($row_class->can('others_rel'), "the relationship accessor is installed");
 };
 
+subtest no_leak_across_independent_builds => sub {
+    # The claim registry must be scoped to one build (one Autofill instance), not
+    # a package global: two independent builds that reuse the same explicit
+    # autorow row class must not see each other's column claims. Otherwise a
+    # relationship aliased in build 2 falsely collides with a column that only
+    # existed in build 1's schema.
+    my $row_class = 'My::AutorowB6::CrossBuild';
+
+    my $build1 = DBIx::QuickORM::Schema::Autofill->new(types => {}, affinities => {}, hooks => {}, skip => {});
+    my $b1_table = DBIx::QuickORM::Schema::Table->new(
+        name    => 'source',
+        columns => {owner => col('owner'), id => col('id')},
+    );
+    ok(lives { $build1->define_autorow($row_class, $b1_table) }, "build 1 installs the 'owner' column accessor") or note $@;
+
+    my $build2 = DBIx::QuickORM::Schema::Autofill->new(types => {}, affinities => {}, hooks => {}, skip => {});
+    my $b2_table = DBIx::QuickORM::Schema::Table->new(
+        name    => 'source',
+        columns => {id => col('id')},                     # no 'owner' column here
+        links   => [link_to('others', 'owner')],          # but a relationship aliased 'owner'
+    );
+    ok(
+        lives { $build2->define_autorow($row_class, $b2_table) },
+        "a second independent build does not falsely collide on build 1's stale column claim",
+    ) or note $@;
+};
+
 done_testing;

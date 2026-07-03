@@ -235,6 +235,13 @@ sub _rekey_tables {
     my %out;
     for my $key (keys %$mine) {
         my $new = $rekey{$key} // $key;
+
+        # A db_name alias must not re-key an introspected table onto the name of
+        # a *different* real introspected table: that would silently drop one
+        # physical table (hash-order dependent). Croak on the genuine conflict.
+        confess "Cannot map declared table '$new' onto database table '$key': the name '$new' already belongs to another introspected table"
+            if exists $out{$new};
+
         $out{$new} = $mine->{$key};
     }
 

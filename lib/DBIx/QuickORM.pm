@@ -536,8 +536,15 @@ sub db {
     my $into = $self->{+DBS};
     my $frame = {building => 'DB', class => 'DBIx::QuickORM::DB'};
 
-    return $top->{meta}->{db} = $self->_build('DB', into => $into, frame => $frame, args => \@_, no_compile => 1)
-        if $bld_orm;
+    if ($bld_orm) {
+        # `db 'name'` fetches a previously-defined db from the shared registry
+        # (needs `into` to resolve the name). An inline `db name => sub {...}`
+        # DEFINES one; it is captured by reference in the ORM's meta, so it must
+        # NOT register into the shared registry -- otherwise a second ORM with a
+        # same-named inline db croaks on the redefinition guard.
+        my $inline_define = grep { ref($_) } @_;
+        return $top->{meta}->{db} = $self->_build('DB', ($inline_define ? () : (into => $into)), frame => $frame, args => \@_, no_compile => 1);
+    }
 
     my $force_build = 0;
     if ($top->{building} eq 'SERVER') {
@@ -818,7 +825,12 @@ sub schema {
     my $top = $self->top;
     if ($top->{building} eq 'ORM') {
         croak "Schema has already been defined" if $top->{meta}->{schema};
-        return $top->{meta}->{schema} = $self->_build('Schema', into => $into, frame => $frame, args => \@_, no_compile => 1);
+        # `schema 'name'` fetches from the shared registry (needs `into`); an
+        # inline `schema name => sub {...}` DEFINES one, captured by reference in
+        # the ORM's meta, so it must not register into the shared registry (else
+        # a second ORM with a same-named inline schema croaks on the guard).
+        my $inline_define = grep { ref($_) } @_;
+        return $top->{meta}->{schema} = $self->_build('Schema', ($inline_define ? () : (into => $into)), frame => $frame, args => \@_, no_compile => 1);
     }
 
     return $self->_build('Schema', into => $into, frame => $frame, args => \@_);
