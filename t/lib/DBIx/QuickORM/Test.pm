@@ -5,6 +5,7 @@ use warnings;
 use Test2::V0 '!meta', '!pass';
 use Test2::IPC qw/cull/;
 use List::Util qw/first/;
+use Time::HiRes qw/sleep/;
 use Importer Importer => 'import';
 
 use DBIx::QuickORM::Util qw/debug/;
@@ -22,6 +23,7 @@ our @EXPORT = qw{
     dialect_has_savepoints
     curdb_version
     pg_older_than
+    wait_ready
 };
 
 use version ();
@@ -143,6 +145,22 @@ sub clean_err {
     return $out;
 }
 
+# Poll an async/aside/forked object until it reports ready, bounded by a
+# timeout so a wedged or never-completing query cannot hang the whole suite.
+# Returns whatever ready() returned; bails out (fatal) once the timeout elapses.
+sub wait_ready {
+    my ($obj, $timeout) = @_;
+    $timeout //= 30;
+
+    my $start = time;
+    while (1) {
+        my $ready = $obj->ready;
+        return $ready if $ready;
+        bail_out("Timed out after ${timeout}s waiting for an async result to become ready") if time - $start > $timeout;
+        sleep 0.1;
+    }
+}
+
 our $END_DELAY = 0;
 sub do_for_all_dbs(&;@) {
     my $code = shift;
@@ -217,6 +235,13 @@ sub do_for_all_dbs(&;@) {
                     else {
                         note "No sql file found, skipping...\n";
                         $db = $set->{db}->(%dbd_args);
+                    }
+
+                    # The db getters return diag()'s value (false) when the boot
+                    # fails, so guard before handing a non-object to the test body.
+                    unless ($db) {
+                        skip_all "Failed to boot $set->{name}";
+                        return;
                     }
 
                     $code->($db);

@@ -137,9 +137,7 @@ my %AFFINITY_BY_TYPE = (
     # Date/Time
     date        => 'string',
     datetime    => 'string',
-    day         => 'string',
     interval    => 'string',
-    stamp       => 'string',
     time        => 'string',
     timestamp   => 'string',
     timestamptz => 'string',

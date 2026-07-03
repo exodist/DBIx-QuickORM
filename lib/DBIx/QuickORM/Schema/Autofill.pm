@@ -7,11 +7,17 @@ our $VERSION = '0.000028';
 use Carp qw/croak/;
 use DBIx::QuickORM::Util qw/load_class/;
 
+# A schema is autofilled twice against the same generated row class: once for
+# the introspected schema and again for the merged (introspected + declared)
+# schema. Column accessors must be remembered across both passes so that a
+# relationship declared only in the merged schema is still caught when it
+# collides with a column accessor installed by the introspected pass.
+our %CLAIMED;
+
 use Object::HashBase qw{
     <types
     <affinities
     <hooks
-    <autorow
     +skip
 };
 
@@ -55,10 +61,6 @@ Hashref mapping affinity names to arrayrefs of callbacks.
 =item hooks
 
 Hashref mapping hook names to arrayrefs of callbacks.
-
-=item autorow
-
-The autovivified row class configuration.
 
 =item skip
 
@@ -227,25 +229,39 @@ sub define_autorow {
         $INC{$row_file} = __FILE__;
     }
 
-    # Accessor name => description of what claimed it. Used to detect and report
-    # a relationship accessor that collides with a column accessor or with
-    # another relationship accessor.
-    my %claimed;
+    # Column accessors installed for this row class, remembered across autofill
+    # passes so the link loop below can detect a relationship colliding with a
+    # column even when the column was installed by an earlier pass.
+    my $columns = $CLAIMED{$row_class} //= {};
+
+    # Relationship accessors installed during this pass. A second relationship
+    # wanting the same name in the same pass is a genuine collision; the same
+    # relationship reappearing in a later pass is already installed and simply
+    # skipped below.
+    my %links;
 
     for my $column ($table->columns) {
         my $field = $column->name;
         my $accessor = $self->hook(field_accessor => {table => $table, name => $field, field => $field, column => $column}, $field);
         next unless $accessor;
 
-        croak join "\n",
-            "Cannot generate the '$accessor' accessor on row class '$row_class': the '$field' column and $claimed{$accessor} both map to it.",
-            "Provide an 'autoname field_accessor' name hook that returns a distinct name for each column."
-            if $claimed{$accessor};
+        my $desc = "the '$field' column accessor";
+        if (my $claimed_by = $columns->{$accessor}) {
+            # Same column re-registering on a later autofill pass: already
+            # installed, skip without complaint.
+            next if $claimed_by eq $desc;
+
+            # A different column maps to the same accessor name: a genuine
+            # collision that must not silently drop one of them.
+            croak join "\n",
+                "Cannot generate the '$accessor' accessor on row class '$row_class': $claimed_by and $desc both map to it.",
+                "Provide an 'autoname field_accessor' name hook that returns a distinct name for each column.";
+        }
 
         no strict 'refs';
         next if defined &{"$row_class\::$accessor"};
 
-        $claimed{$accessor} = "the '$field' column accessor";
+        $columns->{$accessor} = $desc;
         *{"$row_class\::$accessor"} = sub { shift->field($field, @_) };
     }
 
@@ -259,13 +275,16 @@ sub define_autorow {
             my $accessor = $self->hook(link_accessor => {table => $table, linked_table => $link->other_table, name => $alias, link => $link}, $alias);
             next unless $accessor;
 
-            croak $self->_autorow_collision_error($row_class, $accessor, $claimed{$accessor}, $link)
-                if $claimed{$accessor};
+            croak $self->_autorow_collision_error($row_class, $accessor, $columns->{$accessor}, $link)
+                if $columns->{$accessor};
+
+            croak $self->_autorow_collision_error($row_class, $accessor, $links{$accessor}, $link)
+                if $links{$accessor};
 
             no strict 'refs';
             next if defined &{"$row_class\::$accessor"};
 
-            $claimed{$accessor} = $self->_link_description($link);
+            $links{$accessor} = $self->_link_description($link);
             *{"$row_class\::$accessor"} = $link->unique ? sub { shift->obtain($link) } : sub { shift->follow($link) };
         }
     }

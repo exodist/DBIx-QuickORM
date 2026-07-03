@@ -170,7 +170,7 @@ do_for_all_dbs {
 
         # Poll without blocking, then read the outcome.
         my $lose = $h->row($row)->async->cas({revision => 999}, {revision => 3, name => 'never'});
-        Time::HiRes::sleep(0.001) until $lose->ready;
+        wait_ready($lose);
         ok(!$lose, "async cas lost");
         is($lose->count, 0, "async loss count 0");
         is($row->field('name'), 'async2', "row unchanged after async loss");

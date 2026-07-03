@@ -39,16 +39,15 @@ sub DESTROY {
     # a non-owner process must touch nothing and let the owner finalize.
     return if $self->can('in_owner_process') && !$self->in_owner_process;
 
-    unless ($self->got_result) {
-        # A handle wrapping a write that must run to completion (cancel_on_destroy
-        # false) waits for the child rather than aborting it mid-write.
-        if ($self->cancel_supported && $self->cancel_on_destroy) {
-            $self->cancel;
-        }
-        else {
-            $self->wait;
-        }
-    }
+    # Cancel only a cancellable handle whose destructor is allowed to abort it.
+    # Otherwise (e.g. a forked write that must run to completion) fall through to
+    # set_done, which drives the query to its terminal state without re-reading
+    # the child's result frame (which could croak out of this destructor).
+    my $should_cancel = !$self->got_result;
+    $should_cancel &&= $self->cancel_supported;
+    $should_cancel &&= $self->cancel_on_destroy;
+
+    $self->cancel if $should_cancel;
 
     $self->set_done;
 }

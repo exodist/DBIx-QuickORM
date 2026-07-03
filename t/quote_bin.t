@@ -3,8 +3,6 @@ use DBIx::QuickORM;
 
 use lib 't/lib';
 use DBIx::QuickORM::Test;
-use Hash::Merge qw/merge/;
-Hash::Merge::set_behavior('RIGHT_PRECEDENT');
 
 do_for_all_dbs {
     my $db = shift;
@@ -37,7 +35,6 @@ do_for_all_dbs {
     ref_is($s->one({uuid => $uuid_bin}), $row, "Found a by UUID binary");
 
     my $uuid2 = DBIx::QuickORM::Type::UUID->new;
-    my $uuid2_bin = DBIx::QuickORM::Type::UUID::qorm_deflate($uuid, affinity => 'binary');
 
     $row->update({uuid => $uuid2});
     $row->refresh;

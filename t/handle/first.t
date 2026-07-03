@@ -1,6 +1,8 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 
+use Scalar::Util qw/weaken/;
+
 use lib 't/lib';
 use DBIx::QuickORM::Test;
 
@@ -31,13 +33,14 @@ do_for_all_dbs {
     my $row_clone2 = $h->first(id => 1);
     ref_is($row_clone2, $row, "Got the same ref using first(id => 1)");
 
-    my $ref = "$row";
+    my $weak = $row;
+    weaken($weak);
     $row        = undef;
     $row_clone  = undef;
     $row_clone2 = undef;
+    ok(!defined($weak), "Previous row expired once all references were cleared");
 
     $row = $h->first({name => 'a'});
-    ok("$row" ne $ref, "Got a new ref since all previous ones expired");
     is($row->field('id'), 1, "Got the right ID");
 
     my $data = $h->data_only->first({id => 1});
@@ -57,7 +60,7 @@ do_for_all_dbs {
             $h = $h->async;
             my $row = $h->first({name => 'b'});
             isa_ok($row, ['DBIx::QuickORM::Row::Async'], "Got an async row");
-            sleep 0.1 until $row->ready;
+            wait_ready($row);
             is($row->field('name'), 'b', "Got field 'b' value");
 
             isa_ok($row, ['DBIx::QuickORM::Row'], "Row is 'normal'");
@@ -70,7 +73,7 @@ do_for_all_dbs {
             $h = $h->aside;
             my $row = $h->first({name => 'c'});
             isa_ok($row, ['DBIx::QuickORM::Row::Async'], "Got an async row");
-            sleep 0.1 until $row->ready;
+            wait_ready($row);
             is($row->field('name'), 'c', "Got field 'c' value");
 
             isa_ok($row, ['DBIx::QuickORM::Row'], "Row is 'normal'");
@@ -83,7 +86,7 @@ do_for_all_dbs {
             $h = $h->forked;
             my $row = $h->first({name => 'd'});
             isa_ok($row, ['DBIx::QuickORM::Row::Async'], "Got an async row");
-            sleep 0.1 until $row->ready;
+            wait_ready($row);
             is($row->field('name'), 'd', "Got field 'd' value");
 
             isa_ok($row, ['DBIx::QuickORM::Row'], "Row is 'normal'");

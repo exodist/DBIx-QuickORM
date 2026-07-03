@@ -71,7 +71,7 @@ subtest order_by_injection_is_inert => sub {
     }
     else {
         # Or the database rejects the quoted identifier outright -- also safe.
-        ok(1, "order_by payload rejected by the database (no SQLi): $@");
+        like($@, qr/no such column|syntax error|unrecognized token/i, "order_by payload rejected by the database as a bad identifier (no SQLi): $@");
     }
 };
 

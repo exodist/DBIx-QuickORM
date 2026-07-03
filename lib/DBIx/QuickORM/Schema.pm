@@ -158,7 +158,7 @@ sub merge {
     my $self = shift;
     my ($other, %params) = @_;
 
-    $params{+TABLES} //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES});
+    $params{+TABLES} //= merge_hash_of_objs($self->_rekey_tables($self->{+TABLES}, $other->{+TABLES}), $other->{+TABLES});
     $params{+NAME}   //= $self->{+NAME} if $self->{+NAME};
 
     return ref($self)->new(%$self, %$other, %params);
@@ -195,9 +195,51 @@ sub clone {
 
 Internal accessor that fetches and clears the pending raw link definitions.
 
+=item $tables = $schema->_rekey_tables(\%mine, \%theirs)
+
+Return a copy of the introspected tables hashref re-keyed so that a declared
+table which renames a physical table (via C<db_name>) lands under the declared
+ORM name instead of its database name. This lets a declared alias and the
+introspected source collapse into a single merged table rather than leaving two
+entries behind for one physical table.
+
 =cut
 
 sub _links { delete $_[0]->{+_LINKS} }
+
+sub _rekey_tables {
+    my $self = shift;
+    my ($mine, $theirs) = @_;
+
+    return $mine unless $mine && $theirs && keys %$mine && keys %$theirs;
+
+    my %by_db_name;
+    for my $key (keys %$mine) {
+        my $db_name = $mine->{$key}->db_name // $key;
+        $by_db_name{$db_name} //= $key;
+    }
+
+    my %rekey;
+    for my $orm_name (keys %$theirs) {
+        my $db_name = $theirs->{$orm_name}->db_name // $orm_name;
+        next if $db_name eq $orm_name;
+
+        my $intro_key = $by_db_name{$db_name} // next;
+        next if $intro_key eq $orm_name;
+
+        $rekey{$intro_key} = $orm_name;
+    }
+
+    return $mine unless %rekey;
+
+    my %out;
+    for my $key (keys %$mine) {
+        my $new = $rekey{$key} // $key;
+        $out{$new} = $mine->{$key};
+    }
+
+    return \%out;
+}
 
 =pod
 

@@ -5,7 +5,9 @@ use warnings;
 our $VERSION = '0.000028';
 
 use Role::Tiny::With qw/with/;
-with 'DBIx::QuickORM::Role::STH';
+
+# Role::Async composes Role::STH, and this class inherits from DBIx::QuickORM::STH
+# (which composes Role::STH) as well, so composing it again here is redundant.
 with 'DBIx::QuickORM::Role::Async';
 
 use parent 'DBIx::QuickORM::STH';

@@ -97,34 +97,26 @@ sub async_cancel           { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->db
 
 =pod
 
-=item $dialect->start_txn(%params)
-
-=item $dialect->commit_txn(%params)
-
-=item $dialect->rollback_txn(%params)
-
 =item $dialect->create_savepoint(%params)
 
 =item $dialect->commit_savepoint(%params)
 
 =item $dialect->rollback_savepoint(%params)
 
-Transaction and savepoint control via C<DBD::Pg>. Each accepts an optional
-C<dbh> parameter, defaulting to the dialect's own handle; savepoint methods
-take a C<savepoint> name.
+Savepoint control via C<DBD::Pg>'s native savepoint API. Each accepts an
+optional C<dbh> parameter, defaulting to the dialect's own handle, and a
+C<savepoint> name. Transaction control uses the inherited driver-level
+defaults.
 
 =cut
 
-# {{{ Transactions and savepoints
+# {{{ Savepoints
 
-sub start_txn          { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->begin_work }
-sub commit_txn         { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->commit }
-sub rollback_txn       { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->rollback }
 sub create_savepoint   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->pg_savepoint($p{savepoint}) }
 sub commit_savepoint   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->pg_release($p{savepoint}) }
 sub rollback_savepoint { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->pg_rollback_to($p{savepoint}) }
 
-# }}} Transactions and savepoints
+# }}} Savepoints
 
 =pod
 
@@ -385,32 +377,6 @@ sub build_columns_from_db {
 }
 
 =pod
-
-=head1 PRIVATE METHODS
-
-=over 4
-
-=item $bool = $dialect->_col_field_to_bool($val)
-
-Normalizes an C<information_schema> truthy/falsey string (C<YES>/C<NO>,
-etc.) to a 1/0 boolean.
-
-=back
-
-=cut
-
-sub _col_field_to_bool {
-    my $self = shift;
-    my ($val) = @_;
-
-    return 0 unless defined $val;
-    return 0 unless $val;
-    $val = lc($val);
-    return 0 if $val eq 'no';
-    return 0 if $val eq 'undef';
-    return 0 if $val eq 'never';
-    return 1;
-}
 
 =pod
 

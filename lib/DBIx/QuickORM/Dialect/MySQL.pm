@@ -118,33 +118,6 @@ sub cas_count_reliable {
 
 =pod
 
-=item $dialect->start_txn(%params)
-
-=item $dialect->commit_txn(%params)
-
-=item $dialect->rollback_txn(%params)
-
-=item $dialect->create_savepoint(%params)
-
-=item $dialect->commit_savepoint(%params)
-
-=item $dialect->rollback_savepoint(%params)
-
-Transaction and savepoint control. Each accepts an optional C<dbh> parameter,
-defaulting to the dialect's own handle; savepoint methods take a C<savepoint>
-name.
-
-=cut
-
-sub start_txn          { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; $dbh->begin_work }
-sub commit_txn         { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; $dbh->commit }
-sub rollback_txn       { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; $dbh->rollback }
-sub create_savepoint   { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($params{savepoint}); $dbh->do("SAVEPOINT $sp") }
-sub commit_savepoint   { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($params{savepoint}); $dbh->do("RELEASE SAVEPOINT $sp") }
-sub rollback_savepoint { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($params{savepoint}); $dbh->do("ROLLBACK TO SAVEPOINT $sp") }
-
-=pod
-
 =item $name = $dialect->dialect_name
 
 Returns C<'MySQL'>.
@@ -589,27 +562,9 @@ sub _vendor_from_string {
 
 =pod
 
-=item $bool = $dialect->_col_field_to_bool($val)
-
-Interprets an C<information_schema> string field as a boolean, treating
-C<no>/C<undef>/C<never> and empty/undefined values as false.
-
 =back
 
 =cut
-
-sub _col_field_to_bool {
-    my $self = shift;
-    my ($val) = @_;
-
-    return 0 unless defined $val;
-    return 0 unless $val;
-    $val = lc($val);
-    return 0 if $val eq 'no';
-    return 0 if $val eq 'undef';
-    return 0 if $val eq 'never';
-    return 1;
-}
 
 sub build_indexes_from_db {
     my $self = shift;

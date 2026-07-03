@@ -1,6 +1,8 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 
+use Scalar::Util qw/weaken/;
+
 use lib 't/lib';
 use DBIx::QuickORM::Test;
 
@@ -31,13 +33,14 @@ do_for_all_dbs {
     my $row_clone2 = $h->one(id => 1);
     ref_is($row_clone2, $row, "Got the same ref using one(id => 1)");
 
-    my $ref = "$row";
+    my $weak = $row;
+    weaken($weak);
     $row        = undef;
     $row_clone  = undef;
     $row_clone2 = undef;
+    ok(!defined($weak), "Previous row expired once all references were cleared");
 
     $row = $h->one({name => 'a'});
-    ok("$row" ne $ref, "Got a new ref since all previous ones expired");
     is($row->field('id'), 1, "Got the right ID");
 
     my $data = $h->data_only->one({id => 1});
@@ -46,6 +49,14 @@ do_for_all_dbs {
         $data,
         {id => 1, name => 'a'},
         "Got just the data",
+    );
+
+    $h->insert({name => 'dup1', xxx => 'dupz'});
+    $h->insert({name => 'dup2', xxx => 'dupz'});
+    like(
+        dies { $h->one({xxx => 'dupz'}) },
+        qr/Expected only 1 row, but got more than one/,
+        "sync one() croaks when more than one row matches",
     );
 
     # sqlite does not support async
@@ -57,7 +68,7 @@ do_for_all_dbs {
             $h = $h->async;
             my $row = $h->one({name => 'b'});
             isa_ok($row, ['DBIx::QuickORM::Row::Async'], "Got an async row");
-            sleep 0.1 until $row->ready;
+            wait_ready($row);
             is($row->field('name'), 'b', "Got field 'b' value");
 
             isa_ok($row, ['DBIx::QuickORM::Row'], "Row is 'normal'");
@@ -70,7 +81,7 @@ do_for_all_dbs {
             $h = $h->aside;
             my $row = $h->one({name => 'c'});
             isa_ok($row, ['DBIx::QuickORM::Row::Async'], "Got an async row");
-            sleep 0.1 until $row->ready;
+            wait_ready($row);
             is($row->field('name'), 'c', "Got field 'c' value");
 
             isa_ok($row, ['DBIx::QuickORM::Row'], "Row is 'normal'");
@@ -83,7 +94,7 @@ do_for_all_dbs {
             $h = $h->forked;
             my $row = $h->one({name => 'd'});
             isa_ok($row, ['DBIx::QuickORM::Row::Async'], "Got an async row");
-            sleep 0.1 until $row->ready;
+            wait_ready($row);
             is($row->field('name'), 'd', "Got field 'd' value");
 
             isa_ok($row, ['DBIx::QuickORM::Row'], "Row is 'normal'");

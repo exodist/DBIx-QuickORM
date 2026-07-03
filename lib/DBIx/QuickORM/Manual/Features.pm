@@ -87,6 +87,12 @@ Extend the builder. See L<DBIx::QuickORM/plugin> and L<DBIx::QuickORM::Plugin>.
 Fetch, create, update, and delete rows with handles (where/order/limit/
 iterators). See L<DBIx::QuickORM::Manual::Querying>.
 
+=item Handle as a subquery source
+
+Use a query handle as the source of another query; it is spliced in as a
+derived table, aliased with C<subquery_alias>. See
+L<DBIx::QuickORM::Handle/subquery_alias>.
+
 =item Compare and set
 
 Update a row only while a set of guard values still match, for safe concurrent
@@ -120,8 +126,8 @@ L<DBIx::QuickORM::Manual::Caching>.
 
 =item Inflate/deflate types
 
-Built-in JSON and UUID types, automatic application with C<autotype>, and
-writing your own. See L<DBIx::QuickORM::Manual::Types>.
+Built-in JSON, UUID, and DateTime types, automatic application with
+C<autotype>, and writing your own. See L<DBIx::QuickORM::Manual::Types>.
 
 =item Affinities
 

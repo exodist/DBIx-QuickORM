@@ -2490,12 +2490,10 @@ sub update {
         if $self->{+ROW} && !$self->_has_pk;
 
     my $row = $self->{+ROW};
-    if ($changes) {
-        if ($row) {
-            if (my $pending = $row->pending_data) {
-                croak "Attempt to update row with pending changes and additional changes"
-                    if $changes && $pending && keys(%$changes) && keys(%$pending);
-            }
+    if ($changes && $row) {
+        if (my $pending = $row->pending_data) {
+            croak "Attempt to update row with pending changes and additional changes"
+                if keys(%$changes) && keys(%$pending);
         }
     }
     elsif ($row) {

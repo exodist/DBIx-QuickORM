@@ -50,7 +50,7 @@ do_for_all_dbs {
     unless (curdialect() =~ m/sqlite|duckdb/i) {
         subtest async => sub {
             my $iter = $h->async->iterator;
-            sleep 0.2 until $iter->ready;
+            wait_ready($iter);
             my @all;
             while (my $i = $iter->next) { push @all => $i }
             is(@all, 5, "Got all 5 items");
@@ -59,7 +59,7 @@ do_for_all_dbs {
 
         subtest aside => sub {
             my $iter = $h->aside->iterator;
-            sleep 0.2 until $iter->ready;
+            wait_ready($iter);
             my @all;
             while (my $i = $iter->next) { push @all => $i }
             is(@all, 5, "Got all 5 items");
@@ -68,7 +68,7 @@ do_for_all_dbs {
 
         subtest forked => sub {
             my $iter = $h->forked->iterator;
-            sleep 0.2 until $iter->ready;
+            wait_ready($iter);
             my @all;
             while (my $i = $iter->next) { push @all => $i }
             is(@all, 5, "Got all 5 items");

@@ -178,8 +178,6 @@ The resolved connection object.
 
 =item $href = $data->pending_data
 
-=item $href = $data->desync_data
-
 =item $txn = $data->transaction
 
 The respective fields of the active state frame.
@@ -193,7 +191,6 @@ sub connection { $_[0]->{+CONNECTION}->() }
 
 sub stored_data  { $_[0]->active->{+STORED} }
 sub pending_data { $_[0]->active->{+PENDING} }
-sub desync_data  { $_[0]->active->{+DESYNC} }
 sub transaction  { $_[0]->active->{+TRANSACTION} }
 
 sub init {
@@ -527,7 +524,7 @@ sub _merge_state {
         }
         else {
             delete $into->{+DESYNC};
-            $into->{+STORED} = $into->{+STORED} ? {%{$into->{+STORED} // {}}, %{$stored}} : $stored;
+            $into->{+STORED} = $into->{+STORED} ? {%{$into->{+STORED}}, %{$stored}} : {%$stored};
         }
     }
     elsif (exists $merge->{+STORED}) {
@@ -544,8 +541,8 @@ sub _merge_state {
 
     my $desync = $merge->{+DESYNC};
     if (my $pending = $merge->{+PENDING}) {
-        $into->{+PENDING} = $into->{+PENDING} ? {%{$into->{+PENDING}}, %$pending} : $pending;
-        $into->{+DESYNC}  = $into->{+DESYNC}  ? {%{$into->{+DESYNC}},  %$desync}  : $desync if $desync;
+        $into->{+PENDING} = $into->{+PENDING} ? {%{$into->{+PENDING}}, %$pending} : {%$pending};
+        $into->{+DESYNC}  = $into->{+DESYNC}  ? {%{$into->{+DESYNC}},  %$desync}  : {%$desync} if $desync;
     }
     elsif (exists $merge->{+PENDING}) {
         # A pending-clear marker (from a successful insert/update). Keep it as
