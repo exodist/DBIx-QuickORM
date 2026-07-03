@@ -209,7 +209,10 @@ keys with another table.
 `Table` consumes `Role::Source` (§9): `source_db_moniker` returns `db_name`,
 `source_orm_name` returns `name`, and `field_type`/`field_affinity`/
 `has_field`/`fields_to_fetch`/`fields_to_omit`/`fields_list_all` delegate to
-its columns (with omitted columns excluded from the default fetch set).
+its columns (with omitted columns excluded from the default fetch set, and
+every field list ordered deterministically by each column's position — its
+`order` slot — so SELECT/RETURNING column order is stable run-to-run rather
+than hash order).
 
 ### `DBIx::QuickORM::Schema::Table::Column`
 
@@ -269,6 +272,7 @@ Inheritance tree:
 Dialect
 ├── Dialect::SQLite
 ├── Dialect::PostgreSQL
+├── Dialect::DuckDB
 └── Dialect::MySQL
     ├── Dialect::MySQL::MariaDB
     ├── Dialect::MySQL::Percona
@@ -305,9 +309,18 @@ cannot be resolved it warns and runs as the base `MySQL` dialect.
 
 ### Flavor notes
 
-- **SQLite:** full RETURNING; no async; standard savepoints.
+- **SQLite:** full RETURNING (requires `DBD::SQLite` 1.70+, the enforced
+  minimum, which is what guarantees RETURNING support); no async; standard
+  savepoints.
 - **PostgreSQL:** full RETURNING; full async (`pg_async`/`pg_ready`/
   `pg_result`/`pg_cancel`); native `UUID`; `BYTEA` binary.
+- **DuckDB:** embedded engine (mirrors SQLite); full RETURNING on all DML; no
+  async; **no savepoints** (so nested ORM transactions are unsupported).
+  Generated columns are detected by parsing the table's stored DDL for
+  `GENERATED ALWAYS AS`. It tracks its own in-transaction flag, clearing it
+  before issuing a COMMIT/ROLLBACK so a rejected statement cannot wedge the
+  flag on. `supports_type` maps `text`/`varchar` (plus `uuid`/`json`/
+  `timestamp`/`blob`) to native DuckDB types.
 - **MySQL (base):** no RETURNING; async prepare/ready but no cancel; socket
   field differs by driver (`mysql_socket`/`mariadb_socket`).
 - **MariaDB:** RETURNING on INSERT/DELETE but **not** UPDATE.
@@ -321,7 +334,8 @@ A "source" is anything queryable. `Role::Source` requires
 `primary_key`, `field_type`, `field_affinity`, `has_field`,
 `field_is_generated`, `fields_to_fetch`, `fields_to_omit`,
 `fields_list_all`. It provides `cachable` (true when the source has a
-non-empty primary key).
+non-empty primary key) and `is_writable` (default true; the `Handle`
+subquery source overrides it to false).
 
 Implementations:
 
@@ -337,7 +351,9 @@ Implementations:
   thread into the outer statement. `field_type` / `field_affinity` delegate to
   the inner source (real columns stay typed; computed columns are untyped),
   `has_field` is permissive, and the source has no primary key and is not
-  cachable. The alias defaults to `subquery`; `subquery_alias($alias)` returns a
+  cachable. A derived table is read-only: it overrides `is_writable` to false,
+  so `insert`/`upsert`/`update`/`delete`/`cas` and `omit()` through it croak.
+  The alias defaults to `subquery`; `subquery_alias($alias)` returns a
   clone with a chosen alias. `Connection->handle` always routes a handle
   argument through the constructor as the source; refining an existing handle
   without wrapping it is done by calling refining methods (e.g. `where`) on the
@@ -512,6 +528,13 @@ optional `qorm_register_type` hooks a type into the autotype system.
   UUID, `binary` for 16-byte binary); validates and normalizes both forms;
   `new` mints a uuid7; `qorm_sql_type` uses native `uuid` or `VARCHAR(36)`.
   Registers the `uuid` type name.
+- **`Type::DateTime`** — affinity `string`; inflates a database date/time
+  string to a lazy mask wrapping a `DateTime` (the `DateTime` is not built
+  until the value is actually used, and stringifying the mask returns the
+  original DB string); deflates a `DateTime`, mask, or plain string back to the
+  database string form via the dialect's `datetime_formatter`; `qorm_sql_type`
+  is `DATETIME`. Registers the `datetime`/`timestamp`/`timestamptz`/`date`/
+  `time`/`year` type names.
 
 Type/affinity flow into columns (§6), comparisons (§11), and field
 inflation on rows (§11).
@@ -656,7 +679,13 @@ database name is what SQL emits.
   reconciles an introspected column (keyed by database name) with a user column
   by matching `db_name`, producing one ORM-keyed column whose database-derived
   metadata fills gaps and whose ORM name and explicit overrides win; the primary
-  key is translated to ORM names.
+  key is translated to ORM names. The same reconciliation happens at the table
+  level: before merging, `Schema::merge` re-keys the introspected tables
+  (`_rekey_tables`) so a declared table that renames a physical table via its
+  own `db_name` is collapsed with its introspected twin into a single source
+  rather than leaving two entries for one physical table. A declared `db_name`
+  that points at a *different* real introspected table croaks instead of
+  silently dropping one physical table.
 
 - **Joins.** Joins translate aliased names through their `alias.field` protos:
   `field_db_name`/`field_orm_name` split the alias, translate the field against
