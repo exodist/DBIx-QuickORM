@@ -357,7 +357,9 @@ sub _sql_builder {
 
 Create a join handle against the named link. Returns a new handle whose source
 is a L<DBIx::QuickORM::Join>; fetch methods then yield
-L<DBIx::QuickORM::Join::Row> objects.
+L<DBIx::QuickORM::Join::Row> objects. Like the immutators, C<join> and its
+directional shortcuts must be called in non-void context; calling one in void
+context croaks.
 
 =item $new_h = $h->left_join(@args)
 
@@ -963,6 +965,8 @@ sub handle {
 
 These always return a new handle instance with a state that copies the original
 except where arguments would mutate it. The original handle is never modified.
+They must be called in non-void context; calling one in void context croaks
+(the new handle is the whole point, so discarding it is always a mistake).
 
 =over 4
 
@@ -1173,7 +1177,8 @@ sub no_internal_transactions {
 
 These are methods that return their value if called without arguments, but
 return a clone of the handle with the new value set when provided with an
-argument.
+argument. They must be called in non-void context; calling one in void context
+croaks.
 
 =over 4
 
@@ -1398,6 +1403,11 @@ to choose a different name (required if two subqueries share one statement).
 Computed or literal output columns (e.g. C<COUNT(*)>) carry no metadata, so they
 come back untyped; the derived table exposes the inner statement's emitted
 column names.
+
+A subquery source is read-only: C<insert>, C<upsert>, C<update>, C<delete>, and
+C<cas> through a handle whose source is another handle all croak, as does
+C<omit> (a derived table's output columns are not enumerable). Query and refine
+it, but do not write through it.
 
 To refine an existing handle B<without> wrapping it in a subquery, call refining
 methods on the handle directly (e.g. C<< $recent->where(...) >>), which return a

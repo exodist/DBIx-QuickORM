@@ -150,7 +150,7 @@ depth.
 
 A row is a L<DBIx::QuickORM::Row>. Reading a column gives you its B<inflated>
 value - typed columns come back as Perl values (a JSON column as a ref, a
-UUID as its object, and so on):
+UUID as its canonical hyphenated string, and so on):
 
     my $name = $user->field('name');
 

@@ -16,8 +16,8 @@ updating, and deleting rows with handles.
 =head1 DESCRIPTION
 
 A B<handle> is the object you use to build and run queries against a source
-(a table, view, or join). It is the rough equivalent of a ResultSet in other
-ORMs. This guide is a task-oriented tour of the handle. For the exhaustive
+(a table, view, join, or another query used as a subquery). It is the rough
+equivalent of a ResultSet in other ORMs. This guide is a task-oriented tour of the handle. For the exhaustive
 method-by-method reference see L<DBIx::QuickORM::Handle>.
 
 The mental model is small:
@@ -84,6 +84,25 @@ handle, so these shortcuts build a handle and immediately run it:
 
 Each is just C<< $con->handle(@args)->METHOD(...) >>. Reach for an explicit
 handle when you want to refine in stages or reuse the same base query.
+
+=head2 A HANDLE AS A SOURCE (SUBQUERIES)
+
+A handle is itself a valid source, so you can pass one to
+C<< $con->handle(...) >> to use it as a derived table (subquery). The inner
+handle's query is spliced in as C<< ( <inner query> ) AS subquery >> and the
+outer handle refines around it:
+
+    my $recent = $con->handle('events')->where({ts => {'>' => $cutoff}});
+
+    my @clicks = $con->handle($recent)->where({kind => 'click'})->all;
+    # SELECT * FROM ( SELECT ... FROM events WHERE ts > ? ) AS subquery
+    #   WHERE kind = ?
+
+The derived table is aliased C<subquery> by default;
+C<< $h->subquery_alias($alias) >> returns a clone with a different alias
+(needed when two subqueries share one statement). A subquery source is
+read-only: C<insert>, C<upsert>, C<update>, C<delete>, C<cas>, and C<omit>
+through it croak. See L<DBIx::QuickORM::Handle/subquery_alias>.
 
 =head1 THE IMMUTABLE BUILDER MODEL
 
