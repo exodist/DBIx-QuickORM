@@ -4,7 +4,7 @@ use warnings;
 
 our $VERSION = '0.000028';
 
-use DBD::SQLite 1.0;
+use DBD::SQLite 1.70;
 
 use Carp qw/croak/;
 use DBIx::QuickORM::Affinity qw/affinity_from_type/;
