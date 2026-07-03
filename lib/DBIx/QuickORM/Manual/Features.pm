@@ -146,8 +146,8 @@ Query against a raw SQL fragment. See L<DBIx::QuickORM::LiteralSource>.
 
 =item Dialects
 
-SQLite, PostgreSQL, and MySQL (including MariaDB, Percona, and Community). See
-L<DBIx::QuickORM::Manual::Concepts>.
+SQLite, PostgreSQL, DuckDB, and MySQL (including MariaDB, Percona, and
+Community). See L<DBIx::QuickORM::Manual::Concepts>.
 
 =back
 

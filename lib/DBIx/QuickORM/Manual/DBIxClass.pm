@@ -168,8 +168,8 @@ step that creates tables from your classes the way DBIx::Class does.
 
 =item Dialects, not just storage drivers.
 
-Database-flavor behavior lives in a dialect (SQLite, PostgreSQL, MySQL and
-its variants). See L<DBIx::QuickORM::Manual::Concepts>.
+Database-flavor behavior lives in a dialect (SQLite, PostgreSQL, DuckDB, MySQL
+and its variants). See L<DBIx::QuickORM::Manual::Concepts>.
 
 =item Row identity / caching is built in.
 
