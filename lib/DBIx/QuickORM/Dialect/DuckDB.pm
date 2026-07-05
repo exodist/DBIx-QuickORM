@@ -389,6 +389,7 @@ sub build_columns_from_db {
             if $res->{pk} && defined($res->{dflt_value}) && $res->{dflt_value} =~ /nextval/i;
 
         $col->{generated} = 1 if $generated->{lc $res->{name}};
+        $col->{volatile}  //= 1 if $self->column_is_volatile_by_metadata($col);
 
         my $type = $res->{type};
         $type =~ s/\(.*$//;

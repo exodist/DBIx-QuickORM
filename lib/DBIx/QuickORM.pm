@@ -2275,9 +2275,10 @@ After a write, a volatile column that is B<not> omitted is re-fetched eagerly
 A column that is B<both> volatile and omitted is instead cleared from the
 in-memory row after the write and lazily re-fetched on next access, since being
 on the omit list signals a deliberate reason not to pull it eagerly. QuickORM
-also auto-marks columns it can detect as volatile during introspection
-(generated / identity / server-default / on-update); use this marker for the
-cases it cannot detect (most trigger effects).
+also auto-marks the columns it can detect reliably as volatile during
+introspection (generated and identity/sequence-backed columns); use this marker
+for the cases it does not auto-detect (server-side defaults, on-update columns,
+and most trigger effects).
 
 In a non-void context it returns the string C<volatile> for use in a column
 specification without a builder.

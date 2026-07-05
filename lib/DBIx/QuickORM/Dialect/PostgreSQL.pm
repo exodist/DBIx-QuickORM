@@ -360,6 +360,8 @@ sub build_columns_from_db {
         # otherwise; _col_field_to_bool treats 'NEVER' as false.
         $col->{generated} = 1 if $self->_col_field_to_bool($res->{is_generated});
 
+        $col->{volatile} //= 1 if $self->column_is_volatile_by_metadata($col);
+
         $col->{affinity} //= affinity_from_type($res->{udt_name}) // affinity_from_type($res->{data_type});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/character/ } keys %$res;
         $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/numeric/ } keys %$res;

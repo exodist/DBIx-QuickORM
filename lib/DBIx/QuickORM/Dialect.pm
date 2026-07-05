@@ -361,12 +361,40 @@ can be added) and defaults to C<string>. Always returns a defined affinity.
 Accepts more than one candidate name (e.g. a driver's concrete and standard
 names) and tries each in turn.
 
+=item $bool = $dialect->column_is_volatile_by_metadata(\%col)
+
+Returns true when a column should be auto-marked volatile from its declarative
+metadata: it is generated or identity/sequence-backed (the cases where the
+database owns the value and that are detectable consistently across engines).
+Server-side defaults and on-update clauses are left to explicit C<volatile>
+marking; trigger effects are handled separately.
+
 =cut
 
 sub build_tables_from_db     { my $self = shift; confess "Not Implemented" }
 sub build_table_keys_from_db { my $self = shift; confess "Not Implemented" }
 sub build_columns_from_db    { my $self = shift; confess "Not Implemented" }
 sub build_indexes_from_db    { my $self = shift; confess "Not Implemented" }
+
+sub column_is_volatile_by_metadata {
+    my $self = shift;
+    my ($col) = @_;
+
+    # Auto-flag the cases where the database owns the value regardless of what
+    # the caller sends and that we can detect consistently across engines: a
+    # generated/computed column and an identity/sequence-backed column.
+    #
+    # Server-side DEFAULTs and ON UPDATE clauses are deliberately NOT
+    # auto-flagged here: whether a default even applies depends on whether the
+    # caller supplied the column, the engines report defaults inconsistently
+    # (e.g. implicit DEFAULT NULL on nullable columns), and an omitted column
+    # already lazy-fetches on access. Mark those columns `volatile` explicitly
+    # when the behavior is wanted. Trigger effects are handled separately (they
+    # are not statically resolvable in general).
+    return 1 if $col->{generated};
+    return 1 if $col->{identity};
+    return 0;
+}
 
 sub affinity_from_db_type {
     my $self  = shift;
