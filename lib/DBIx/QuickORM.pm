@@ -205,8 +205,12 @@ sub quick {
     my $dialect = delete $params{dialect};
     my $autorow = delete $params{autorow};    # 0 = off (default), 1 = generated namespace, or a class-name prefix
     my $row_manager = delete $params{row_manager} // 'DBIx::QuickORM::RowManager::Cached';
+    my $no_volatile = delete $params{no_volatile};    # 1 = every table, or an arrayref of table names
 
     croak "Unknown parameter(s) to quick(): " . join(', ', sort keys %params) if keys %params;
+
+    croak "'no_volatile' must be a true scalar (every table) or an arrayref of table names"
+        if defined($no_volatile) && ref($no_volatile) && ref($no_volatile) ne 'ARRAY';
 
     croak "quick() requires exactly one of 'credentials' or 'connect'"
         unless (($creds ? 1 : 0) + ($connect ? 1 : 0)) == 1;
@@ -241,6 +245,7 @@ sub quick {
     }
 
     my %autofill_args = (types => \%type_map, affinities => \%affinities, hooks => {}, skip => {});
+    $autofill_args{no_volatile} = $no_volatile if defined $no_volatile;
     if ($autorow) {
         my $base = "$autorow" eq '1' ? $class->_generate_autorow_base : $autorow;
         $autofill_args{hooks}{post_table} = [$class->_autorow_hook($base, undef, (caller)[1])];

@@ -20,6 +20,7 @@ use parent 'DBIx::QuickORM::Dialect';
 use Object::HashBase qw{
     +dbi_driver
     +db_vendor
+    +all_triggers
 };
 
 =pod
@@ -516,6 +517,12 @@ sub build_columns_from_db {
         $col->{generated} = 1
             if defined($res->{GENERATION_EXPRESSION}) && length $res->{GENERATION_EXPRESSION};
 
+        $col->{volatile} //= 1 if $self->column_is_volatile_by_metadata(
+            $col,
+            default   => $res->{COLUMN_DEFAULT},
+            on_update => ($res->{EXTRA} && $res->{EXTRA} =~ m/\bon update\b/i) ? 1 : 0,
+        );
+
         $col->{affinity} //= affinity_from_type($res->{DATA_TYPE});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/CHARACTER/ } keys %$res;
         $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/NUMERIC/ } keys %$res;
@@ -584,9 +591,35 @@ sub build_indexes_from_db {
 
 =pod
 
+=over 4
+
+=item @triggers = $dialect->triggers_for_table($table)
+
+Returns the triggers on a table, each as a
+C<< { event => 'INSERT'|'UPDATE'|'DELETE', body => $action_statement } >>
+hashref, for volatile-column and has-triggers detection.
+
+=back
+
+=cut
+
+sub triggers_for_table {
+    my $self = shift;
+    my ($table) = @_;
+    return @{$self->_all_triggers->{$table} // []};
+}
+
+=pod
+
 =head1 PRIVATE METHODS (schema introspection)
 
 =over 4
+
+=item $by_table = $dialect->_all_triggers
+
+All triggers in the connected database keyed by table name, fetched once from
+C<information_schema.triggers> (cached), so trigger detection adds a single
+query rather than one per table.
 
 =item $by_table = $dialect->_fetch_all_columns
 
@@ -610,6 +643,27 @@ pre-fetched rows. Each issues one query scoped to C<$table>.
 =back
 
 =cut
+
+sub _all_triggers {
+    my $self = shift;
+
+    return $self->{+ALL_TRIGGERS} if $self->{+ALL_TRIGGERS};
+
+    my %map;
+    my $sql = <<'    SQL';
+        SELECT event_object_table AS tbl, event_manipulation AS event, action_statement AS body
+          FROM information_schema.triggers
+         WHERE trigger_schema = ?
+    SQL
+
+    my $rows = eval { $self->dbh->selectall_arrayref($sql, {Slice => {}}, $self->{+DB_NAME}) } || [];
+    for my $r (@$rows) {
+        next unless defined $r->{tbl};
+        push @{$map{$r->{tbl}}} => {event => $r->{event}, body => $r->{body}};
+    }
+
+    return $self->{+ALL_TRIGGERS} = \%map;
+}
 
 sub _fetch_all_columns {
     my $self = shift;

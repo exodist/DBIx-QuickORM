@@ -331,11 +331,36 @@ sub build_schema_from_db {
 
     my $tables = $self->build_tables_from_db(%params);
 
+    # Volatile is a write-time concern, and views are not written through, so a
+    # view column that merely inherits a base column's default/identity during
+    # introspection should not carry the volatile flag. Clear it before the
+    # trigger pass (which does not touch views).
+    for my $table (values %$tables) {
+        next unless $table->can('is_view') && $table->is_view && $table->can('column_names');
+        for my $cname ($table->column_names) {
+            my $col = $table->column($cname) or next;
+            $col->clear_volatile if $col->can('clear_volatile');
+        }
+    }
+
+    # Best-effort: flag columns a trigger is seen to modify as volatile, and warn
+    # once per table when a table has an insert/update trigger whose effects we
+    # cannot resolve (unless the table is asserted volatile-free).
+    $self->_apply_trigger_volatility($tables, \%params);
+
     $params{autofill}->hook(tables => {tables => $tables});
 
     return DBIx::QuickORM::Schema->new(
         tables => $tables,
     );
+}
+
+sub triggers_for_table {
+    my $self = shift;
+    # Subclasses that support triggers override this to return a list of
+    # { event => 'INSERT'|'UPDATE'|'DELETE', body => $trigger_sql } hashrefs for
+    # the named table. The base class reports none.
+    return ();
 }
 
 =pod
@@ -361,12 +386,55 @@ can be added) and defaults to C<string>. Always returns a defined affinity.
 Accepts more than one candidate name (e.g. a driver's concrete and standard
 names) and tries each in turn.
 
+=item $bool = $dialect->column_is_volatile_by_metadata(\%col, default => $raw, on_update => $bool)
+
+Returns true when a column should be auto-marked volatile from its declarative
+metadata: it is generated, identity/sequence-backed, carries a server-side
+default, or has an on-update clause. Only the existence of a default matters, not
+its value; a bare C<NULL> default (including MySQL's literal C<'NULL'> string) is
+not treated as a default. Trigger effects are handled separately.
+
 =cut
 
 sub build_tables_from_db     { my $self = shift; confess "Not Implemented" }
 sub build_table_keys_from_db { my $self = shift; confess "Not Implemented" }
 sub build_columns_from_db    { my $self = shift; confess "Not Implemented" }
 sub build_indexes_from_db    { my $self = shift; confess "Not Implemented" }
+
+sub column_is_volatile_by_metadata {
+    my $self = shift;
+    my ($col, %sig) = @_;
+
+    # A column whose stored value the database sets or changes on write is
+    # volatile: a generated/computed column, an identity/sequence-backed column,
+    # a column carrying a server-side default (the database fills it when the
+    # caller omits it), or one with an on-update clause. We only need to know a
+    # default EXISTS, not what it is. Trigger effects are handled separately
+    # (they are not statically resolvable in general).
+    return 1 if $col->{generated};
+    return 1 if $col->{identity};
+    return 1 if $self->_has_real_default($sig{default});
+    return 1 if $sig{on_update};
+    return 0;
+}
+
+sub _has_real_default {
+    my $self = shift;
+    my ($raw) = @_;
+
+    return 0 unless defined $raw;
+    (my $v = $raw) =~ s/^\s+//;
+    $v =~ s/\s+$//;
+    return 0 if $v eq '';
+
+    # A bare NULL default -- the implicit default of a nullable column, or an
+    # explicit DEFAULT NULL -- is not a meaningful default. Most engines report
+    # it as SQL NULL (undef); MySQL/MariaDB report the literal string 'NULL'. A
+    # real string-literal default of "NULL" is quoted ('NULL'), so it is not
+    # matched here.
+    return 0 if uc($v) eq 'NULL';
+    return 1;
+}
 
 sub affinity_from_db_type {
     my $self  = shift;
@@ -453,6 +521,29 @@ when the driver does not list it.
 Warn (once per type) that a database type could not be mapped to an affinity,
 asking for a ticket so it can be added.
 
+=item $set = $dialect->_no_volatile_set($no_volatile)
+
+Normalize a C<no_volatile> value (a true scalar meaning "every table", an
+arrayref of names, or a hashref) into a hashref set. A C<'*'> key means every
+table is asserted volatile-free.
+
+=item $dialect->_apply_trigger_volatility(\%tables, \%params)
+
+For each introspected table with an insert/update trigger, best-effort flag the
+columns the trigger is seen to modify as volatile, and warn once per table
+whose trigger effects cannot be resolved unless it is asserted volatile-free
+(via C<< $params{no_volatile} >> or the table's own C<no_volatile>).
+
+=item @cols = $dialect->_columns_set_by_trigger($trigger_sql, \%columns)
+
+Best-effort parse of a trigger body: returns the names of the table's columns it
+is seen to assign (C<NEW.col => ...> or C<UPDATE ... SET col => ...>).
+
+=item $dialect->_warn_trigger_volatility($table)
+
+Warn that a table has an insert/update trigger whose column effects could not be
+resolved.
+
 =cut
 
 sub _normalize_type_name {
@@ -512,6 +603,96 @@ sub _warn_unknown_type {
         . "the database's own type catalog; defaulting to 'string' affinity. If "
         . "this type should map to a specific affinity, please file a ticket at "
         . "https://github.com/exodist/DBIx-QuickORM/issues so it can be added.";
+}
+
+sub _no_volatile_set {
+    my $self = shift;
+    my ($nv) = @_;
+
+    return {} unless $nv;
+    return {'*' => 1} if !ref($nv) && $nv;                 # a true scalar means "every table"
+    return {map { $_ => 1 } @$nv} if ref($nv) eq 'ARRAY';
+    return {%$nv} if ref($nv) eq 'HASH';
+    return {};
+}
+
+sub _apply_trigger_volatility {
+    my $self = shift;
+    my ($tables, $params) = @_;
+
+    my $no_vol = $self->_no_volatile_set($params->{no_volatile});
+    my $all    = $no_vol->{'*'} ? 1 : 0;
+
+    for my $tname (sort keys %$tables) {
+        my $table = $tables->{$tname};
+        next unless $table->can('column_names') && $table->can('column');
+
+        my @triggers = grep { ($_->{event} // '') =~ m/\b(?:INSERT|UPDATE)\b/i } $self->triggers_for_table($tname);
+        next unless @triggers;
+
+        # Factual: the table has insert/update triggers. Flag it regardless of a
+        # volatile-free assertion, so writes can decide whether RETURNING is
+        # trustworthy for it (RETURNING does not reflect AFTER-trigger effects).
+        $table->mark_has_triggers if $table->can('mark_has_triggers');
+
+        # A volatile-free assertion means "trust me, the triggers here do not
+        # make any column volatile": skip both the best-effort trigger flagging
+        # and the warning (but not the has_triggers flag above). (Declarative
+        # auto-detection of generated/identity columns already happened during
+        # column introspection and stands.)
+        next if $all || $no_vol->{$tname} || ($table->can('no_volatile') && $table->no_volatile);
+
+        my %cols = map { $_ => $table->column($_) } $table->column_names;
+        my %affected;
+        for my $t (@triggers) {
+            $affected{$_} = 1 for $self->_columns_set_by_trigger($t->{body}, \%cols);
+        }
+        $cols{$_}->mark_volatile for grep { $cols{$_} } keys %affected;
+
+        $self->_warn_trigger_volatility($tname);
+    }
+
+    return;
+}
+
+sub _columns_set_by_trigger {
+    my $self = shift;
+    my ($body, $cols) = @_;
+
+    return () unless defined($body) && length($body);
+
+    # Strip string literals and comments so keyword/column matching cannot
+    # false-positive on text inside them.
+    my $clean = $self->_strip_sql_noise($body);
+
+    my %found;
+
+    # BEFORE/AFTER triggers that assign to the new row: NEW.col = ... (or the
+    # PL/pgSQL := assignment).
+    while ($clean =~ m/\bNEW\s*\.\s*"?(\w+)"?\s*:?=(?!=)/gi) {
+        $found{$1} = 1 if $cols->{$1};
+    }
+
+    # UPDATE ... SET col = ..., col2 := ... [WHERE ...]
+    while ($clean =~ m/\bSET\b(.*?)(?:\bWHERE\b|;|\z)/gis) {
+        my $set = $1;
+        while ($set =~ m/"?(\w+)"?\s*:?=(?!=)/g) {
+            $found{$1} = 1 if $cols->{$1};
+        }
+    }
+
+    return keys %found;
+}
+
+sub _warn_trigger_volatility {
+    my $self = shift;
+    my ($table) = @_;
+
+    carp "Table '$table' has an insert/update trigger, and QuickORM cannot "
+        . "reliably determine which columns the trigger modifies, so a column it "
+        . "changes may hold a stale value in memory after a write. Mark the "
+        . "affected columns 'volatile', or assert the table has no volatile "
+        . "columns (no_volatile) to silence this warning.";
 }
 
 =pod
