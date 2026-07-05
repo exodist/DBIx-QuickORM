@@ -2194,6 +2194,7 @@ sub _insert {
     # Drop them silently so callers can pass a generic row hash without
     # having to know which columns the database owns.
     delete $data->{$_} for grep { $source->field_is_generated($_) } keys %$data;
+    croak "Refusing to insert an empty row" unless keys %$data;
 
     my $has_pk = $self->_has_pk;
     my $has_ret = $dialect->supports_returning_insert;
@@ -2388,7 +2389,7 @@ sub delete {
     my $row          = $self->{+ROW};
     my $has_pk       = $self->_has_pk;
     my $builder_args = $self->_builder_args;
-    my $do_cache     = $con->state_does_cache;
+    my $do_cache     = $has_pk && $con->state_does_cache;
     my $has_ret      = $dialect->supports_returning_delete;
 
     $builder_args->{returning} = $has_pk if $do_cache && $has_ret && $has_pk;
@@ -2446,7 +2447,7 @@ sub delete {
         );
     }
     else {
-        croak "Cannot do an async delete without a specific row to delete on a database that does not support 'returning on delete'" unless $sync;
+        croak "Cannot do an async delete without a specific row to delete on a database that does not support 'returning on delete' (forked deletes need a specific row for the same reason)" unless $sync;
 
         $self->_internal_txn(
             sub {
@@ -2614,7 +2615,7 @@ sub update {
         );
     }
     else {
-        croak "Cannot do an async update without a specific row to update" unless $sync;
+        croak "Cannot do an async update without a specific row to update (forked updates need a specific row for the same reason)" unless $sync;
 
         $self->_internal_txn(
             sub {
@@ -2623,7 +2624,7 @@ sub update {
                 $rows = [ map { $self->sql_builder->qorm_row_to_orm($source, $_) } @{$row_sth->fetchall_arrayref({})} ];
                 $sth = $self->_make_sth($sql, on_ready => $finish, no_rows => 1);
             },
-            die => "Cannot update without a specific row on a when internal transactions are disabled",
+            die => "Cannot update without a specific row when internal transactions are disabled",
         );
     }
 

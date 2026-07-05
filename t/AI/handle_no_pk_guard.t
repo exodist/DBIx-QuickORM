@@ -61,4 +61,17 @@ subtest unbound_operations_still_work => sub {
     is($h->count, 2, "only the targeted row was deleted");
 };
 
+subtest cached_bulk_delete_without_pk => sub {
+    ok($con->state_does_cache, "connection is using the cached row manager");
+
+    $h->insert({name => 'd'});
+    $h->insert({name => 'e'});
+    is($h->count, 4, "reseeded rows for the bulk delete");
+
+    ok(lives { $h->where({name => {-in => ['d', 'e']}})->delete }, "bulk delete on a pk-less cached table does not enter the pk cache path")
+        or note $@;
+    is($h->count({name => {-in => ['d', 'e']}}), 0, "bulk delete removed the targeted pk-less rows");
+    is($h->count, 2, "bulk delete left the other pk-less rows alone");
+};
+
 done_testing;
