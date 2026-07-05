@@ -117,11 +117,10 @@ sub qorm_sql_type {
     return 'VARCHAR(36)';
 }
 
-# looks_like_bin / looks_like_uuid work both as functions
-# (looks_like_uuid($v)) and as methods ($class->looks_like_uuid($v)).
+# looks_like_bin / looks_like_uuid take their argument via pop so they work
+# both as functions (looks_like_uuid($v)) and as methods ($class->looks_like_uuid($v)).
 sub looks_like_bin {
-    my $self = @_ > 1 ? shift : undef;
-    my $in = shift;
+    my $in = pop;
     use bytes;
     return undef unless length($in) == 16;
     my $s;
@@ -130,8 +129,7 @@ sub looks_like_bin {
 }
 
 sub looks_like_uuid {
-    my $self = @_ > 1 ? shift : undef;
-    my $in = shift;
+    my $in = pop;
     # Return the canonical (lowercase) hyphenated form so inflation and
     # comparison are case-insensitive and match the form produced from binary.
     return lc($in) if $in && $in =~ m/^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i;

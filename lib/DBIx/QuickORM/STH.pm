@@ -149,7 +149,7 @@ synchronous base class.
 
 # {{{ Role::STH interface
 
-sub clear      { my $self = shift; return }
+sub clear      { }
 sub ready      { $_[0]->{+READY} //= 1 }
 sub got_result { 1 }
 

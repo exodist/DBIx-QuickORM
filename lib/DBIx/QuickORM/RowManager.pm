@@ -92,8 +92,8 @@ Cache hooks. No-ops in the base class; overridden by caching subclasses.
 
 sub does_cache { 0 }
 
-sub cache   { my $self = shift; return }
-sub uncache { my $self = shift; return }
+sub cache   { }
+sub uncache { }
 
 =pod
 
