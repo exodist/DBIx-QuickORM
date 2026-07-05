@@ -24,34 +24,48 @@ Item template:
 
 ## insert-retrieve-on-insert
 
-**Status:** open
+**Status:** open (lower priority — a convenience/perf refinement, not a missing
+capability; see the correction below)
 
-On insert, we correctly trust a caller-supplied primary key and only consult
+On insert we correctly trust a caller-supplied primary key and only consult
 `RETURNING` (Pg / SQLite 3.35+ / DuckDB / MariaDB-insert) or `last_insert_id`
 (base MySQL, non-returning SQLite) for keys the caller did *not* supply — this
-matches DBIx::Class's core behavior. The gap is DB-side *computed* column values
-that the caller did not (or cannot) supply: defaults, sequences, and columns set
-to a literal SQL expression (e.g. `col => \'now()'`). DBIx::Class pulls these
-back into the in-memory row via a per-column `retrieve_on_insert` attribute,
-using `RETURNING` where available and falling back to a follow-up PK-keyed
-`SELECT` on non-returning storages. QuickORM's only analog is whole-row
-`auto_refresh` / `insert_and_refresh`, which is `RETURNING`-only; we have no
-per-column opt-in and no non-returning follow-up fetch, so on base MySQL a
-DB-computed non-key column comes back stale in memory.
+matches DBIx::Class's core behavior. For DB-side *computed* values (defaults,
+sequences, triggers, `col => \'now()'`), the workaround is `insert_and_refresh`
+/ `auto_refresh`.
 
-**Possible approach:** add a per-column flag (retrieve-on-insert style) that (a)
-forces the column into the `RETURNING` list even when a value was supplied, and
-(b) falls back to a PK-keyed `SELECT` after insert on dialects without insert
-`RETURNING`. Note the shared, unavoidable limitation: a trigger that rewrites a
+**Correction (2026-07-05):** an earlier draft of this item claimed QuickORM's
+refresh is `RETURNING`-only with "no non-returning follow-up fetch" — that is
+wrong. `Handle::_insert_and_refresh` uses `RETURNING` when the dialect supports
+it, and otherwise inserts and then calls `Row::refresh` (a PK-keyed re-`SELECT`)
+— so the full row is re-read on **every** dialect, base MySQL included. The
+QuickStart manual (commit 8c77581) documents this correctly; do NOT reverse it.
+QuickORM's whole-row re-select is in fact *broader* than DBIx::Class's
+`retrieve_on_insert` for a trigger that rewrites a **supplied non-key** column:
+DBIC skips supplied plain values (`Storage/DBI.pm:2084-2099`), QuickORM's
+re-select catches them.
+
+So the remaining gap is small: DBIx::Class's `retrieve_on_insert` is a
+**per-column, schema-declared, automatic** opt-in — it fires with no explicit
+call and fetches only that one column (via `RETURNING`, else a targeted
+follow-up `SELECT`). QuickORM's equivalent is **whole-row and explicit** (you
+must call `insert_and_refresh` / set `auto_refresh`, and it refetches every
+field). The only true limitation is shared by both: a trigger that rewrites a
 *supplied plain primary key* cannot be recovered by a PK-keyed re-select (the
-key we would search by is already stale) — DBIx::Class has this same limitation,
-so it is out of scope for the bridge.
+key we would search by is already stale).
+
+**Possible approach (nice-to-have):** a per-column "retrieve on insert" flag
+that automatically (a) adds the column to the `RETURNING` list, or (b) is picked
+up by the post-insert refresh on non-returning dialects — without requiring an
+explicit whole-row `insert_and_refresh`, and optionally fetching just the
+flagged columns instead of the whole row.
 
 **References:** commit 8d694aa (preserve supplied PKs on non-returning insert);
-`lib/DBIx/QuickORM/Handle.pm` `_insert` (RETURNING vs `last_insert_id` branches);
-DBIx::Class `Storage/DBI.pm::insert` (per-column classification 2066-2107,
-`last_insert_id` branch 2182-2196, follow-up SELECT 2198-2215) and the
-`retrieve_on_insert` attribute in `ResultSource.pm`.
+commit 8c77581 (QuickStart insert-readback wording — correct, keep);
+`lib/DBIx/QuickORM/Handle.pm` `_insert` and `_insert_and_refresh`;
+`lib/DBIx/QuickORM/Row.pm` `refresh` (PK-keyed re-select); DBIx::Class
+`Storage/DBI.pm::insert` (supplied-value skip 2084-2099, follow-up SELECT
+2198-2215) and the `retrieve_on_insert` attribute in `ResultSource.pm`.
 
 ---
 
