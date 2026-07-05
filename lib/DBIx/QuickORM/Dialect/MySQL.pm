@@ -519,7 +519,7 @@ sub build_columns_from_db {
         $col->{affinity} //= affinity_from_type($res->{DATA_TYPE});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/CHARACTER/ } keys %$res;
         $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/NUMERIC/ } keys %$res;
-        $col->{affinity} //= 'string';
+        $col->{affinity} //= $self->affinity_from_db_type($res->{DATA_TYPE});
 
         $params{autofill}->process_column($col);
         $params{autofill}->hook(post_column => {column => $col, table_name => $table, column_info => $res});

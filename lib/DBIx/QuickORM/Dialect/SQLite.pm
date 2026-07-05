@@ -384,7 +384,7 @@ sub build_columns_from_db {
         $col->{type} = \$type;
 
         $col->{nullable} = $res->{notnull} ? 0 : 1;
-        $col->{affinity} //= affinity_from_type($type) // 'string';
+        $col->{affinity} //= $self->affinity_from_db_type($type);
 
         $params{autofill}->process_column($col);
         $params{autofill}->hook(post_column => {column => $col, table_name => $table, column_info => $res});

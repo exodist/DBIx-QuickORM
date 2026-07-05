@@ -5,6 +5,7 @@ use warnings;
 our $VERSION = '0.000028';
 
 use Carp qw/croak/;
+use DBI qw/:sql_types/;
 
 use parent 'Exporter';
 our @EXPORT = qw{
@@ -12,6 +13,7 @@ our @EXPORT = qw{
     validate_affinity
     compare_affinity_values
     affinity_from_type
+    affinity_from_sql_type_code
 };
 
 =pod
@@ -163,6 +165,25 @@ sub affinity_from_type {
     return $AFFINITY_BY_TYPE{$type} // undef;
 }
 
+# A small, stable map from the numeric ODBC/SQL type code (DBI's :sql_types,
+# e.g. what type_info reports as DATA_TYPE) to an affinity. Unlike the type-name
+# map above, the numeric codes are standardized, so this table does not need to
+# grow as databases add new type-name aliases. It is the fallback used when a
+# type name is not in the name map but the database can tell us its code.
+my %AFFINITY_BY_SQL_TYPE_CODE = (
+    (map { $_ => 'numeric' } SQL_TINYINT, SQL_SMALLINT, SQL_INTEGER, SQL_BIGINT, SQL_DECIMAL, SQL_NUMERIC, SQL_FLOAT, SQL_REAL, SQL_DOUBLE),
+    (map { $_ => 'string'  } SQL_CHAR, SQL_VARCHAR, SQL_LONGVARCHAR, SQL_WCHAR, SQL_WVARCHAR, SQL_WLONGVARCHAR, SQL_GUID),
+    (map { $_ => 'binary'  } SQL_BINARY, SQL_VARBINARY, SQL_LONGVARBINARY),
+    (map { $_ => 'boolean' } SQL_BIT, SQL_BOOLEAN),
+    (map { $_ => 'string'  } SQL_TYPE_DATE, SQL_TYPE_TIME, SQL_TYPE_TIMESTAMP, SQL_DATE, SQL_TIME, SQL_TIMESTAMP),
+);
+
+sub affinity_from_sql_type_code {
+    my $code = pop;
+    return undef unless defined($code) && length($code);
+    return $AFFINITY_BY_SQL_TYPE_CODE{$code};
+}
+
 1;
 
 __END__
@@ -191,6 +212,16 @@ Croaks when C<$affinity> is missing or not valid.
 Maps a SQL type name to an affinity. Lower-cases the type, strips any
 parenthesized size/precision, and resolves common C<tiny>/C<medium>/C<big>/
 C<long>/C<var> prefixes. Returns undef for unknown types.
+
+=item $affinity_or_undef = affinity_from_sql_type_code($code)
+
+Maps a numeric ODBC/SQL type code (as reported by DBI's C<type_info> /
+C<type_info_all> C<DATA_TYPE>, i.e. the L<DBI> C<:sql_types> values) to an
+affinity. Unlike the type-name map, the numeric codes are standardized, so this
+covers the standard numeric/character/binary/boolean/date families without
+needing per-alias updates. Returns undef when the code is not one of the
+recognized standard families. Dialects use this on a type-name-map miss to
+derive an affinity from the database's own type catalog.
 
 =back
 
