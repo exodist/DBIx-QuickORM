@@ -2,7 +2,7 @@ package DBIx::QuickORM::Dialect;
 use strict;
 use warnings;
 
-use Carp qw/croak confess/;
+use Carp qw/croak confess carp/;
 use Scalar::Util qw/blessed/;
 use DBI();
 
@@ -12,9 +12,15 @@ use DBIx::QuickORM::Util qw/load_class/;
 
 use DBIx::QuickORM::Schema;
 
+use DBIx::QuickORM::Affinity qw/affinity_from_type affinity_from_sql_type_code/;
+
 use Object::HashBase qw{
     <dbh
     <db_name
+
+    +affinity_cache
+    +db_type_code_map
+    +warned_types
 };
 
 =pod
@@ -344,12 +350,51 @@ sub build_schema_from_db {
 
 Per-table introspection helpers. Stubs; subclasses override.
 
+=item $affinity = $dialect->affinity_from_db_type(@type_names)
+
+Resolve a storage affinity for a database column type during introspection.
+Tries the static type-name map first (the fast, authoritative path); on a miss,
+consults the database's own type catalog to turn the name into a numeric SQL
+type code and maps that code to an affinity, caching the result. When even the
+catalog does not recognize the type, warns once (asking for a ticket so the type
+can be added) and defaults to C<string>. Always returns a defined affinity.
+Accepts more than one candidate name (e.g. a driver's concrete and standard
+names) and tries each in turn.
+
 =cut
 
 sub build_tables_from_db     { my $self = shift; confess "Not Implemented" }
 sub build_table_keys_from_db { my $self = shift; confess "Not Implemented" }
 sub build_columns_from_db    { my $self = shift; confess "Not Implemented" }
 sub build_indexes_from_db    { my $self = shift; confess "Not Implemented" }
+
+sub affinity_from_db_type {
+    my $self  = shift;
+    my @names = grep { defined && length } @_;
+
+    return 'string' unless @names;
+
+    # 1. Static type-name map: fast and authoritative.
+    for my $name (@names) {
+        my $aff = affinity_from_type($name);
+        return $aff if $aff;
+    }
+
+    my $key   = $self->_normalize_type_name($names[0]);
+    my $cache = $self->{+AFFINITY_CACHE} //= {};
+    return $cache->{$key} if exists $cache->{$key};
+
+    # 2. Database type catalog: name -> numeric code -> affinity.
+    for my $name (@names) {
+        my $code = $self->_sql_type_code_for($name)      // next;
+        my $aff  = affinity_from_sql_type_code($code)     // next;
+        return $cache->{$key} = $aff;
+    }
+
+    # 3. Unknown even to the database catalog: warn once, default to string.
+    $self->_warn_unknown_type($names[0]);
+    return $cache->{$key} = 'string';
+}
 
 =pod
 
@@ -384,6 +429,89 @@ sub _dsn_dbname_only {
     my $db_name = $db->db_name;
 
     return "dbi:${driver}:dbname=${db_name}";
+}
+
+=pod
+
+=item $name = $dialect->_normalize_type_name($type)
+
+Lower-cases a database type name and strips any parenthesized size/precision so
+it can key the type-name caches consistently.
+
+=item $map = $dialect->_type_code_map
+
+A per-dialect (built once, cached) map of normalized type name to its numeric
+SQL type code, derived from the driver's C<type_info_all> catalog.
+
+=item $code_or_undef = $dialect->_sql_type_code_for($type)
+
+The numeric SQL type code for a type name from the driver's catalog, or undef
+when the driver does not list it.
+
+=item $dialect->_warn_unknown_type($type)
+
+Warn (once per type) that a database type could not be mapped to an affinity,
+asking for a ticket so it can be added.
+
+=cut
+
+sub _normalize_type_name {
+    my $self = shift;
+    my ($name) = @_;
+
+    return '' unless defined $name;
+    $name = lc($name);
+    $name =~ s/\s*\(.*\)\s*$//;
+    $name =~ s/^\s+//;
+    $name =~ s/\s+$//;
+    return $name;
+}
+
+sub _type_code_map {
+    my $self = shift;
+
+    return $self->{+DB_TYPE_CODE_MAP} if $self->{+DB_TYPE_CODE_MAP};
+
+    my %map;
+    my $info = eval { $self->dbh->type_info_all };
+    if ($info && ref($info) eq 'ARRAY' && @$info) {
+        my $idx = shift @$info;    # first element maps column name -> position
+        if (ref($idx) eq 'HASH') {
+            my $ni = $idx->{TYPE_NAME};
+            my $di = $idx->{DATA_TYPE};
+            if (defined($ni) && defined($di)) {
+                for my $row (@$info) {
+                    next unless ref($row) eq 'ARRAY';
+                    my $name = $row->[$ni];
+                    next unless defined $name;
+                    $map{$self->_normalize_type_name($name)} //= $row->[$di];
+                }
+            }
+        }
+    }
+
+    return $self->{+DB_TYPE_CODE_MAP} = \%map;
+}
+
+sub _sql_type_code_for {
+    my $self = shift;
+    my ($name) = @_;
+    return $self->_type_code_map->{$self->_normalize_type_name($name)};
+}
+
+sub _warn_unknown_type {
+    my $self = shift;
+    my ($name) = @_;
+
+    my $key  = $self->_normalize_type_name($name);
+    my $seen = $self->{+WARNED_TYPES} //= {};
+    return if $seen->{$key}++;
+
+    carp "DBIx::QuickORM does not recognize the database type '$name' for the '"
+        . $self->dialect_name . "' dialect, and could not derive its affinity from "
+        . "the database's own type catalog; defaulting to 'string' affinity. If "
+        . "this type should map to a specific affinity, please file a ticket at "
+        . "https://github.com/exodist/DBIx-QuickORM/issues so it can be added.";
 }
 
 =pod

@@ -1,5 +1,8 @@
 {{$NEXT}}
 
+    Features:
+    - Column affinity is now derived from the database's own type catalog when a type name is not in the built-in name map: the numeric SQL type code is mapped to an affinity, so standard numeric/char/binary/date types no longer need a code patch. A type unknown even to the catalog warns once (asking for a ticket) and defaults to string affinity.
+
     Bug Fixes:
     - Defining two tables (or two schemas, dbs, or servers) with the same name in one registry now croaks instead of silently letting the last definition win (re-opening an alt/variant frame is unaffected).
     - Importing DBIx::QuickORM with 'only' or 'skip' no longer strips the generated import()/builder() helpers, so a downstream `use My::ORM` keeps working.

@@ -363,7 +363,7 @@ sub build_columns_from_db {
         $col->{affinity} //= affinity_from_type($res->{udt_name}) // affinity_from_type($res->{data_type});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/character/ } keys %$res;
         $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/numeric/ } keys %$res;
-        $col->{affinity} //= 'string';
+        $col->{affinity} //= $self->affinity_from_db_type($res->{udt_name}, $res->{data_type});
 
         $params{autofill}->process_column($col);
 
