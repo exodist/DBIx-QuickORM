@@ -130,12 +130,17 @@ subtest merge_hash_of_objs => sub {
     };
 
     subtest hashref_one_side => sub {
-        # Single-side hashref is deep-cloned via clone_hash_of_objs, which
-        # only keeps blessed/ARRAY/HASH values (plain scalars are dropped).
+        # Single-side hashref is deep-cloned via clone_hash_of_objs, preserving
+        # plain scalar values as well as blessed/ARRAY/HASH values.
         my $a = t::Obj->new(n => 1);
         my $out = merge_hash_of_objs({h => {o => $a, s => 'scalar'}}, {});
         is($out->{h}{o}{cloned}, 1, "nested blessed value cloned");
-        ok(!exists $out->{h}{s}, "plain scalar inside a nested hash is dropped by deep clone");
+        is($out->{h}{s}, 'scalar', "plain scalar inside a nested hash is preserved by deep clone");
+    };
+
+    subtest falsey_values => sub {
+        my $out = merge_hash_of_objs({zero => 9, empty => 'x', undef_v => 1}, {zero => 0, empty => '', undef_v => undef});
+        is($out, {zero => 0, empty => '', undef_v => undef}, "second hash wins even when its values are falsey");
     };
 };
 
@@ -153,14 +158,12 @@ subtest clone_hash_of_objs => sub {
 
         is($out->{h}, {n => [5]}, "nested hashref deep-cloned");
 
-        ok(!exists $out->{s}, "plain scalar values are dropped (only blessed/ARRAY/HASH kept)");
+        is($out->{s}, 'plain', "plain scalar values are preserved");
     };
 
-    subtest falsey_values_skipped => sub {
-        # The implementation uses `my $val = ... or next`, so any falsey
-        # value (0, '', undef) is skipped entirely.
+    subtest falsey_values_preserved => sub {
         my $out = clone_hash_of_objs({zero => 0, empty => '', undef_v => undef, real => [1]});
-        is([sort keys %$out], ['real'], "falsey-valued keys are skipped");
+        is($out, {zero => 0, empty => '', undef_v => undef, real => [1]}, "falsey-valued keys are preserved");
     };
 
     subtest empty => sub {
