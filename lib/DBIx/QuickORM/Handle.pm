@@ -1908,7 +1908,6 @@ sub by_id {
     my $where;
     my $cacheable = 1;
     my $ref = ref($id);
-    #<<<
     if ($ref eq 'HASH') {
         $where = $id;
         croak "Missing primary key field '$_' in by_id() hash" for grep { !exists $where->{$_} } @$pk_fields;
@@ -1925,7 +1924,6 @@ sub by_id {
         $id = [ $id ];
         $where = +{ mesh($pk_fields, $id) };
     }
-    #>>>
 
     croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';
     croak "Undefined primary key value in by_id()" if grep { !defined } @$id;
