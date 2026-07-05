@@ -2648,6 +2648,10 @@ sub cas {
     croak "cas() requires a changes hashref"           unless ref($changes) eq 'HASH';
     croak "cas() is not supported with data_only set"  if $self->{+DATA_ONLY};
     croak "cas() is not supported with forked handles" if $self->is_forked;
+    croak "cas() with a 'limit' clause is not currently supported"     if defined $self->{+LIMIT};
+    croak "cas() with an 'offset' clause is not currently supported"   if defined $self->{+OFFSET};
+    croak "cas() with an 'order_by' clause is not currently supported" if $self->{+ORDER_BY};
+    croak "cas() with distinct set is not currently supported"         if $self->{+DISTINCT};
 
     my $source    = $self->{+SOURCE};
     my $pk_fields = $self->_has_pk or croak "cas() requires a source with a primary key";
@@ -2710,6 +2714,19 @@ handle's row-or-where state and the supplied input.
 Return the guard column names (the keys of a hashref guard, or the raw field
 names minus any primary-key fields). Used to warn when C<cas> changes advance
 none of them.
+
+=item $value = $h->_cas_guard_value($guard_where, $field)
+
+Return the first plain guard value found for C<$field> in a hashref guard, or a
+reference when the guard shape is not a plain scalar comparison.
+
+=item $bool = $h->_find_cas_guard_value($node, $field, \$value)
+
+Recursive worker for C<_cas_guard_value>.
+
+=item $h->_collect_cas_guard_fields($node, \%seen, \@fields)
+
+Recursive worker for C<_cas_guard_fields>.
 
 =item $bool = $h->_cas_guard_advances($row, \%changes, \@guard_fields, $guard_where, $raw_fields)
 
@@ -2776,11 +2793,80 @@ sub _cas_guard_fields {
     my $self = shift;
     my ($guard_where, $raw_fields) = @_;
 
-    return keys %$guard_where if ref($guard_where) eq 'HASH';
+    if (ref($guard_where) eq 'HASH') {
+        my %seen;
+        my @fields;
+        $self->_collect_cas_guard_fields($guard_where, \%seen, \@fields);
+        return @fields;
+    }
 
     # Primary-key fields identify the row, they are not guards (see _cas_where).
     my %is_pk = map { $_ => 1 } @{$self->{+SOURCE}->primary_key // []};
     return grep { !$is_pk{$_} } @{$raw_fields // []};
+}
+
+sub _collect_cas_guard_fields {
+    my $self = shift;
+    my ($node, $seen, $fields) = @_;
+
+    my $source = $self->{+SOURCE};
+    my %is_pk  = map { $_ => 1 } @{$source->primary_key // []};
+
+    if (ref($node) eq 'HASH') {
+        for my $key (keys %$node) {
+            if ($source->has_field($key) && !$is_pk{$key} && !$seen->{$key}++) {
+                push @$fields => $key;
+                next;
+            }
+
+            next unless substr($key, 0, 1) eq '-';
+            $self->_collect_cas_guard_fields($node->{$key}, $seen, $fields);
+        }
+
+        return;
+    }
+
+    if (ref($node) eq 'ARRAY') {
+        $self->_collect_cas_guard_fields($_, $seen, $fields) for @$node;
+    }
+}
+
+sub _cas_guard_value {
+    my $self = shift;
+    my ($node, $field) = @_;
+
+    my $value;
+    return $value if $self->_find_cas_guard_value($node, $field, \$value);
+    return {};
+}
+
+sub _find_cas_guard_value {
+    my $self = shift;
+    my ($node, $field, $value) = @_;
+
+    return 0 unless ref($node);
+
+    if (ref($node) eq 'HASH') {
+        if (exists $node->{$field}) {
+            $$value = $node->{$field};
+            return 1;
+        }
+
+        for my $key (keys %$node) {
+            next unless substr($key, 0, 1) eq '-';
+            return 1 if $self->_find_cas_guard_value($node->{$key}, $field, $value);
+        }
+
+        return 0;
+    }
+
+    if (ref($node) eq 'ARRAY') {
+        for my $item (@$node) {
+            return 1 if $self->_find_cas_guard_value($item, $field, $value);
+        }
+    }
+
+    return 0;
 }
 
 sub _cas_guard_advances {
@@ -2803,7 +2889,7 @@ sub _cas_guard_advances {
         # A hashref guard may hold an operator or literal rather than a plain
         # value; if we cannot read a scalar guard value we cannot compare, so we
         # assume the guard advances rather than warn on something we misread.
-        my $old = $hash_guard ? $guard_where->{$field} : $self->_cas_raw_stored_guard($row, $field);
+        my $old = $hash_guard ? $self->_cas_guard_value($guard_where, $field) : $self->_cas_raw_stored_guard($row, $field);
         return 1 if ref($old);
 
         # compare_field is true when the values are equal; any difference advances
@@ -2913,7 +2999,6 @@ sub _cas_warn_found_rows {
     my $self = shift;
     my $con  = $self->{+CONNECTION};
 
-    return unless $con->can('cas_count_reliable');
     return if $con->cas_count_reliable;
 
     carp "This connection reports rows changed rather than rows matched (found-rows is off); cas() may report a loss for an update that changes no values";
