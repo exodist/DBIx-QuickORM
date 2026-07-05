@@ -58,6 +58,7 @@ my @EXPORT = qw{
      row_class
      tables
      table
+      no_volatile
      view
       db_name
       column
@@ -65,6 +66,7 @@ my @EXPORT = qw{
        nullable
        not_null
        identity
+       volatile
        affinity
        type
        sql
@@ -1067,6 +1069,9 @@ sub column {
                 elsif ($arg eq 'omit') {
                     $meta->{omit} = 1;
                 }
+                elsif ($arg eq 'volatile') {
+                    $meta->{volatile} = 1;
+                }
                 elsif ($arg eq 'sql_default' || $arg eq 'perl_default') {
                     $meta->{$arg} = shift @$extra;
                 }
@@ -1180,6 +1185,7 @@ sub type {
 }
 
 sub omit     { defined(wantarray) ? (($_[1] // 1) ? 'omit'     : ())         : ($_[0]->_in_builder('column')->{meta}->{omit}     = $_[1] // 1) }
+sub volatile { defined(wantarray) ? (($_[1] // 1) ? 'volatile' : ())         : ($_[0]->_in_builder('column')->{meta}->{volatile} = $_[1] // 1) }
 sub identity { defined(wantarray) ? (($_[1] // 1) ? 'identity' : ())         : ($_[0]->_in_builder('column')->{meta}->{identity} = $_[1] // 1) }
 sub nullable { defined(wantarray) ? (($_[1] // 1) ? 'nullable' : 'not_null') : ($_[0]->_in_builder('column')->{meta}->{nullable} = $_[1] // 1) }
 sub not_null { defined(wantarray) ? (($_[1] // 1) ? 'not_null' : 'nullable') : ($_[0]->_in_builder('column')->{meta}->{nullable} = ($_[1] // 1) ? 0 : 1) }
@@ -1236,6 +1242,13 @@ sub row_class {
     my $class = load_class($proto, 'DBIx::QuickORM::Row') or croak "Could not load class '$proto': $@";
 
     $top->{meta}->{row_class} = $class;
+}
+
+sub no_volatile {
+    my $self = shift;
+
+    my $top = $self->_in_builder(qw{table});
+    return $top->{meta}->{no_volatile} = (@_ ? ($_[0] ? 1 : 0) : 1);
 }
 
 sub primary_key {
@@ -2245,6 +2258,34 @@ specification without a builder.
 
 Can be nested under C<column>.
 
+=item C<volatile>
+
+Marks a column as B<volatile>: a column whose stored value the database may set
+or change during a write (a generated/computed column, an identity or
+sequence-backed column, a server-side C<DEFAULT>, an C<ON UPDATE> clause, or a
+trigger), so the value the caller sent cannot be trusted as the in-memory truth.
+
+    column updated_at => sub {
+        affinity 'string';
+        volatile;
+    };
+
+After a write, a volatile column that is B<not> omitted is re-fetched eagerly
+(via C<RETURNING> or a refresh) so the in-memory value is the real stored value.
+A column that is B<both> volatile and omitted is instead cleared from the
+in-memory row after the write and lazily re-fetched on next access, since being
+on the omit list signals a deliberate reason not to pull it eagerly. QuickORM
+also auto-marks columns it can detect as volatile during introspection
+(generated / identity / server-default / on-update); use this marker for the
+cases it cannot detect (most trigger effects).
+
+In a non-void context it returns the string C<volatile> for use in a column
+specification without a builder.
+
+    column updated_at => ('string', 'volatile');
+
+Can be nested under C<column>.
+
 =item C<nullable()>
 
 =item C<nullable(1)>
@@ -2467,6 +2508,27 @@ The options hashref works under a column builder too:
         ...
         primary_key({override => 1});
     };
+
+=item C<no_volatile>
+
+=item C<no_volatile(1)>
+
+=item C<no_volatile(0)>
+
+Marks a whole table as B<volatile-free>: an explicit assertion that none of its
+columns are volatile (see C<volatile> under C<column>). Use it to opt a table
+out of the conservative trigger handling and to silence the per-table warning
+QuickORM emits when it finds a trigger whose column effects it cannot resolve.
+
+    table events => sub {
+        no_volatile;
+        column id => sub { primary_key; affinity 'numeric' };
+        ...
+    };
+
+The same assertion can be made for one or more tables from the C<quick>
+interface with C<< no_volatile => [ 'events', ... ] >> (or C<< no_volatile => 1 >>
+for every table). Can be nested under C<table>.
 
 =item C<unique>
 

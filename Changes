@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Features:
+    - Volatile columns: a column whose stored value the database may set or change on write (generated/identity/default/on-update columns, and trigger-affected columns) can be marked `volatile` (auto-detected for the declarative cases during introspection). A non-omitted volatile column is re-fetched eagerly after a write so the in-memory value is the real stored value; a column that is both volatile and omitted is cleared and lazily re-fetched on next access. Tables can be marked volatile-free with `no_volatile` (DSL or `quick(no_volatile => [...])`) to assert no volatility and silence the per-table trigger warning; the connection can list the tables that have no volatile columns.
     - Column affinity is now derived from the database's own type catalog when a type name is not in the built-in name map: the numeric SQL type code is mapped to an affinity, so standard numeric/char/binary/date types no longer need a code patch. A type unknown even to the catalog warns once (asking for a ticket) and defaults to string affinity.
 
     Bug Fixes:

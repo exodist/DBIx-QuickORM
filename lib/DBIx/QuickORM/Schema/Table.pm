@@ -21,6 +21,7 @@ use Object::HashBase qw{
     <created
     <compiled
     <is_temp
+    <no_volatile
     <links
     <indexes
     <primary_key

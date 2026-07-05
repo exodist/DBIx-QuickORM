@@ -20,6 +20,7 @@ use Object::HashBase qw{
     <nullable
     <identity
     <generated
+    <volatile
     +affinity
     <type
     <created
