@@ -10,6 +10,8 @@ our $VERSION = '0.000028';
 
 use DBIx::QuickORM::Util qw/load_class/;
 
+use DBIx::QuickORM::Schema;
+
 use Object::HashBase qw{
     <dbh
     <db_name
@@ -77,7 +79,9 @@ Short name of the dialect, derived from the class name.
 
 =item $value = $dialect->quote_binary_data
 
-DBI bind type/attribute used to quote binary data.
+DBI bind type/attribute used to quote binary data. The return value is
+whatever is valid as C<bind_param>'s third argument — a DBI type constant
+(e.g. C<DBI::SQL_BINARY>) or a C<\%attrs> hashref — or C<undef> for none.
 
 =item $bool = $dialect->supports_returning_update
 
@@ -121,7 +125,6 @@ sub dialect_name {
     my $self_or_class = shift;
     my $class = blessed($self_or_class) || $self_or_class;
     $class =~ s/^DBIx::QuickORM::Dialect:://;
-    $class =~ s/::.*$//g;
     return $class;
 }
 
@@ -156,16 +159,22 @@ sub db_version { my $self = shift; confess "Not Implemented" }
 
 =item $dialect->rollback_savepoint(%params)
 
-Transaction and savepoint control. Stubs; subclasses override.
+Transaction and savepoint control. Each accepts an optional C<dbh> parameter,
+defaulting to the dialect's own handle; savepoint methods take a C<savepoint>
+name. The defaults drive transactions through the driver's
+C<begin_work>/C<commit>/C<rollback> and savepoints through standard
+C<SAVEPOINT> / C<RELEASE SAVEPOINT> / C<ROLLBACK TO SAVEPOINT> SQL; dialects
+whose engine or driver needs different handling override.
 
 =cut
 
-sub start_txn          { my $self = shift; croak "$self->start_txn() is not implemented" }
-sub commit_txn         { my $self = shift; croak "$self->commit_txn() is not implemented" }
-sub rollback_txn       { my $self = shift; croak "$self->rollback_txn() is not implemented" }
-sub create_savepoint   { my $self = shift; croak "$self->create_savepoint() is not implemented" }
-sub commit_savepoint   { my $self = shift; croak "$self->commit_savepoint() is not implemented" }
-sub rollback_savepoint { my $self = shift; croak "$self->rollback_savepoint() is not implemented" }
+sub start_txn    { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->begin_work }
+sub commit_txn   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->commit }
+sub rollback_txn { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->rollback }
+
+sub create_savepoint   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($p{savepoint}); $dbh->do("SAVEPOINT $sp") }
+sub commit_savepoint   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($p{savepoint}); $dbh->do("RELEASE SAVEPOINT $sp") }
+sub rollback_savepoint { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($p{savepoint}); $dbh->do("ROLLBACK TO SAVEPOINT $sp") }
 
 =pod
 
@@ -183,18 +192,18 @@ Async feature flags. False by default; dialects with async support override.
 
 =item $dialect->async_cancel(%params)
 
-Async query lifecycle. Stubs that croak; dialects with async support
-override.
+Async query lifecycle. The defaults croak with a "does not support async
+queries" message; dialects with async support override.
 
 =cut
 
 sub async_supported        { 0 }
 sub async_cancel_supported { 0 }
 
-sub async_prepare_args { my $self = shift; croak "$self->async_prepare_args() is not implemented" }
-sub async_ready        { my $self = shift; croak "$self->async_ready() is not implemented" }
-sub async_result       { my $self = shift; croak "$self->async_result() is not implemented" }
-sub async_cancel       { my $self = shift; croak "$self->async_cancel() is not implemented" }
+sub async_prepare_args { my $self = shift; croak "Dialect '" . $self->dialect_name . "' does not support async queries" }
+sub async_ready        { my $self = shift; croak "Dialect '" . $self->dialect_name . "' does not support async queries" }
+sub async_result       { my $self = shift; croak "Dialect '" . $self->dialect_name . "' does not support async queries" }
+sub async_cancel       { my $self = shift; croak "Dialect '" . $self->dialect_name . "' does not support async queries" }
 
 =pod
 
@@ -314,15 +323,12 @@ sub build_schema_from_db {
 
     croak "No autofill object provided" unless $params{autofill};
 
-    my $dbh = $self->dbh;
-
     my $tables = $self->build_tables_from_db(%params);
 
     $params{autofill}->hook(tables => {tables => $tables});
 
     return DBIx::QuickORM::Schema->new(
-        tables    => $tables,
-        row_class => $params{row_class},
+        tables => $tables,
     );
 }
 
@@ -354,6 +360,75 @@ sub build_indexes_from_db    { my $self = shift; confess "Not Implemented" }
 ###############################################################################
 # }}} Schema Builder Code
 ###############################################################################
+
+=pod
+
+=head1 PRIVATE METHODS
+
+=over 4
+
+=item $dsn = $dialect->_dsn_dbname_only($db)
+
+Builds a C<dbi:$driver:dbname=$name> DSN for embedded, file-backed engines
+(no host, port, or socket). Shared by the SQLite and DuckDB dialects.
+
+=cut
+
+sub _dsn_dbname_only {
+    my $self_or_class = shift;
+    my ($db) = @_;
+
+    my $driver = $db->dbi_driver // $self_or_class->dbi_driver;
+    $driver =~ s/^DBD:://;
+
+    my $db_name = $db->db_name;
+
+    return "dbi:${driver}:dbname=${db_name}";
+}
+
+=pod
+
+=item $bool = $dialect->_col_field_to_bool($val)
+
+Interprets an C<information_schema> string field as a boolean, treating
+C<no>/C<undef>/C<never> and empty/undefined values as false.
+
+=cut
+
+sub _col_field_to_bool {
+    my $self = shift;
+    my ($val) = @_;
+
+    return 0 unless defined $val;
+    return 0 unless $val;
+    $val = lc($val);
+    return 0 if $val eq 'no';
+    return 0 if $val eq 'undef';
+    return 0 if $val eq 'never';
+    return 1;
+}
+
+=pod
+
+=item $sql = $dialect->_strip_sql_noise($sql)
+
+Returns the SQL with string literals replaced by empty strings and comments
+removed, so keyword matching cannot false-positive on either.
+
+=back
+
+=cut
+
+sub _strip_sql_noise {
+    my $self = shift;
+    my ($sql) = @_;
+
+    # One left-to-right pass so a quote inside a comment (or a comment marker
+    # inside a string) cannot derail the other rule.
+    $sql =~ s{('(?:[^']|'')*')|(--[^\n]*)|(/\*.*?\*/)}{defined $1 ? "''" : " "}ges;
+
+    return $sql;
+}
 
 1;
 
