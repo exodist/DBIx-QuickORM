@@ -1607,8 +1607,8 @@ sub _do_binds {
             if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type')) {
                 $val = $val->qorm_deflate(%conflate_args);
             }
-            elsif (my $type = $source->field_type($field)) {
-                $val = $type->qorm_deflate(%conflate_args);
+            elsif (my $field_type = $source->field_type($field)) {
+                $val = $field_type->qorm_deflate(%conflate_args);
             }
 
             if ($quote_bin && $affinity eq 'binary') {
@@ -1770,11 +1770,6 @@ sub _make_forked_sth {
 
 =over 4
 
-=item $txn = $h->_start_internal_txn(%params)
-
-Begin an internal transaction when allowed and not already inside one,
-otherwise warn/die per the supplied params.
-
 =item $result = $h->_internal_txn($cb, %params)
 
 Run the callback inside an internal transaction when allowed, otherwise warn or
@@ -1783,24 +1778,6 @@ die per params, or run it without one.
 =back
 
 =cut
-
-sub _start_internal_txn {
-    my $self = shift;
-    my (%params) = @_;
-
-    my $con = $self->{+CONNECTION};
-
-    # Already inside a txn
-    return undef if $con->in_txn;
-
-    # Internal TXNs are allowed, use one
-    return $con->txn if $self->{+INTERNAL_TRANSACTIONS};
-
-    carp "Internal transactions are disabled: $params{warn}" if $params{warn};
-    croak "Internal transactions are disabled: $params{die}" if $params{die};
-
-    return undef;
-}
 
 sub _internal_txn {
     my $self = shift;
@@ -1829,26 +1806,6 @@ sub _internal_txn {
 ########################
 # {{{ Results Fetchers #
 ########################
-
-=pod
-
-=head1 PRIVATE METHODS
-
-=over 4
-
-=item $h->_fixture_arg($arg)
-
-Store the argument as the handle's pending operation target.
-
-=back
-
-=cut
-
-sub _fixture_arg {
-    my $self = shift;
-    my ($arg) = @_;
-    $self->{+TARGET} = $arg;
-}
 
 =pod
 

@@ -186,6 +186,22 @@ BEGIN {
 
     $bld->top->{plugins} = [];
 
+    ok(
+        lives {
+            schema plugin_noop => sub {
+                plugin '+DBIx::QuickORM::Plugin';
+
+                table plugin_noop => sub {
+                    column id => sub {
+                        primary_key;
+                        affinity 'numeric';
+                    };
+                };
+            };
+        },
+        "Base plugin can participate in a build without overriding munge"
+    );
+
     like(
         dies { meta() },
         qr/Cannot access meta without a builder/,
