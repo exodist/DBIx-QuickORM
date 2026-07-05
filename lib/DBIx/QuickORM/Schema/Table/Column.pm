@@ -186,6 +186,17 @@ sub affinity {
 
 =pod
 
+=item $col->mark_volatile
+
+Flag this column as volatile. Used by schema introspection when a trigger or
+other database mechanism is found to modify the column on write.
+
+=cut
+
+sub mark_volatile { $_[0]->{+VOLATILE} = 1 }
+
+=pod
+
 =item $col = $col->merge($other, %params)
 
 Return a new column combining this column with another (and any extra

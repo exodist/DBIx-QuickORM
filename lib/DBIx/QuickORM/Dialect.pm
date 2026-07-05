@@ -331,11 +331,24 @@ sub build_schema_from_db {
 
     my $tables = $self->build_tables_from_db(%params);
 
+    # Best-effort: flag columns a trigger is seen to modify as volatile, and warn
+    # once per table when a table has an insert/update trigger whose effects we
+    # cannot resolve (unless the table is asserted volatile-free).
+    $self->_apply_trigger_volatility($tables, \%params);
+
     $params{autofill}->hook(tables => {tables => $tables});
 
     return DBIx::QuickORM::Schema->new(
         tables => $tables,
     );
+}
+
+sub triggers_for_table {
+    my $self = shift;
+    # Subclasses that support triggers override this to return a list of
+    # { event => 'INSERT'|'UPDATE'|'DELETE', body => $trigger_sql } hashrefs for
+    # the named table. The base class reports none.
+    return ();
 }
 
 =pod
@@ -481,6 +494,29 @@ when the driver does not list it.
 Warn (once per type) that a database type could not be mapped to an affinity,
 asking for a ticket so it can be added.
 
+=item $set = $dialect->_no_volatile_set($no_volatile)
+
+Normalize a C<no_volatile> value (a true scalar meaning "every table", an
+arrayref of names, or a hashref) into a hashref set. A C<'*'> key means every
+table is asserted volatile-free.
+
+=item $dialect->_apply_trigger_volatility(\%tables, \%params)
+
+For each introspected table with an insert/update trigger, best-effort flag the
+columns the trigger is seen to modify as volatile, and warn once per table
+whose trigger effects cannot be resolved unless it is asserted volatile-free
+(via C<< $params{no_volatile} >> or the table's own C<no_volatile>).
+
+=item @cols = $dialect->_columns_set_by_trigger($trigger_sql, \%columns)
+
+Best-effort parse of a trigger body: returns the names of the table's columns it
+is seen to assign (C<NEW.col => ...> or C<UPDATE ... SET col => ...>).
+
+=item $dialect->_warn_trigger_volatility($table)
+
+Warn that a table has an insert/update trigger whose column effects could not be
+resolved.
+
 =cut
 
 sub _normalize_type_name {
@@ -540,6 +576,89 @@ sub _warn_unknown_type {
         . "the database's own type catalog; defaulting to 'string' affinity. If "
         . "this type should map to a specific affinity, please file a ticket at "
         . "https://github.com/exodist/DBIx-QuickORM/issues so it can be added.";
+}
+
+sub _no_volatile_set {
+    my $self = shift;
+    my ($nv) = @_;
+
+    return {} unless $nv;
+    return {'*' => 1} if !ref($nv) && $nv;                 # a true scalar means "every table"
+    return {map { $_ => 1 } @$nv} if ref($nv) eq 'ARRAY';
+    return {%$nv} if ref($nv) eq 'HASH';
+    return {};
+}
+
+sub _apply_trigger_volatility {
+    my $self = shift;
+    my ($tables, $params) = @_;
+
+    my $no_vol = $self->_no_volatile_set($params->{no_volatile});
+    my $all    = $no_vol->{'*'} ? 1 : 0;
+
+    for my $tname (sort keys %$tables) {
+        my $table = $tables->{$tname};
+        next unless $table->can('column_names') && $table->can('column');
+
+        # A volatile-free assertion means "trust me, the triggers here do not
+        # make any column volatile": skip both the best-effort trigger flagging
+        # and the warning. (Declarative auto-detection of generated/identity
+        # columns already happened during column introspection and stands.)
+        next if $all || $no_vol->{$tname} || ($table->can('no_volatile') && $table->no_volatile);
+
+        my @triggers = grep { ($_->{event} // '') =~ m/^(?:INSERT|UPDATE)$/i } $self->triggers_for_table($tname);
+        next unless @triggers;
+
+        my %cols = map { $_ => $table->column($_) } $table->column_names;
+        my %affected;
+        for my $t (@triggers) {
+            $affected{$_} = 1 for $self->_columns_set_by_trigger($t->{body}, \%cols);
+        }
+        $cols{$_}->mark_volatile for grep { $cols{$_} } keys %affected;
+
+        $self->_warn_trigger_volatility($tname);
+    }
+
+    return;
+}
+
+sub _columns_set_by_trigger {
+    my $self = shift;
+    my ($body, $cols) = @_;
+
+    return () unless defined($body) && length($body);
+
+    # Strip string literals and comments so keyword/column matching cannot
+    # false-positive on text inside them.
+    my $clean = $self->_strip_sql_noise($body);
+
+    my %found;
+
+    # BEFORE/AFTER triggers that assign to the new row: NEW.col = ...
+    while ($clean =~ m/\bNEW\s*\.\s*"?(\w+)"?\s*=(?!=)/gi) {
+        $found{$1} = 1 if $cols->{$1};
+    }
+
+    # UPDATE ... SET col = ..., col2 = ... [WHERE ...]
+    while ($clean =~ m/\bSET\b(.*?)(?:\bWHERE\b|;|\z)/gis) {
+        my $set = $1;
+        while ($set =~ m/"?(\w+)"?\s*=(?!=)/g) {
+            $found{$1} = 1 if $cols->{$1};
+        }
+    }
+
+    return keys %found;
+}
+
+sub _warn_trigger_volatility {
+    my $self = shift;
+    my ($table) = @_;
+
+    carp "Table '$table' has an insert/update trigger, and QuickORM cannot "
+        . "reliably determine which columns the trigger modifies, so a column it "
+        . "changes may hold a stale value in memory after a write. Mark the "
+        . "affected columns 'volatile', or assert the table has no volatile "
+        . "columns (no_volatile) to silence this warning.";
 }
 
 =pod

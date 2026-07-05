@@ -11,7 +11,7 @@ use DBIx::QuickORM::Affinity qw/affinity_from_type/;
 use DBIx::QuickORM::Util qw/column_key/;
 
 use parent 'DBIx::QuickORM::Dialect';
-use Object::HashBase;
+use Object::HashBase qw{ +all_triggers };
 
 use DBIx::QuickORM::Schema;
 use DBIx::QuickORM::Schema::Table;
@@ -403,6 +403,12 @@ sub build_columns_from_db {
 
 Introspects a table's indexes and returns an arrayref of index specs.
 
+=item @triggers = $dialect->triggers_for_table($table)
+
+Returns the C<CREATE TRIGGER> statements defined on a table (permanent and temp
+catalogs), each as a C<< { event => 'INSERT'|'UPDATE'|'DELETE', body => $sql } >>
+hashref, for volatile-column detection.
+
 =back
 
 =cut
@@ -429,6 +435,39 @@ sub build_indexes_from_db {
     return [map { $params{autofill}->hook(index => {index => $out{$_}, table_name => $table}); $out{$_} } sort keys %out];
 }
 
+sub triggers_for_table {
+    my $self = shift;
+    my ($table) = @_;
+
+    my @out;
+    for my $sql (@{$self->_all_triggers->{$table} // []}) {
+        my $event = ($sql =~ m/\b(?:BEFORE|AFTER|INSTEAD\s+OF)\s+(INSERT|UPDATE|DELETE)\b/i) ? uc($1) : '';
+        push @out => {event => $event, body => $sql};
+    }
+
+    return @out;
+}
+
+# All triggers keyed by table name, fetched once per dialect (both catalogs) so
+# volatile-column detection does not add a query per table and stays within the
+# fixed-query-count introspection budget.
+sub _all_triggers {
+    my $self = shift;
+
+    return $self->{+ALL_TRIGGERS} if $self->{+ALL_TRIGGERS};
+
+    my %map;
+    for my $master (@MASTERS) {
+        my $rows = $self->dbh->selectall_arrayref("SELECT tbl_name, sql FROM $master WHERE type = 'trigger'", {Slice => {}});
+        for my $r (@$rows) {
+            next unless defined $r->{tbl_name} && defined $r->{sql};
+            push @{$map{$r->{tbl_name}}} => $r->{sql};
+        }
+    }
+
+    return $self->{+ALL_TRIGGERS} = \%map;
+}
+
 =pod
 
 =head1 PRIVATE METHODS (schema introspection)
@@ -451,6 +490,12 @@ laterally against C<sqlite_master> / C<sqlite_temp_master> so one statement
 iterates all tables. All four sweeps return a hashref keyed by temp-flag
 (0 permanent, 1 temporary) then table name, so a temporary object never merges
 with (or shadows) a permanent one of the same name.
+
+=item $by_table = $dialect->_all_triggers
+
+All triggers keyed by table name, fetched once per dialect from both catalogs
+(cached), so volatile-column detection adds a fixed two queries rather than one
+per table.
 
 =item @cols = $dialect->_pk_from_xinfo($xinfo_rows)
 
