@@ -211,8 +211,13 @@ sub ready {
 
     return undef unless $self->{async}->ready();
 
-    # A ready-but-empty result materializes to an undef row; still report ready
-    # (1) rather than undef (which reads as "not ready yet").
+    # Call ->row for its side effects, not just its value: row() drains the
+    # async result (via $async->next), finalizes the query ($async->set_done),
+    # and materializes (or invalidates) this proxy. Returning a bare 1 here
+    # would report ready without ever draining/finalizing the query, so ->row
+    # must actually run. The `// 1` then covers the ready-but-empty case, where
+    # the result materializes to an undef row but we are still ready (1) -- a
+    # bare undef would read as "not ready yet".
     return $self->row // 1;
 }
 
