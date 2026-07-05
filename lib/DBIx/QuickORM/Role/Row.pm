@@ -101,8 +101,8 @@ sub field_affinity { $_[0]->source->field_affinity($_[1], $_[0]->dialect) }
 
 #<<<
 sub primary_key_field_list { @{$_[0]->source->primary_key // []} }
-sub primary_key_value_list { map { $_[0]->raw_stored_field($_) // undef } $_[0]->check_pk->primary_key_field_list }
-sub primary_key_hash       { map { $_ => $_[0]->raw_stored_field($_) // undef } $_[0]->check_pk->primary_key_field_list }
+sub primary_key_value_list { map { $_[0]->raw_stored_field($_) } $_[0]->check_pk->primary_key_field_list }
+sub primary_key_hash       { map { $_ => $_[0]->raw_stored_field($_) } $_[0]->check_pk->primary_key_field_list }
 sub primary_key_hashref    { +{ $_[0]->primary_key_hash } }
 #>>>
 
@@ -255,8 +255,6 @@ sub save {
 
     croak "This row is not in the database yet" unless $self->is_stored;
 
-    my $pk = $self->source->primary_key or croak "Cannot use 'save()' on a row with a source that has no primary key";
-
     return $self unless $self->has_pending;
 
     $self->connection->update($self->source, $self);
@@ -268,6 +266,8 @@ sub delete {
     my $self = shift;
 
     $self->check_pk;
+
+    croak "This row is not in the database yet" unless $self->is_stored;
 
     $self->connection->delete($self->source, $self);
 }
