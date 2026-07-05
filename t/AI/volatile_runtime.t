@@ -3,11 +3,12 @@ use DBI;
 use File::Temp qw/tempdir/;
 
 # Runtime behavior of volatile columns on writes:
-#  - a non-omitted volatile column is read back eagerly (here a generated
-#    column, which RETURNING captures) so its stored value is the real one;
-#  - a volatile + omitted column is neither trusted nor eagerly fetched: after
-#    the write it is cleared from the row and lazily re-fetched on next access,
-#    picking up a value the database changed (here via an AFTER trigger).
+#  - a non-omitted volatile column the caller did not send (here a generated
+#    column) is not trusted and not eagerly fetched; it lazily fetches the real
+#    stored value on first access;
+#  - a volatile + omitted column is cleared after the write and lazily re-fetched
+#    on next access, picking up a value the database changed (here via an AFTER
+#    trigger).
 
 BEGIN {
     skip_all "DBD::SQLite is required for these tests"
@@ -18,7 +19,7 @@ use DBIx::QuickORM;
 
 my $dir = tempdir(CLEANUP => 1);
 
-subtest generated_volatile_eager_readback => sub {
+subtest generated_volatile_lazy_readback => sub {
     my $dsn = "dbi:SQLite:dbname=$dir/gen.sqlite";
     {
         my $dbh = DBI->connect($dsn, '', '', {RaiseError => 1, PrintError => 0});
@@ -29,9 +30,11 @@ subtest generated_volatile_eager_readback => sub {
     # Autofill introspects: 'label' is a generated column, so it is auto-volatile.
     my $con = DBIx::QuickORM->quick(credentials => {dsn => $dsn});
 
-    # No auto_refresh: without volatile, only the primary key would be read back.
+    # No auto_refresh: a volatile column the caller did not send is not eagerly
+    # fetched (it is not in the stored data yet), but lazily fetches on access.
     my $row = $con->handle('gen')->insert({name => 'x'});
-    is($row->stored_data->{label}, 'L:x', "generated volatile column is eagerly read back into stored data on insert");
+    ok(!exists $row->stored_data->{label}, "generated volatile column is not eagerly read back into stored data");
+    is($row->field('label'), 'L:x', "generated volatile column lazily fetches its real stored value on access");
 };
 
 my $dsn = "dbi:SQLite:dbname=$dir/vol.sqlite";

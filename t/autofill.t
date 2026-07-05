@@ -93,7 +93,7 @@ my %BASE_SCHEMA = (
                 light_id   => {affinity => 'numeric', db_name => 'light_id',   name => 'light_id',   nullable => F(), order => 1, identity => T(), volatile => T()},
                 light_uuid => {affinity => 'string',  db_name => 'light_uuid', name => 'light_uuid', nullable => F(), order => 2, type     => 'DBIx::QuickORM::Type::UUID'},
                 stamp      => {affinity => 'string',  db_name => 'stamp',      name => 'stamp',      nullable => T(), order => 3},
-                color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => F(), order => 4},
+                color      => {affinity => 'string',  db_name => 'color',      name => 'color',      nullable => F(), order => 4, volatile => T()},
             },
             links => [
                 {aliases => [], key => 'light_id', local_columns => ['light_id'], other_columns => ['light_id'], local_table => 'lights', other_table => 'aliases', unique => F(), created => T()},

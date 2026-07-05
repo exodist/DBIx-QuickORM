@@ -2,10 +2,10 @@ use Test2::V0 '!meta', '!pass';
 use DBI;
 use File::Temp qw/tempdir/;
 
-# The dialect auto-detects volatile columns during introspection: generated and
-# identity/auto-increment columns are flagged volatile. Plain columns and
-# columns that merely carry a server-side default are not auto-flagged (defaults
-# are left to an explicit `volatile` marker).
+# The dialect auto-detects volatile columns during introspection: generated,
+# identity/auto-increment, and server-default columns are flagged volatile
+# (only the existence of a default matters, not its value). A plain NOT NULL
+# column with no default is not.
 
 BEGIN {
     skip_all "DBD::SQLite is required for these tests"
@@ -34,7 +34,17 @@ my $table  = $con->schema->table('widgets');
 
 ok($table->column('id')->volatile,         "AUTOINCREMENT identity column is auto-volatile");
 ok($table->column('full_label')->volatile, "generated column is auto-volatile");
-ok(!$table->column('status')->volatile,    "a server-default column is NOT auto-volatile (mark it explicitly)");
+ok($table->column('status')->volatile,     "a server-default column is auto-volatile");
 ok(!$table->column('name')->volatile,      "a plain NOT NULL column with no default is not volatile");
+
+# The MySQL 'NULL'-string quirk: a nullable column with no default must not be
+# mistaken for having one. SQLite reports SQL NULL here, but assert the shape
+# directly against the helper so the intent is explicit and engine-independent.
+require DBIx::QuickORM::Dialect;
+my $dia = $con->dialect;
+ok(!$dia->_has_real_default(undef),  "undef default is not a real default");
+ok(!$dia->_has_real_default('NULL'), "a bare 'NULL' string default is not a real default (MySQL quirk)");
+ok($dia->_has_real_default(q{'x'}),  "a quoted literal default is a real default");
+ok($dia->_has_real_default('5'),     "a numeric default is a real default");
 
 done_testing;

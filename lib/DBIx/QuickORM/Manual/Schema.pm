@@ -302,47 +302,46 @@ Mark a column volatile with the C<volatile> marker:
         volatile;
     };
 
-QuickORM also B<auto-detects> the volatile columns it can recognize reliably
-during introspection: generated columns and identity / sequence-backed columns.
-It does B<not> auto-detect server-side defaults or C<ON UPDATE> columns -- a
-default only applies when you omit the column, the databases report defaults
-inconsistently, and an omitted column already lazy-fetches on access -- so mark
-those yourself when you want the volatile behavior. Trigger effects cannot be
-determined in general (a trigger runs arbitrary code); QuickORM makes a
-best-effort attempt to flag the columns a simple trigger is seen to set, and
-otherwise warns once per table that a trigger was found whose column effects it
-could not resolve.
+QuickORM B<auto-detects> volatile columns during introspection: generated
+columns, identity / sequence-backed columns, columns carrying a server-side
+default, and (on MySQL/MariaDB) C<ON UPDATE> columns. Only the existence of a
+default matters, not its value. Trigger effects cannot be determined in general
+(a trigger runs arbitrary code); QuickORM makes a best-effort attempt to flag
+the columns a simple trigger is seen to set, and otherwise warns once per table
+that a trigger was found whose column effects it could not resolve. Use the
+C<volatile> marker for anything auto-detection cannot see.
 
 =head2 WHAT VOLATILE DOES ON A WRITE
 
+QuickORM does not keep a stale in-memory value for a volatile column: rather than
+the value you sent, it lazily fetches the real stored value from the database the
+next time the column is read. It does B<not> fetch it eagerly on the write (use
+C<auto_refresh> / C<insert_and_refresh> to read the whole row back at once).
+
 =over 4
 
-=item A volatile column that is B<not> omitted
+=item A value you B<explicitly send> on an insert
 
-is re-fetched eagerly as part of the write (added to C<RETURNING>, or via a
-post-write refresh on dialects without C<RETURNING>), so the in-memory value is
-the real stored value rather than the value you sent.
+is kept as-is -- a server default does not override a value you provided, so
+there is nothing to distrust.
 
-=item A column that is B<both> volatile and omitted
+=item A column the database fills or changes
 
-is neither trusted nor eagerly fetched: after the write it is cleared from the
-in-memory row, and the next access lazily fetches the real value on demand.
-Being on the omit list signals a deliberate reason not to pull it eagerly (a
-huge value, an expensive inflation), so QuickORM drops the untrusted written
-value and waits until you actually ask for it.
+-- a generated or defaulted column you did not send, a column both B<volatile and
+omitted>, or any volatile column on an B<update> (where an C<ON UPDATE> or trigger
+may have changed it) -- is not kept from what you sent; it lazily fetches the real
+value the next time you read it.
 
 =back
 
-C<RETURNING> reflects generated/default and C<BEFORE>-trigger values, but not
-C<AFTER>-trigger effects (the row is captured before C<AFTER> triggers run). To
-keep behavior the same on every database, QuickORM detects a table's triggers
-during introspection and, for a table that has any, reads the written row back
-with a follow-up fetch instead of trusting C<RETURNING> -- just as it does on
-databases without C<RETURNING>. So a trigger-changed volatile column reads back
-correctly whether you are on SQLite, PostgreSQL, MySQL, or MariaDB. (This applies
-to introspected schemas; if you declare a schema by hand for a table with
-triggers, mark such a column B<omit + volatile>, which works the same on every
-dialect.)
+This is consistent on every database. A subtlety it papers over: C<RETURNING>
+reflects generated/default and C<BEFORE>-trigger values but not C<AFTER>-trigger
+effects (the row is captured before C<AFTER> triggers run), so an
+C<auto_refresh>/literal read on a table with triggers cannot trust C<RETURNING>.
+QuickORM detects a table's triggers during introspection and, for a table that
+has any, reads the row back with a follow-up fetch instead -- just as it does on
+databases without C<RETURNING> -- so a trigger-changed value reads back correctly
+whether you are on SQLite, PostgreSQL, MySQL, or MariaDB.
 
 =head2 ASSERTING A TABLE IS VOLATILE-FREE
 

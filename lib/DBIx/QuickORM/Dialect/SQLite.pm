@@ -378,7 +378,7 @@ sub build_columns_from_db {
         $col->{order}   = $res->{cid} + 1;
         $col->{identity}  = 1 if defined($identity_col) && $res->{name} eq $identity_col;
         $col->{generated} = 1 if $hidden >= 2;
-        $col->{volatile}  //= 1 if $self->column_is_volatile_by_metadata($col);
+        $col->{volatile}  //= 1 if $self->column_is_volatile_by_metadata($col, default => $res->{dflt_value});
 
         my $type = $res->{type};
         $type =~ s/\(.*$//;

@@ -18,7 +18,9 @@ sub setup_db {
     my $dir = tempdir(CLEANUP => 1);
     my $dsn = "dbi:SQLite:dbname=$dir/trig.sqlite";
     my $dbh = DBI->connect($dsn, '', '', {RaiseError => 1, PrintError => 0});
-    $dbh->do('CREATE TABLE audited (id INTEGER PRIMARY KEY, name TEXT, rev INTEGER NOT NULL DEFAULT 0)');
+    # rev has no default, so its only source of volatility is the trigger below
+    # (a default would auto-mark it volatile regardless of no_volatile).
+    $dbh->do('CREATE TABLE audited (id INTEGER PRIMARY KEY, name TEXT, rev INTEGER)');
     $dbh->do(<<'    SQL');
         CREATE TRIGGER audited_bump AFTER INSERT ON audited
         BEGIN

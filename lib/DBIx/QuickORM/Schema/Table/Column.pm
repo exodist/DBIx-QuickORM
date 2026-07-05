@@ -188,12 +188,16 @@ sub affinity {
 
 =item $col->mark_volatile
 
-Flag this column as volatile. Used by schema introspection when a trigger or
-other database mechanism is found to modify the column on write.
+=item $col->clear_volatile
+
+Set or clear the column's volatile flag. Used by schema introspection (e.g. to
+flag a column a trigger modifies, or to clear an inherited flag from a view
+column, which is never written through).
 
 =cut
 
-sub mark_volatile { $_[0]->{+VOLATILE} = 1 }
+sub mark_volatile  { $_[0]->{+VOLATILE} = 1 }
+sub clear_volatile { delete $_[0]->{+VOLATILE}; return }
 
 =pod
 

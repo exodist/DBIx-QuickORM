@@ -2275,15 +2275,21 @@ trigger), so the value the caller sent cannot be trusted as the in-memory truth.
         volatile;
     };
 
-After a write, a volatile column that is B<not> omitted is re-fetched eagerly
-(via C<RETURNING> or a refresh) so the in-memory value is the real stored value.
-A column that is B<both> volatile and omitted is instead cleared from the
-in-memory row after the write and lazily re-fetched on next access, since being
-on the omit list signals a deliberate reason not to pull it eagerly. QuickORM
-also auto-marks the columns it can detect reliably as volatile during
-introspection (generated and identity/sequence-backed columns); use this marker
-for the cases it does not auto-detect (server-side defaults, on-update columns,
-and most trigger effects).
+After a write, QuickORM does not keep a stale in-memory value for a volatile
+column where the database owns it: instead of the value the caller sent, the
+column lazily fetches its real stored value from the database the next time it is
+read. A value you B<explicitly send> for a (non-omitted) column on an insert is
+kept, since a server default does not override a value you provided; a column the
+caller did not send (a generated or defaulted column), a column both B<volatile
+and omitted>, and any volatile column on an B<update> (where an C<ON UPDATE> or
+trigger may have changed it) are re-read lazily on next access. Use
+C<auto_refresh> (or C<insert_and_refresh>) to read the whole row back
+immediately instead.
+
+QuickORM auto-marks columns it detects as volatile during introspection
+(generated, identity/sequence-backed, server-default, and on-update columns, plus
+columns a trigger is seen to set); use this marker for anything auto-detection
+cannot see.
 
 In a non-void context it returns the string C<volatile> for use in a column
 specification without a builder.

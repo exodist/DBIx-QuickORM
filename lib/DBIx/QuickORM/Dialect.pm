@@ -359,6 +359,18 @@ sub build_schema_from_db {
 
     my $tables = $self->build_tables_from_db(%params);
 
+    # Volatile is a write-time concern, and views are not written through, so a
+    # view column that merely inherits a base column's default/identity during
+    # introspection should not carry the volatile flag. Clear it before the
+    # trigger pass (which does not touch views).
+    for my $table (values %$tables) {
+        next unless $table->can('is_view') && $table->is_view && $table->can('column_names');
+        for my $cname ($table->column_names) {
+            my $col = $table->column($cname) or next;
+            $col->clear_volatile if $col->can('clear_volatile');
+        }
+    }
+
     # Best-effort: flag columns a trigger is seen to modify as volatile, and warn
     # once per table when a table has an insert/update trigger whose effects we
     # cannot resolve (unless the table is asserted volatile-free).
@@ -402,13 +414,13 @@ can be added) and defaults to C<string>. Always returns a defined affinity.
 Accepts more than one candidate name (e.g. a driver's concrete and standard
 names) and tries each in turn.
 
-=item $bool = $dialect->column_is_volatile_by_metadata(\%col)
+=item $bool = $dialect->column_is_volatile_by_metadata(\%col, default => $raw, on_update => $bool)
 
 Returns true when a column should be auto-marked volatile from its declarative
-metadata: it is generated or identity/sequence-backed (the cases where the
-database owns the value and that are detectable consistently across engines).
-Server-side defaults and on-update clauses are left to explicit C<volatile>
-marking; trigger effects are handled separately.
+metadata: it is generated, identity/sequence-backed, carries a server-side
+default, or has an on-update clause. Only the existence of a default matters, not
+its value; a bare C<NULL> default (including MySQL's literal C<'NULL'> string) is
+not treated as a default. Trigger effects are handled separately.
 
 =cut
 
@@ -419,22 +431,37 @@ sub build_indexes_from_db    { my $self = shift; confess "Not Implemented" }
 
 sub column_is_volatile_by_metadata {
     my $self = shift;
-    my ($col) = @_;
+    my ($col, %sig) = @_;
 
-    # Auto-flag the cases where the database owns the value regardless of what
-    # the caller sends and that we can detect consistently across engines: a
-    # generated/computed column and an identity/sequence-backed column.
-    #
-    # Server-side DEFAULTs and ON UPDATE clauses are deliberately NOT
-    # auto-flagged here: whether a default even applies depends on whether the
-    # caller supplied the column, the engines report defaults inconsistently
-    # (e.g. implicit DEFAULT NULL on nullable columns), and an omitted column
-    # already lazy-fetches on access. Mark those columns `volatile` explicitly
-    # when the behavior is wanted. Trigger effects are handled separately (they
-    # are not statically resolvable in general).
+    # A column whose stored value the database sets or changes on write is
+    # volatile: a generated/computed column, an identity/sequence-backed column,
+    # a column carrying a server-side default (the database fills it when the
+    # caller omits it), or one with an on-update clause. We only need to know a
+    # default EXISTS, not what it is. Trigger effects are handled separately
+    # (they are not statically resolvable in general).
     return 1 if $col->{generated};
     return 1 if $col->{identity};
+    return 1 if $self->_has_real_default($sig{default});
+    return 1 if $sig{on_update};
     return 0;
+}
+
+sub _has_real_default {
+    my $self = shift;
+    my ($raw) = @_;
+
+    return 0 unless defined $raw;
+    (my $v = $raw) =~ s/^\s+//;
+    $v =~ s/\s+$//;
+    return 0 if $v eq '';
+
+    # A bare NULL default -- the implicit default of a nullable column, or an
+    # explicit DEFAULT NULL -- is not a meaningful default. Most engines report
+    # it as SQL NULL (undef); MySQL/MariaDB report the literal string 'NULL'. A
+    # real string-literal default of "NULL" is quoted ('NULL'), so it is not
+    # matched here.
+    return 0 if uc($v) eq 'NULL';
+    return 1;
 }
 
 sub affinity_from_db_type {

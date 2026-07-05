@@ -517,7 +517,11 @@ sub build_columns_from_db {
         $col->{generated} = 1
             if defined($res->{GENERATION_EXPRESSION}) && length $res->{GENERATION_EXPRESSION};
 
-        $col->{volatile} //= 1 if $self->column_is_volatile_by_metadata($col);
+        $col->{volatile} //= 1 if $self->column_is_volatile_by_metadata(
+            $col,
+            default   => $res->{COLUMN_DEFAULT},
+            on_update => ($res->{EXTRA} && $res->{EXTRA} =~ m/\bon update\b/i) ? 1 : 0,
+        );
 
         $col->{affinity} //= affinity_from_type($res->{DATA_TYPE});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/CHARACTER/ } keys %$res;

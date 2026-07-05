@@ -918,13 +918,18 @@ implements `triggers_for_table` (SQLite batches all triggers in one cached query
 per catalog to stay within the fixed introspection query budget; the base
 reports none).
 
-At write time (`Handle::_insert` / `Handle::update`), a non-omitted volatile
-column is added to the write's `RETURNING` list (or recovered by a post-write
-refresh on non-`RETURNING` dialects); after the write, any volatile column not
-actually fetched back is dropped from the row's stored data so the next access
-lazily re-reads it — this is the **omit + volatile** clear-and-lazy behavior, and
-it refines the earlier inconsistency where a supplied omitted column was kept
-as-sent. A primary-key column is never dropped.
+At write time (`Handle::_insert` / `Handle::update`), volatile columns are
+**lazy, not eager**: QuickORM does not keep a stale in-memory value for one, but
+it also does not add it to `RETURNING` — it lazily fetches the real value on next
+access (`auto_refresh` reads the whole row at once). A value the caller sends for
+a non-omitted column on insert is kept (a server default does not override it). A
+column both **volatile and omitted** has any sent value dropped after the write
+(the omit+volatile clear-and-lazy). On **update**, where an `ON UPDATE` or trigger
+may change a value, any volatile column not read back by a literal-write readback
+is dropped → lazily re-read. A primary-key column is never dropped. (An earlier
+eager design added non-omitted volatile columns to `RETURNING`; that broke a
+plain insert's "DB-set columns stay lazy" contract and dropped supplied `cas`
+guard values, so volatile is lazy.)
 
 `RETURNING` is computed before AFTER triggers run on every engine that supports
 it (SQLite, PostgreSQL), so it does not reflect a value an AFTER trigger changes.
