@@ -145,6 +145,11 @@ my %AFFINITY_BY_TYPE = (
     timestamptz => 'string',
     year        => 'string',
 
+    'time with time zone'         => 'string',
+    'time without time zone'      => 'string',
+    'timestamp with time zone'    => 'string',
+    'timestamp without time zone' => 'string',
+
     # Boolean
     bool    => 'boolean',
     boolean => 'boolean',
