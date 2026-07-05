@@ -52,3 +52,49 @@ so it is out of scope for the bridge.
 DBIx::Class `Storage/DBI.pm::insert` (per-column classification 2066-2107,
 `last_insert_id` branch 2182-2196, follow-up SELECT 2198-2215) and the
 `retrieve_on_insert` attribute in `ResultSource.pm`.
+
+---
+
+## affinity-from-db-type-info
+
+**Status:** open
+
+`lib/DBIx/QuickORM/Affinity.pm` resolves a column's affinity from a static name
+map (`%AFFINITY_BY_TYPE`, via `affinity_from_type`). Every time a database adds a
+new type-name alias the map needs a code patch (e.g. a092f54 added
+`int2/int4/int8/float4/float8/hugeint` plus DuckDB unsigned variants). We want to
+stop patching for the standard families by falling back to the DB's own type
+catalog — while keeping the map as the fast path.
+
+**Desired behavior:** use the static name map whenever the type name is present
+in it (unchanged, authoritative). ONLY when a type name is missing from the map,
+query the connection for its type info, derive the affinity from the numeric
+ODBC/SQL type code via a small *stable* code→affinity table (SQL_INTEGER /
+BIGINT / SMALLINT / TINYINT / DECIMAL / NUMERIC / FLOAT / REAL / DOUBLE →
+numeric; SQL_CHAR / VARCHAR / LONGVARCHAR / WCHAR / WVARCHAR / CLOB → string;
+SQL_BINARY / VARBINARY / LONGVARBINARY / BLOB → binary; SQL_BOOLEAN / BIT →
+boolean; SQL_TYPE_DATE / TIME / TIMESTAMP / INTERVAL → string), then cache the
+discovered name→affinity so later lookups hit the map. Net: new standard
+numeric/char/binary/date aliases no longer require an Affinity.pm patch.
+
+**Possible approach:** on a name-map miss, resolve the numeric code via
+`$dbh->type_info($name)`, or a per-connection `NAME→DATA_TYPE` map built once
+from `$dbh->type_info_all`, or `column_info`'s `DATA_TYPE`, or a
+`SELECT ... LIMIT 0` + `$sth->{TYPE}`; run it through the stable code→affinity
+table and memoize. Cache per-connection or per-dialect, since one type name can
+mean different things on different engines. Fall through to the existing
+prefix heuristic / undef when the code is unknown.
+
+**Caveats (observed while probing the drivers):** support is uneven — SQLite's
+`$sth->{TYPE}` returns the declared type *string* (not a code) and its catalog
+is only its ~5 storage classes; DuckDB/PostgreSQL/MySQL return codes, but exotic
+vendor types (json, uuid, arrays, enums, struct/list/map) collapse to
+`SQL_VARCHAR` or `0`/unknown. So this covers the standard numeric/char/binary/
+date families patch-free; semantically rich vendor types still want an explicit
+`Type` class, not just an affinity. The code→affinity table itself is small and
+never needs patching.
+
+**References:** `lib/DBIx/QuickORM/Affinity.pm` (`affinity_from_type`,
+`%AFFINITY_BY_TYPE`); commit a092f54 (the type-alias churn this avoids); DBI
+`type_info_all` / `type_info` / `column_info` `DATA_TYPE` / `$sth->{TYPE}` and
+the `:sql_types` constants.
