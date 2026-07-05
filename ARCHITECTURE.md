@@ -889,3 +889,45 @@ at `->update` for changing a loaded row. Identity-only data and matching values
 are dropped silently, since nothing is lost. Internal callers reach the row
 layer through the private constructor and never trip this path; `Row::clone`
 strips the primary key before vivifying, so it always creates rather than hits.
+
+## Addendum: Volatile columns
+
+A column is **volatile** when the database may set or change its stored value
+during a write (generated/identity columns, server defaults, `ON UPDATE`,
+triggers), so the value the caller sent cannot be trusted as the in-memory
+truth. `DBIx::QuickORM::Schema::Table::Column` carries a `volatile` flag, set
+via the `volatile` DSL marker or auto-detected during introspection.
+
+Auto-detection is deliberately narrow: a dialect flags **generated** and
+**identity/sequence-backed** columns (`Dialect::column_is_volatile_by_metadata`),
+which are the database-owns-the-value cases detectable consistently across
+engines. Server-side `DEFAULT`s and `ON UPDATE` clauses are **not** auto-flagged
+— whether a default applies depends on whether the caller supplied the column,
+engines report defaults inconsistently (e.g. MySQL's implicit `DEFAULT NULL`),
+and an omitted default column already lazy-fetches — so they are left to explicit
+marking.
+
+Trigger effects are not statically resolvable in general. During introspection
+`Dialect::_apply_trigger_volatility` does a best-effort parse of each
+insert/update trigger (`NEW.col = …` / `UPDATE … SET col = …`), flags the columns
+it can see, and otherwise warns once per table. A table can be asserted
+volatile-free (the `no_volatile` DSL marker, `quick(no_volatile => …)`, or a
+declared-schema table so marked); that skips the trigger flagging and the
+warning but not the declarative generated/identity detection. Each dialect
+implements `triggers_for_table` (SQLite batches all triggers in one cached query
+per catalog to stay within the fixed introspection query budget; the base
+reports none).
+
+At write time (`Handle::_insert` / `Handle::update`), a non-omitted volatile
+column is added to the write's `RETURNING` list (or recovered by a post-write
+refresh on non-`RETURNING` dialects); after the write, any volatile column not
+actually fetched back is dropped from the row's stored data so the next access
+lazily re-reads it — this is the **omit + volatile** clear-and-lazy behavior, and
+it refines the earlier inconsistency where a supplied omitted column was kept
+as-sent. A primary-key column is never dropped. Note `RETURNING` does not reflect
+`AFTER`-trigger effects, so `AFTER`-trigger volatility is best expressed as
+omit + volatile.
+
+`Table::has_volatile_columns`, `Schema::volatile_free_tables`, and
+`Connection::volatile_free_tables` report which tables are free of volatile
+columns.

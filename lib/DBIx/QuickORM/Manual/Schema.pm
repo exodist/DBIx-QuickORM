@@ -287,6 +287,91 @@ connection separately and attaching it later, renaming the exported C<qorm()>
 accessor, supporting nearly-identical MySQL and PostgreSQL databases from one
 codebase, and other focused tasks, see L<DBIx::QuickORM::Manual::Recipes>.
 
+=head1 VOLATILE COLUMNS
+
+A B<volatile> column is one whose stored value the database may set or change
+during a write, so the value you sent cannot be trusted as the in-memory truth.
+Typical sources are generated/computed columns, identity / auto-increment /
+sequence-backed columns, server-side C<DEFAULT>s, C<ON UPDATE> clauses, and
+triggers.
+
+Mark a column volatile with the C<volatile> marker:
+
+    column updated_at => sub {
+        affinity 'string';
+        volatile;
+    };
+
+QuickORM also B<auto-detects> the volatile columns it can recognize reliably
+during introspection: generated columns and identity / sequence-backed columns.
+It does B<not> auto-detect server-side defaults or C<ON UPDATE> columns -- a
+default only applies when you omit the column, the databases report defaults
+inconsistently, and an omitted column already lazy-fetches on access -- so mark
+those yourself when you want the volatile behavior. Trigger effects cannot be
+determined in general (a trigger runs arbitrary code); QuickORM makes a
+best-effort attempt to flag the columns a simple trigger is seen to set, and
+otherwise warns once per table that a trigger was found whose column effects it
+could not resolve.
+
+=head2 WHAT VOLATILE DOES ON A WRITE
+
+=over 4
+
+=item A volatile column that is B<not> omitted
+
+is re-fetched eagerly as part of the write (added to C<RETURNING>, or via a
+post-write refresh on dialects without C<RETURNING>), so the in-memory value is
+the real stored value rather than the value you sent.
+
+=item A column that is B<both> volatile and omitted
+
+is neither trusted nor eagerly fetched: after the write it is cleared from the
+in-memory row, and the next access lazily fetches the real value on demand.
+Being on the omit list signals a deliberate reason not to pull it eagerly (a
+huge value, an expensive inflation), so QuickORM drops the untrusted written
+value and waits until you actually ask for it.
+
+=back
+
+Note that C<RETURNING> reflects generated/default and C<BEFORE>-trigger values,
+but not C<AFTER>-trigger effects (the row is captured before C<AFTER> triggers
+run). A column an C<AFTER> trigger changes is therefore best marked
+B<omit + volatile>: it is dropped after the write and the lazy re-C<SELECT> sees
+the trigger's value.
+
+=head2 ASSERTING A TABLE IS VOLATILE-FREE
+
+If you know a table has no volatile columns -- in particular that its triggers
+do not make any column volatile -- you can say so, which also silences the
+per-table trigger warning. In the DSL:
+
+    table events => sub {
+        no_volatile;
+        ...
+    };
+
+Or from the C<quick> interface, for one or more tables (or C<< => 1 >> for every
+table):
+
+    my $con = DBIx::QuickORM->quick(
+        credentials => { dsn => $dsn },
+        no_volatile => [ 'events', 'audit_log' ],
+    );
+
+A volatile-free assertion skips both the best-effort trigger flagging and the
+warning for that table; it does not clear the generated/identity auto-detection,
+which is based on declared facts rather than trigger guesses.
+
+To see which tables are safe (every column non-volatile) at a glance:
+
+    my @safe = $con->volatile_free_tables;   # sorted table names
+
+C<< $schema->volatile_free_tables >> and C<< $table->has_volatile_columns >> are
+also available.
+
+Note the term overlaps PostgreSQL I<function> volatility
+(C<VOLATILE>/C<STABLE>/C<IMMUTABLE>); that is about functions, not columns.
+
 =head1 SEE ALSO
 
 =over 4
