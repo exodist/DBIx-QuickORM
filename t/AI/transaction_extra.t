@@ -45,7 +45,10 @@ subtest commit_persists => sub {
         my $t = shift;
         ok($con->in_txn,      "in_txn true inside the action");
         ok($con->current_txn, "current_txn set inside the action");
-        is($con->current_txn, $t, "current_txn is the active txn object");
+        # Identity assertion (not a deep compare): a transaction now holds a
+        # (weak) back-reference to its connection, so a structural compare would
+        # recurse through the connection's transaction stack.
+        ref_is($con->current_txn, $t, "current_txn is the active txn object");
         ok(!$t->is_savepoint, "top-level txn is not a savepoint");
         is($t->state, 'active', "state is active inside the action");
         $con->handle('items')->insert({name => 'committed'});
@@ -89,7 +92,7 @@ subtest savepoint_nesting => sub {
         $con->txn(sub {
             my $inner = shift;
             ok($inner->is_savepoint, "nested txn is a savepoint");
-            isnt($inner, $outer, "inner txn is a distinct object");
+            ref_is_not($inner, $outer, "inner txn is a distinct object");
             $con->handle('items')->insert({name => 'inner_drop'});
             $inner->rollback;
         });

@@ -609,16 +609,19 @@ sub txn {
 
     my $txn = DBIx::QuickORM::Connection::Transaction->new(
         id            => $self->{+_TXN_COUNTER}++,
-        # A closure rather than a direct connection reference: a data back-ref
-        # would form a cycle that deep comparisons (Test2's is()) choke on, and
-        # would show up in every dump of a transaction.
-        current_txn_lookup => sub { $self->current_txn },
-        savepoint          => $sp,
+        connection    => $self,
+        savepoint     => $sp,
         trace         => \@caller,
         on_fail       => $params{on_fail},
         on_success    => $params{on_success},
         on_completion => $params{on_completion},
     );
+
+    # Hold the connection weakly. The connection already holds its transactions
+    # weakly (below), so this back-reference does not create a strong cycle; it
+    # is weakened so a transaction does not pin its connection alive and does not
+    # drag the whole connection into a dump or deep comparison of the txn.
+    weaken($txn->{DBIx::QuickORM::Connection::Transaction::CONNECTION()});
 
     $self->_txn_attach_relative_callbacks($txn, \%params);
 

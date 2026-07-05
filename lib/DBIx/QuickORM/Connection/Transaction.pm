@@ -8,7 +8,7 @@ use Carp qw/croak confess/;
 
 use Object::HashBase qw{
     <id
-    +current_txn_lookup
+    +connection
     +savepoint
 
     +on_success
@@ -207,8 +207,18 @@ sub _assert_innermost {
     # transaction callback, which is not necessarily this transaction's. When a
     # nested (callback-managed) transaction is open, committing or rolling back
     # an outer transaction object would resolve the wrong (inner) one, so refuse.
-    my $lookup = $self->{+CURRENT_TXN_LOOKUP} or return;
-    my $current = $lookup->() or return;
+    #
+    # The connection is held weakly (the connection already holds its
+    # transactions weakly, so this just avoids following the back-ref in a dump
+    # or deep comparison). By the time commit()/rollback() reach this point we
+    # are running inside the transaction's own action, so the connection is
+    # alive and it always has a current transaction (at least this one) --
+    # neither being missing is a normal case, so croak rather than skip the
+    # check silently.
+    my $con = $self->{+CONNECTION}
+        or croak "Cannot $op a transaction whose connection is gone";
+    my $current = $con->current_txn
+        or croak "Cannot $op: the connection reports no current transaction";
     return if $current == $self;
 
     croak "Cannot $op an outer transaction from within a nested transaction; resolve the innermost transaction first";
