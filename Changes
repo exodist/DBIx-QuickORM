@@ -5,6 +5,7 @@
     - Column affinity is now derived from the database's own type catalog when a type name is not in the built-in name map: the numeric SQL type code is mapped to an affinity, so standard numeric/char/binary/date types no longer need a code patch. A type unknown even to the catalog warns once (asking for a ticket) and defaults to string affinity.
 
     Bug Fixes:
+    - A trigger-driven column value is now read back consistently across databases: because a RETURNING clause is computed before AFTER triggers run, a table with triggers is detected during introspection (has_triggers) and its writes read the row back with a follow-up fetch instead of trusting RETURNING, matching how databases without RETURNING already behave. Trigger detection is implemented for SQLite, PostgreSQL, and MySQL/MariaDB.
     - Defining two tables (or two schemas, dbs, or servers) with the same name in one registry now croaks instead of silently letting the last definition win (re-opening an alt/variant frame is unaffected).
     - Importing DBIx::QuickORM with 'only' or 'skip' no longer strips the generated import()/builder() helpers, so a downstream `use My::ORM` keeps working.
     - An unknown import 'type' now croaks at use-time instead of being silently accepted.

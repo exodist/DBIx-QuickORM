@@ -924,9 +924,20 @@ refresh on non-`RETURNING` dialects); after the write, any volatile column not
 actually fetched back is dropped from the row's stored data so the next access
 lazily re-reads it — this is the **omit + volatile** clear-and-lazy behavior, and
 it refines the earlier inconsistency where a supplied omitted column was kept
-as-sent. A primary-key column is never dropped. Note `RETURNING` does not reflect
-`AFTER`-trigger effects, so `AFTER`-trigger volatility is best expressed as
-omit + volatile.
+as-sent. A primary-key column is never dropped.
+
+`RETURNING` is computed before AFTER triggers run on every engine that supports
+it (SQLite, PostgreSQL), so it does not reflect a value an AFTER trigger changes.
+To keep results consistent across flavors, a table's triggers are detected
+during introspection and recorded as `Table::has_triggers`, and
+`Dialect::returning_reflects_write($source)` returns false for such a table
+(unless it is asserted volatile-free). The write then keeps `RETURNING` only for
+the primary key and reads everything else back with a follow-up fetch — a lazy
+fetch of the dropped volatile columns, and a full `refresh` under `auto_refresh`
+— exactly as on engines without `RETURNING` (MySQL/MariaDB). DuckDB has no
+triggers, so it always keeps the fast `RETURNING` path. `triggers_for_table` is
+implemented per dialect (SQLite `sqlite_master`, PostgreSQL `pg_catalog`, MySQL
+`information_schema.triggers`), each a single cached query.
 
 `Table::has_volatile_columns`, `Schema::volatile_free_tables`, and
 `Connection::volatile_free_tables` report which tables are free of volatile

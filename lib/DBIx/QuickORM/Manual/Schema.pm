@@ -333,11 +333,16 @@ value and waits until you actually ask for it.
 
 =back
 
-Note that C<RETURNING> reflects generated/default and C<BEFORE>-trigger values,
-but not C<AFTER>-trigger effects (the row is captured before C<AFTER> triggers
-run). A column an C<AFTER> trigger changes is therefore best marked
-B<omit + volatile>: it is dropped after the write and the lazy re-C<SELECT> sees
-the trigger's value.
+C<RETURNING> reflects generated/default and C<BEFORE>-trigger values, but not
+C<AFTER>-trigger effects (the row is captured before C<AFTER> triggers run). To
+keep behavior the same on every database, QuickORM detects a table's triggers
+during introspection and, for a table that has any, reads the written row back
+with a follow-up fetch instead of trusting C<RETURNING> -- just as it does on
+databases without C<RETURNING>. So a trigger-changed volatile column reads back
+correctly whether you are on SQLite, PostgreSQL, MySQL, or MariaDB. (This applies
+to introspected schemas; if you declare a schema by hand for a table with
+triggers, mark such a column B<omit + volatile>, which works the same on every
+dialect.)
 
 =head2 ASSERTING A TABLE IS VOLATILE-FREE
 

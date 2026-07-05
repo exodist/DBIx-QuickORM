@@ -97,6 +97,15 @@ whatever is valid as C<bind_param>'s third argument — a DBI type constant
 
 True if the dialect supports a C<RETURNING> clause on the relevant statement.
 
+=item $bool = $dialect->returning_reflects_write($source)
+
+True if a write's C<RETURNING> clause can be trusted to reflect the final stored
+row for C<$source>. On every engine C<RETURNING> is computed before AFTER
+triggers run, so this returns false for a source with triggers (unless it is
+asserted volatile-free): such a write reads its row back with a follow-up fetch
+instead, so the in-memory result is consistent with engines that lack
+C<RETURNING>.
+
 =item $stype = $dialect->supports_type($type)
 
 Returns the database-native type name if the dialect supports the given
@@ -120,6 +129,25 @@ sub quote_binary_data         { my $self = shift; DBI::SQL_BINARY() }
 sub supports_returning_update { 0 }
 sub supports_returning_insert { 0 }
 sub supports_returning_delete { 0 }
+
+sub returning_reflects_write {
+    my $self = shift;
+    my ($source) = @_;
+
+    # Whether a write's RETURNING clause can be trusted to reflect the final
+    # stored row for this source. On every engine that supports RETURNING, the
+    # clause is computed before AFTER triggers run, so a column an AFTER trigger
+    # changes is not reflected. When the source has triggers we therefore do not
+    # use RETURNING to populate the in-memory row -- the write reads it back with
+    # a follow-up fetch instead, exactly as on engines without RETURNING, so the
+    # result is consistent across flavors. A table asserted volatile-free
+    # (no_volatile) declares its triggers change nothing, so RETURNING stays
+    # trustworthy for it.
+    return 1 unless $source;
+    return 1 if $source->can('no_volatile')  && $source->no_volatile;
+    return 0 if $source->can('has_triggers') && $source->has_triggers;
+    return 1;
+}
 
 sub supports_type { my $self = shift; return undef }
 
@@ -600,14 +628,20 @@ sub _apply_trigger_volatility {
         my $table = $tables->{$tname};
         next unless $table->can('column_names') && $table->can('column');
 
+        my @triggers = grep { ($_->{event} // '') =~ m/\b(?:INSERT|UPDATE)\b/i } $self->triggers_for_table($tname);
+        next unless @triggers;
+
+        # Factual: the table has insert/update triggers. Flag it regardless of a
+        # volatile-free assertion, so writes can decide whether RETURNING is
+        # trustworthy for it (RETURNING does not reflect AFTER-trigger effects).
+        $table->mark_has_triggers if $table->can('mark_has_triggers');
+
         # A volatile-free assertion means "trust me, the triggers here do not
         # make any column volatile": skip both the best-effort trigger flagging
-        # and the warning. (Declarative auto-detection of generated/identity
-        # columns already happened during column introspection and stands.)
+        # and the warning (but not the has_triggers flag above). (Declarative
+        # auto-detection of generated/identity columns already happened during
+        # column introspection and stands.)
         next if $all || $no_vol->{$tname} || ($table->can('no_volatile') && $table->no_volatile);
-
-        my @triggers = grep { ($_->{event} // '') =~ m/^(?:INSERT|UPDATE)$/i } $self->triggers_for_table($tname);
-        next unless @triggers;
 
         my %cols = map { $_ => $table->column($_) } $table->column_names;
         my %affected;
@@ -634,15 +668,16 @@ sub _columns_set_by_trigger {
 
     my %found;
 
-    # BEFORE/AFTER triggers that assign to the new row: NEW.col = ...
-    while ($clean =~ m/\bNEW\s*\.\s*"?(\w+)"?\s*=(?!=)/gi) {
+    # BEFORE/AFTER triggers that assign to the new row: NEW.col = ... (or the
+    # PL/pgSQL := assignment).
+    while ($clean =~ m/\bNEW\s*\.\s*"?(\w+)"?\s*:?=(?!=)/gi) {
         $found{$1} = 1 if $cols->{$1};
     }
 
-    # UPDATE ... SET col = ..., col2 = ... [WHERE ...]
+    # UPDATE ... SET col = ..., col2 := ... [WHERE ...]
     while ($clean =~ m/\bSET\b(.*?)(?:\bWHERE\b|;|\z)/gis) {
         my $set = $1;
-        while ($set =~ m/"?(\w+)"?\s*=(?!=)/g) {
+        while ($set =~ m/"?(\w+)"?\s*:?=(?!=)/g) {
             $found{$1} = 1 if $cols->{$1};
         }
     }

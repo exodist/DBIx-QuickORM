@@ -2237,14 +2237,23 @@ sub _insert {
     my @volatile_names    = $self->_volatile_field_names;
     my @volatile_readback = $self->_volatile_readback_field_names;
 
+    # RETURNING is computed before AFTER triggers run, so for a table with
+    # triggers it does not reflect a column a trigger changed. When that is the
+    # case we still use RETURNING for the primary key (identity/compound keys),
+    # but read every other value back with a follow-up fetch -- the volatile
+    # drop below turns those into lazy fetches, and an auto_refresh does a full
+    # refresh -- so the in-memory result matches dialects without RETURNING.
+    my $ret_trusted = $dialect->returning_reflects_write($source);
+
     if ($has_ret && $has_pk) {
         my %seen;
         # @fields might omit some fields specified in $data, so we want to include any that were in data
         $builder_args->{returning} = [
             grep { !$seen{$_}++ }
                 @$has_pk,
-                ($self->{+AUTO_REFRESH} ? (@$fields, keys %$data) : ()),
-                @volatile_readback,
+                ($ret_trusted
+                    ? (($self->{+AUTO_REFRESH} ? (@$fields, keys %$data) : ()), @volatile_readback)
+                    : ()),
         ];
     }
 
@@ -2303,11 +2312,18 @@ sub _insert {
         );
     }
 
-    return $self->{+CONNECTION}->state_insert_row(
+    my $row = $self->{+CONNECTION}->state_insert_row(
         source  => $source,
         fetched => $sth->next,
         row     => $self->{+ROW},
     );
+
+    # RETURNING carried only the primary key for a table whose triggers make it
+    # untrustworthy, so an auto_refresh row is not yet fully populated: read it
+    # back with a follow-up SELECT, exactly as on a dialect without RETURNING.
+    $row->refresh if blessed($row) && $self->{+AUTO_REFRESH} && $has_ret && !$ret_trusted;
+
+    return $row;
 }
 
 =pod
@@ -2582,7 +2598,10 @@ sub update {
     my %seen_readback;
     my @readback_fields = grep { !$seen_readback{$_}++ } @literal_fields, @volatile_readback;
 
-    my $db_returning = @readback_fields && $row && $sync && $pk_fields && @$pk_fields && $dialect->supports_returning_update;
+    # A table whose triggers may change a written column cannot trust RETURNING
+    # (it is computed before AFTER triggers), so fall back to the refresh path
+    # below, consistent with dialects that have no RETURNING.
+    my $db_returning = @readback_fields && $row && $sync && $pk_fields && @$pk_fields && $dialect->supports_returning_update && $dialect->returning_reflects_write($source);
     if ($db_returning) {
         my %seen;
         $builder_args->{returning} = [ grep { !$seen{$_}++ } @$pk_fields, @readback_fields ];
