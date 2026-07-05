@@ -278,6 +278,37 @@ sub init {
         }
     }
 
+    if (my $unique = $self->{+UNIQUE}) {
+        croak "The 'unique' attribute must be a hashref${debug}" unless ref($unique) eq 'HASH';
+        for my $ckey (sort keys %$unique) {
+            my $cols = $unique->{$ckey};
+            next unless ref($cols) eq 'ARRAY';
+            $self->_assert_index_columns($cols, "Unique constraint '$ckey'", $debug);
+        }
+    }
+
+    if (my $indexes = $self->{+INDEXES}) {
+        croak "The 'indexes' attribute must be an arrayref${debug}" unless ref($indexes) eq 'ARRAY';
+        for my $idx (@$indexes) {
+            my $ref = ref($idx);
+            my ($iname, $cols);
+            if    ($ref eq 'HASH')  { ($iname, $cols) = ($idx->{name}, $idx->{columns}) }
+            elsif ($ref eq 'ARRAY') { $cols = $idx }
+            else                    { next }
+
+            next unless ref($cols) eq 'ARRAY';
+            $self->_assert_index_columns($cols, "Index '" . ($iname // 'unnamed') . "'", $debug);
+        }
+    }
+
+    if (my $links = $self->{+LINKS}) {
+        croak "The 'links' attribute must be an arrayref${debug}" unless ref($links) eq 'ARRAY';
+        for my $link (@$links) {
+            next if blessed($link) && $link->isa('DBIx::QuickORM::Link');
+            croak "Links must be 'DBIx::QuickORM::Link' instances, got '" . (defined($link) ? $link : 'undef') . "'${debug}";
+        }
+    }
+
     $self->{+UNIQUE}  //= {};
     $self->{+LINKS}   //= [];
     $self->{+INDEXES} //= [];
@@ -470,6 +501,14 @@ hashrefs with a C<columns> arrayref; other shapes pass through.
 True when any database name in the map differs from its ORM name, i.e. real
 aliasing is present.
 
+=item $table->_assert_index_columns(\@columns, $label, $debug)
+
+Assert that every plain column name in a unique-constraint or index column list
+resolves to a known column (by either ORM or database name), croaking with
+C<$label> otherwise. Undefined entries and references are skipped: some dialects
+surface functional / expression index key-parts that way during introspection,
+and those have no ORM column to check against.
+
 =back
 
 =cut
@@ -564,6 +603,19 @@ sub _has_alias {
         return 1 if $db ne $db_to_orm->{$db};
     }
     return 0;
+}
+
+sub _assert_index_columns {
+    my $self = shift;
+    my ($cols, $label, $debug) = @_;
+
+    for my $cname (@$cols) {
+        next unless defined($cname) && !ref($cname);
+        next if $self->_column($cname);
+        croak "$label references column '$cname', which is not present in the column list${debug}";
+    }
+
+    return;
 }
 
 sub _db_to_orm { $_[0]->{+DB_TO_ORM} //= { map { $_->db_name => $_->name } values %{$_[0]->{+COLUMNS}} } }

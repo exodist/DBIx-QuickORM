@@ -47,7 +47,7 @@ BEGIN {
 
 {
     package Test::ORM;
-    use Test2::V0 qw/!pass !meta/, meta => {'-as' => 't2_meta'};
+    use Test2::V0 qw/!pass !meta/;
     use Scalar::Util qw/blessed/;
 
     use ok 'DBIx::QuickORM';
@@ -1061,7 +1061,6 @@ BEGIN {
                 omit     => 1,
                 nullable => 1,
                 identity => 1,
-                nullable => 1,
                 affinity => 'numeric',
                 type     => 'DBIx::QuickORM::Type::MyType',
             },
@@ -1307,7 +1306,7 @@ BEGIN {
         "Too many args",
     );
 
-    ok(type('DBIx::QuickORM::Type::MyType'), 'DBIx::QuickORM::Type::MyType', "Returns class in scalar context");
+    is(type('DBIx::QuickORM::Type::MyType'), 'DBIx::QuickORM::Type::MyType', "Returns class in scalar context");
 
     schema typetest => sub {
         table typetest => sub {

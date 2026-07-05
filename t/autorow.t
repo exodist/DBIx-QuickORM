@@ -1,7 +1,7 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 
-use lib 't/lib', 't/autorow/';
+use lib 't/lib';
 use DBIx::QuickORM::Test;
 
 do_for_all_dbs {

@@ -76,6 +76,8 @@ my @EXPORT = qw{
      link
 };
 
+my %INSTALLED_NAMES;
+
 sub import {
     my $class = shift;
     my %params = @_;
@@ -84,6 +86,8 @@ sub import {
     my $rename = $params{rename} // {};
     my $skip   = $params{skip}   // {};
     my $only   = $params{only};
+
+    croak "Unknown import type '$type'" unless $type eq 'orm' || $type eq 'table';
 
     $only = {map {($_ => 1)} @$only} if $only;
 
@@ -114,11 +118,19 @@ sub import {
     my %seen;
     for my $sym (keys %export) {
         my $name = $rename->{$sym} // $sym;
-        next if $skip->{$name} || $skip->{$sym};
-        next if $only && !($only->{$name} || $only->{$sym});
+
+        # 'import' and 'builder' are the machinery that makes a downstream
+        # `use My::ORM` work; an only/skip meant to filter the DSL functions
+        # must not silently disable them.
+        unless ($sym eq 'import' || $sym eq 'builder') {
+            next if $skip->{$name} || $skip->{$sym};
+            next if $only && !($only->{$name} || $only->{$sym});
+        }
+
         next if $seen{$name}++;
         no strict 'refs';
         *{"${caller}\::${name}"} = $export{$sym};
+        $INSTALLED_NAMES{$caller}{$name} = 1;
     }
 }
 
@@ -127,7 +139,6 @@ sub _caller {
 
     my $i = 0;
     while (my @caller = caller($i++)) {
-        return unless @caller;
         next if eval { $caller[0]->isa(__PACKAGE__) };
         return \@caller;
     }
@@ -148,7 +159,11 @@ sub unimport_from {
 
     my $stash = do { no strict 'refs'; \%{"$caller\::"} };
 
-    for my $item (@EXPORT, 'builder') {
+    # Remove exactly the names that were installed for this caller, which may
+    # differ from the default export names when a 'rename' was used at import.
+    my @items = $INSTALLED_NAMES{$caller} ? keys %{$INSTALLED_NAMES{$caller}} : (@EXPORT, 'builder');
+
+    for my $item (@items) {
         next unless exists $stash->{$item} && defined(*{$stash->{$item}}{CODE});
 
         my $glob = delete $stash->{$item};
@@ -229,7 +244,6 @@ sub quick {
     my %autofill_args = (types => \%type_map, affinities => \%affinities, hooks => {}, skip => {});
     if ($autorow) {
         my $base = "$autorow" eq '1' ? $class->_generate_autorow_base : $autorow;
-        $autofill_args{autorow} = $base;
         $autofill_args{hooks}{post_table} = [$class->_autorow_hook($base, undef, (caller)[1])];
     }
     my $autofill = DBIx::QuickORM::Schema::Autofill->new(%autofill_args);
@@ -437,7 +451,8 @@ sub plugins {
 
     my @out;
 
-    while (my $proto = shift @_) {
+    while (@_) {
+        my $proto = shift @_;
         if (@_ && ref($_[0]) eq 'HASH') {
             my $params = shift @_;
             push @out => $self->plugin($proto, $params);
@@ -482,7 +497,6 @@ sub build_class {
 sub server {
     my $self = shift;
 
-    my $top   = $self->top;
     my $into  = $self->{+SERVERS};
     my $frame = {building => 'SERVER'};
 
@@ -500,7 +514,11 @@ sub db {
         $bld_orm = 1;
     }
 
-    if (@_ == 1 && $_[0] =~ m/^(\S+)\.([^:\s]+)(?::(\S+))?$/) {
+    # Only treat a dotted argument as a server-qualified lookup when the leading
+    # segment is actually a defined server; otherwise fall through to the plain
+    # single-name registry path so a db whose own name contains a dot is still
+    # fetchable.
+    if (@_ == 1 && $_[0] =~ m/^(\S+)\.([^:\s]+)(?::(\S+))?$/ && $self->{+SERVERS}->{$1}) {
         my ($server_name, $db_name, $variant_name) = ($1, $2, $3);
 
         my $server = $self->{+SERVERS}->{$server_name} or croak "'$server_name' is not a defined server";
@@ -518,8 +536,15 @@ sub db {
     my $into = $self->{+DBS};
     my $frame = {building => 'DB', class => 'DBIx::QuickORM::DB'};
 
-    return $top->{meta}->{db} = $self->_build('DB', into => $into, frame => $frame, args => \@_, no_compile => 1)
-        if $bld_orm;
+    if ($bld_orm) {
+        # `db 'name'` fetches a previously-defined db from the shared registry
+        # (needs `into` to resolve the name). An inline `db name => sub {...}`
+        # DEFINES one; it is captured by reference in the ORM's meta, so it must
+        # NOT register into the shared registry -- otherwise a second ORM with a
+        # same-named inline db croaks on the redefinition guard.
+        my $inline_define = grep { ref($_) } @_;
+        return $top->{meta}->{db} = $self->_build('DB', ($inline_define ? () : (into => $into)), frame => $frame, args => \@_, no_compile => 1);
+    }
 
     my $force_build = 0;
     if ($top->{building} eq 'SERVER') {
@@ -634,6 +659,7 @@ sub autoname {
             my %params = @_;
             my $table = $params{table} // return;
             $table->{name} = $callback->(table => $table, name => $table->{name}) || $table->{name};
+            return $table;
         });
     }
     elsif ($type eq 'link') {
@@ -641,7 +667,7 @@ sub autoname {
             my %params = @_;
 
             my $links = $params{links} // return;
-            return unless @$links;
+            return $links unless @$links;
             for my $link_pair (@$links) {
                 my ($a, $b) = @$link_pair;
 
@@ -658,6 +684,7 @@ sub autoname {
                     push @$b => $name if $name;
                 }
             }
+            return $links;
         });
     }
     else {
@@ -698,7 +725,8 @@ sub autoskip {
 
     my $last = pop @args;
     my $into = $top->{meta}->{skip}->{$type} //= {};
-    while (my $level = shift @args) {
+    while (@args) {
+        my $level = shift @args;
         $into = $into->{$level} //= {};
     }
     $into->{$last} = 1;
@@ -772,7 +800,7 @@ sub creds {
     croak "Neither 'host' or 'socket' keys were provided by the credential subroutine" unless $creds{host} || $creds{socket};
 
     my @keys = keys %creds;
-    @{$top->{meta} // {}}{@keys} = @creds{@keys};
+    @{$top->{meta}}{@keys} = @creds{@keys};
 
     return;
 }
@@ -797,7 +825,12 @@ sub schema {
     my $top = $self->top;
     if ($top->{building} eq 'ORM') {
         croak "Schema has already been defined" if $top->{meta}->{schema};
-        return $top->{meta}->{schema} = $self->_build('Schema', into => $into, frame => $frame, args => \@_, no_compile => 1);
+        # `schema 'name'` fetches from the shared registry (needs `into`); an
+        # inline `schema name => sub {...}` DEFINES one, captured by reference in
+        # the ORM's meta, so it must not register into the shared registry (else
+        # a second ORM with a same-named inline schema croaks on the guard).
+        my $inline_define = grep { ref($_) } @_;
+        return $top->{meta}->{schema} = $self->_build('Schema', ($inline_define ? () : (into => $into)), frame => $frame, args => \@_, no_compile => 1);
     }
 
     return $self->_build('Schema', into => $into, frame => $frame, args => \@_);
@@ -904,7 +937,8 @@ sub _table {
         my @args = @_;
         my ($class, $name, $cb, $no_match);
 
-        while (my $arg = shift @args) {
+        while (@args) {
+            my $arg = shift @args;
             if    ($arg =~ m/::/) { $class = $arg }
             elsif (my $ref = ref($arg)) {
                 if   ($ref eq 'CODE') { $cb       = $arg }
@@ -939,7 +973,8 @@ sub index {
     my $self = shift;
     my ($name, $cols, $params);
 
-    while (my $arg = shift @_) {
+    while (@_) {
+        my $arg = shift @_;
         my $ref = ref($arg);
         if    (!$ref)           { $name = $arg }
         elsif ($ref eq 'HASH')  { $params = {%{$params // {}}, %{$arg}} }
@@ -979,7 +1014,8 @@ sub column {
             my $extra = $params{extra};
             my $meta  = $params{meta};
 
-            while (my $arg = shift @$extra) {
+            while (@$extra) {
+                my $arg = shift @$extra;
                 local $@;
                 if (blessed($arg)) {
                     if ($arg->DOES('DBIx::QuickORM::Role::Type')) {
@@ -1268,7 +1304,8 @@ sub link {
     }
 
     my @nodes;
-    while (my $first = shift @args) {
+    while (@args) {
+        my $first = shift @args;
         my $fref = ref($first);
         if (!$fref) {
             my $second = shift(@args);
@@ -1325,7 +1362,6 @@ sub orm {
 
 my %RECURSE = (
     DB       => {},
-    LINK     => {},
     COLUMN   => {},
     AUTOFILL => {},
     ORM      => {schema  => 1, db => 1, autofill => 1},
@@ -1507,7 +1543,15 @@ sub _build {
     if ($into) {
         my $ref = ref($into);
         if ($ref eq 'HASH') {
-            $into->{$name} = $frame if $name;
+            if ($name) {
+                # A re-opened alt frame is the same reference we were handed, so
+                # only a genuinely new definition landing on an existing name is
+                # a conflict.
+                croak "$type '$name' has already been defined"
+                    if $into->{$name} && $into->{$name} != $frame;
+
+                $into->{$name} = $frame;
+            }
         }
         elsif ($ref eq 'SCALAR') {
             ${$into} = $frame;

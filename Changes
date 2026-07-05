@@ -1,6 +1,16 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Defining two tables (or two schemas, dbs, or servers) with the same name in one registry now croaks instead of silently letting the last definition win (re-opening an alt/variant frame is unaffected).
+    - Importing DBIx::QuickORM with 'only' or 'skip' no longer strips the generated import()/builder() helpers, so a downstream `use My::ORM` keeps working.
+    - An unknown import 'type' now croaks at use-time instead of being silently accepted.
+    - `no DBIx::QuickORM` now removes DSL functions that were installed under a renamed name (via the 'rename' import option).
+    - A database whose registered name contains a dot is now fetchable by that name; the server.db form is only taken when the leading segment names a defined server.
+    - DSL argument parsing (index, column, link, plugins, autoskip, and the table class-path) no longer truncates its remaining arguments when an argument stringifies false, such as the literal '0'.
+    - The autoname 'table' and 'link' hooks no longer corrupt other hooks registered for the same stage; the mutated table hashref / links arrayref is threaded through instead of a name string or undef.
+    - Merging an introspected schema with a declaration that renames a physical table via db_name now collapses them into a single source under the declared ORM name, instead of leaving both the declared name and the database name behind.
+    - A generated relationship accessor that collides with a column accessor is now caught even when the relationship is only introduced by the merged (declared) schema, rather than being silently dropped.
+    - Table definitions now croak when a unique constraint or index references a column that does not exist, or when a link entry is not a Link object; undefined/expression index key-parts surfaced by introspection are ignored.
     - Writes (insert/update/delete/cas) through a handle-as-subquery (derived-table) source now croak with a clear message instead of dying deep in statement construction or on a missing method.
     - omit() on a handle-as-subquery source now croaks (its columns are not enumerable) instead of silently returning the column it was told to omit.
     - handle() now croaks on an unknown -flag (e.g. a misspelled -allow_overide) instead of silently storing and ignoring it, which previously left the intended protection disabled with no diagnostic.
