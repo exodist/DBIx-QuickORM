@@ -1,36 +1,112 @@
-use Test2::V0;
+use Test2::V0 '!meta', '!pass';
 
-# Regression: Schema::Table->new with a scalar primary_key used to die with a
-# raw "@$pk" dereference; it now croaks with a clear message.
+# Schema::Table->new / init validation:
+#  - primary_key must be an arrayref (used to die on a raw @$pk deref);
+#  - unique-constraint and index column lists must reference real columns;
+#  - link entries must be DBIx::QuickORM::Link instances;
+#  - expression / undefined index key-parts (surfaced by some dialects during
+#    introspection) are skipped rather than rejected;
+#  - generated field lists are ordered by column position, not hash order.
 
-require DBIx::QuickORM::Schema::Table;
-require DBIx::QuickORM::Schema::Table::Column;
+use DBIx::QuickORM::Schema::Table;
+use DBIx::QuickORM::Schema::Table::Column;
+use DBIx::QuickORM::Link;
 
 my $C = 'DBIx::QuickORM::Schema::Table::Column';
 sub col { $C->new(name => $_[0], order => $_[1], affinity => 'numeric') }
 
-like(
-    dies {
-        DBIx::QuickORM::Schema::Table->new(
-            name        => 't',
-            columns     => {id => col('id', 1)},
-            primary_key => 'id',    # scalar, not an arrayref
-        );
-    },
-    qr/primary_key.*must be an arrayref/,
-    "a scalar primary_key croaks cleanly instead of dereferencing a non-arrayref",
-);
+sub base_columns {
+    return {
+        id  => $C->new(name => 'id',  order => 1, type => \'integer'),
+        val => $C->new(name => 'val', order => 2, type => \'text'),
+    };
+}
 
-ok(
-    lives {
-        DBIx::QuickORM::Schema::Table->new(
-            name        => 't',
-            columns     => {id => col('id', 1)},
-            primary_key => ['id'],
-        );
-    },
-    "an arrayref primary_key still works",
-);
+sub table {
+    my %extra = @_;
+    return DBIx::QuickORM::Schema::Table->new(name => 't', columns => base_columns(), %extra);
+}
+
+subtest primary_key_arrayref => sub {
+    like(
+        dies {
+            DBIx::QuickORM::Schema::Table->new(
+                name        => 't',
+                columns     => {id => col('id', 1)},
+                primary_key => 'id',    # scalar, not an arrayref
+            );
+        },
+        qr/primary_key.*must be an arrayref/,
+        "a scalar primary_key croaks cleanly instead of dereferencing a non-arrayref",
+    );
+
+    ok(
+        lives {
+            DBIx::QuickORM::Schema::Table->new(
+                name        => 't',
+                columns     => {id => col('id', 1)},
+                primary_key => ['id'],
+            );
+        },
+        "an arrayref primary_key still works",
+    );
+};
+
+subtest unique_index_link_validation => sub {
+    like(
+        dies { table(unique => {bad => ['nope']}) },
+        qr/Unique constraint 'bad' references column 'nope'/,
+        "a unique constraint referencing an unknown column croaks",
+    );
+
+    like(
+        dies { table(indexes => [{name => 'bad_idx', columns => ['nope']}]) },
+        qr/Index 'bad_idx' references column 'nope'/,
+        "an index referencing an unknown column croaks",
+    );
+
+    like(
+        dies { table(indexes => [['nope']]) },
+        qr/references column 'nope'/,
+        "an arrayref-form index referencing an unknown column croaks",
+    );
+
+    like(
+        dies { table(links => ['not-a-link']) },
+        qr/Links must be 'DBIx::QuickORM::Link' instances/,
+        "a links entry of the wrong type croaks",
+    );
+
+    ok(
+        lives {
+            table(
+                unique  => {v => ['val']},
+                indexes => [{name => 'ok_idx', columns => ['id', 'val']}],
+            );
+        },
+        "valid unique/index column lists initialize cleanly",
+    ) or note $@;
+
+    ok(
+        lives {
+            table(indexes => [{name => 'expr_idx', columns => [undef, 'id']}, [\'lower(val)']]);
+        },
+        "expression / undefined index key-parts are skipped, not rejected",
+    ) or note $@;
+
+    ok(
+        lives {
+            table(links => [DBIx::QuickORM::Link->new(
+                local_table   => 't',
+                local_columns => ['id'],
+                other_table   => 'other',
+                other_columns => ['id'],
+                unique        => 0,
+            )]);
+        },
+        "a proper Link instance is accepted",
+    ) or note $@;
+};
 
 subtest deterministic_field_order => sub {
     # Column order slots are deliberately out of both hash and alphabetical

@@ -52,7 +52,6 @@ do_for_all_dbs {
         "Cannot pre-populate the fields from the link",
     );
 
-    my $h = $has_foo_a4->siblings(['foo_id']);
     is($has_foo_a4->siblings('get_foo')->count,      4, "Got all 4 siblings (including self)");
     is($has_foo_a4->siblings(['foo_id'])->count,     4, "Got all 4 siblings (including self)");
     is($has_foo_a4->siblings(['has_foo_id'])->count, 1, "Only self");
