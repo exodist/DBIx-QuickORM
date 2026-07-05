@@ -10,7 +10,12 @@ use warnings;
 # function and a violation.
 #
 # Constants / declarative metadata (TABLE, COLUMNS, etc.) and Perl
-# specials (DESTROY, BEGIN, ...) are allowed to be argless.
+# specials (DESTROY, BEGIN, ...) are allowed to be argless. Two further
+# shapes are allowed (see STYLE_GUIDE.md "Naming and structure"):
+#   - a no-op stub whose body is empty or a bare `return` (it ignores its
+#     args and returns nothing regardless of how it is called);
+#   - a deliberate dual-call helper that reads its argument positionally
+#     via `pop` (works both as a function and as a method).
 #
 # Exits 1 on any violation, 0 on clean.
 #
@@ -85,6 +90,7 @@ sub _audit_file {
             my $body = $1;
             next if _has_invokant($body);
             next if _is_constant_body($body);
+            next if _is_noop_body($body);
             push @hits, "$path:$start sub $name";
             next;
         }
@@ -98,6 +104,7 @@ sub _audit_file {
 
         next if _has_invokant($body);
         next if _is_constant_body($body);
+        next if _is_noop_body($body);
         push @hits, "$path:$start sub $name";
     }
 }
@@ -108,7 +115,17 @@ sub _has_invokant {
     return 1 if $body =~ /\$class\b/;
     return 1 if $body =~ /\bshift\s*[;\(]/;
     return 1 if $body =~ /\$_\[0\]/;
+    # A deliberate dual-call helper reads its argument positionally via pop
+    # so it works both as a function and as a method (STYLE_GUIDE.md).
+    return 1 if $body =~ /\bpop\b/;
     return 0;
+}
+
+# A no-op stub whose body is empty or just `return` is allowed to be argless:
+# it ignores its arguments and returns nothing however it is called.
+sub _is_noop_body {
+    my ($body) = @_;
+    return $body =~ /\A\s*(?:return\s*;?\s*)?\z/ ? 1 : 0;
 }
 
 sub _is_constant_body {

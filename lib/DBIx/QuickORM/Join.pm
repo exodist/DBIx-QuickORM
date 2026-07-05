@@ -102,8 +102,8 @@ without one, standard double quotes are used.
 
 sub source_orm_name { 'JOIN' }
 
-sub primary_key    { my $self = shift; return }
-sub fields_to_omit { my $self = shift; return }
+sub primary_key    { }
+sub fields_to_omit { }
 
 sub fields_list_all {
     my $self = shift;
