@@ -889,3 +889,61 @@ at `->update` for changing a loaded row. Identity-only data and matching values
 are dropped silently, since nothing is lost. Internal callers reach the row
 layer through the private constructor and never trip this path; `Row::clone`
 strips the primary key before vivifying, so it always creates rather than hits.
+
+## Addendum: Volatile columns
+
+A column is **volatile** when the database may set or change its stored value
+during a write (generated/identity columns, server defaults, `ON UPDATE`,
+triggers), so the value the caller sent cannot be trusted as the in-memory
+truth. `DBIx::QuickORM::Schema::Table::Column` carries a `volatile` flag, set
+via the `volatile` DSL marker or auto-detected during introspection.
+
+Auto-detection is deliberately narrow: a dialect flags **generated** and
+**identity/sequence-backed** columns (`Dialect::column_is_volatile_by_metadata`),
+which are the database-owns-the-value cases detectable consistently across
+engines. Server-side `DEFAULT`s and `ON UPDATE` clauses are **not** auto-flagged
+— whether a default applies depends on whether the caller supplied the column,
+engines report defaults inconsistently (e.g. MySQL's implicit `DEFAULT NULL`),
+and an omitted default column already lazy-fetches — so they are left to explicit
+marking.
+
+Trigger effects are not statically resolvable in general. During introspection
+`Dialect::_apply_trigger_volatility` does a best-effort parse of each
+insert/update trigger (`NEW.col = …` / `UPDATE … SET col = …`), flags the columns
+it can see, and otherwise warns once per table. A table can be asserted
+volatile-free (the `no_volatile` DSL marker, `quick(no_volatile => …)`, or a
+declared-schema table so marked); that skips the trigger flagging and the
+warning but not the declarative generated/identity detection. Each dialect
+implements `triggers_for_table` (SQLite batches all triggers in one cached query
+per catalog to stay within the fixed introspection query budget; the base
+reports none).
+
+At write time (`Handle::_insert` / `Handle::update`), volatile columns are
+**lazy, not eager**: QuickORM does not keep a stale in-memory value for one, but
+it also does not add it to `RETURNING` — it lazily fetches the real value on next
+access (`auto_refresh` reads the whole row at once). A value the caller sends for
+a non-omitted column on insert is kept (a server default does not override it). A
+column both **volatile and omitted** has any sent value dropped after the write
+(the omit+volatile clear-and-lazy). On **update**, where an `ON UPDATE` or trigger
+may change a value, any volatile column not read back by a literal-write readback
+is dropped → lazily re-read. A primary-key column is never dropped. (An earlier
+eager design added non-omitted volatile columns to `RETURNING`; that broke a
+plain insert's "DB-set columns stay lazy" contract and dropped supplied `cas`
+guard values, so volatile is lazy.)
+
+`RETURNING` is computed before AFTER triggers run on every engine that supports
+it (SQLite, PostgreSQL), so it does not reflect a value an AFTER trigger changes.
+To keep results consistent across flavors, a table's triggers are detected
+during introspection and recorded as `Table::has_triggers`, and
+`Dialect::returning_reflects_write($source)` returns false for such a table
+(unless it is asserted volatile-free). The write then keeps `RETURNING` only for
+the primary key and reads everything else back with a follow-up fetch — a lazy
+fetch of the dropped volatile columns, and a full `refresh` under `auto_refresh`
+— exactly as on engines without `RETURNING` (MySQL/MariaDB). DuckDB has no
+triggers, so it always keeps the fast `RETURNING` path. `triggers_for_table` is
+implemented per dialect (SQLite `sqlite_master`, PostgreSQL `pg_catalog`, MySQL
+`information_schema.triggers`), each a single cached query.
+
+`Table::has_volatile_columns`, `Schema::volatile_free_tables`, and
+`Connection::volatile_free_tables` report which tables are free of volatile
+columns.
