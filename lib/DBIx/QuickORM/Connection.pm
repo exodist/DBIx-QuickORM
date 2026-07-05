@@ -200,13 +200,15 @@ sub init {
             unless $manager->DOES('DBIx::QuickORM::RowManager');
 
         # A blessed manager instance carries per-connection state (its connection
-        # and transaction stack). If it is already the live manager of a
-        # different connection, rebinding it here would silently repoint that
-        # connection's row cache and transaction stack at us. Refuse rather than
-        # corrupt the other connection.
+        # and transaction stack). If it is still the live manager of a different,
+        # still-connected connection, rebinding it here would silently repoint
+        # that connection's row cache and transaction stack at us, so refuse. A
+        # manager whose previous connection has been disconnected is free to
+        # rebind: disconnecting the old connection first is the supported way to
+        # move a blessed manager to a new connection.
         if (my $other = $manager->connection) {
-            croak "This row_manager instance is already in use by another connection; pass a class name or a fresh instance per connection"
-                if $other != $self && $other->manager && $other->manager == $manager;
+            croak "This row_manager instance is already in use by another live connection; one row_manager cannot be shared across connections. Pass a class name (each connection builds its own manager), pass a fresh instance per connection, or disconnect the other connection first."
+                if $other != $self && $other->manager && $other->manager == $manager && $other->connected;
         }
 
         $manager->set_connection($self);
@@ -423,6 +425,19 @@ sub aside_dbh { $_[0]->{+ORM}->db->new_dbh }
 
 =pod
 
+=item $bool = $con->connected
+
+True while this connection has a live database handle, false once it has been
+disconnected.
+
+=item $con->disconnect
+
+Disconnect the current dbh (if any) without establishing a new one. Croaks if
+any ORM-managed transactions are open. Any in-progress async query is abandoned
+and the aside/forked query registries are cleared, exactly as for C<reconnect>.
+After this the connection reports C<< connected >> false, and a blessed
+C<row_manager> it held can be rebound to a new connection.
+
 =item $con->reconnect
 
 Disconnect the current dbh (if any) and establish a fresh one, typically after
@@ -433,11 +448,13 @@ private connections but are no longer tracked by this connection.
 
 =cut
 
-sub reconnect {
+sub connected {
     my $self = shift;
+    return $self->{+DBH} ? 1 : 0;
+}
 
-    croak "Cannot reconnect while there are active ORM-managed transactions"
-        if @{$self->{+TRANSACTIONS} // []};
+sub _release_dbh {
+    my $self = shift;
 
     if (my $dbh = delete $self->{+DBH}) {
         if ($self->{+PID} == $$) {
@@ -459,14 +476,36 @@ sub reconnect {
     # it gives a clear error instead of a raw driver failure, and so its
     # finalizer does not read the dead handle. (Aside/forked queries hold their
     # own private connections and legitimately survive, so they are not
-    # invalidated; they belong to the pre-reconnect state, so stop tracking
-    # them.)
+    # invalidated; they belong to the pre-release (possibly pre-fork) state, so
+    # stop tracking them.)
     if (my $async = $self->{+IN_ASYNC}) {
         $async->mark_invalidated if $async->can('mark_invalidated');
     }
     delete $self->{+IN_ASYNC};
     $self->{+ASIDES} = {};
     $self->{+FORKS}  = {};
+
+    return;
+}
+
+sub disconnect {
+    my $self = shift;
+
+    croak "Cannot disconnect while there are active ORM-managed transactions"
+        if @{$self->{+TRANSACTIONS} // []};
+
+    $self->_release_dbh;
+
+    return;
+}
+
+sub reconnect {
+    my $self = shift;
+
+    croak "Cannot reconnect while there are active ORM-managed transactions"
+        if @{$self->{+TRANSACTIONS} // []};
+
+    $self->_release_dbh;
 
     $self->{+PID} = $$;
     $self->{+DBH} = $self->{+ORM}->db->new_dbh;
