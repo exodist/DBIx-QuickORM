@@ -128,6 +128,27 @@ sub maybe_table { return $_[0]->{+TABLES}->{$_[1]} // undef }
 
 =pod
 
+=item @names = $schema->volatile_free_tables
+
+The sorted names of the tables that have no volatile columns (every column is
+non-volatile) -- the tables whose written values can be trusted as-is.
+
+=cut
+
+sub volatile_free_tables {
+    my $self = shift;
+
+    my @out;
+    for my $tbl ($self->tables) {
+        next unless $tbl->can('has_volatile_columns');
+        push @out => $tbl->name unless $tbl->has_volatile_columns;
+    }
+
+    return sort @out;
+}
+
+=pod
+
 =item $schema->add_table($table_name, $table_ref)
 
 Add a table to the schema. Requires a table name and an

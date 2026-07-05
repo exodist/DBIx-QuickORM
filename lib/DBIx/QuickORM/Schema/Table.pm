@@ -21,6 +21,8 @@ use Object::HashBase qw{
     <created
     <compiled
     <is_temp
+    <no_volatile
+    <has_triggers
     <links
     <indexes
     <primary_key
@@ -150,6 +152,37 @@ sub db_name { $_[0]->{+DB_NAME} //= $_[0]->{+NAME} }
 
 sub columns      { values %{$_[0]->{+COLUMNS}} }
 sub column_names { sort keys %{$_[0]->{+COLUMNS}} }
+
+=pod
+
+=item $bool = $table->has_volatile_columns
+
+True when any column on the table is volatile (see the C<volatile> column
+marker). Used to identify tables whose written values may need re-reading.
+
+=item $bool = $table->has_triggers
+
+True when the table has an insert or update trigger (set during introspection).
+Used to decide whether a write's C<RETURNING> clause can be trusted to reflect
+the final stored row: it cannot when a trigger may change a row after the
+statement, so such a table reads its written row back with a follow-up fetch
+instead (see L<DBIx::QuickORM::Dialect/returning_reflects_write>).
+
+=item $table->mark_has_triggers
+
+Flag the table as having triggers. Used by schema introspection.
+
+=cut
+
+sub has_volatile_columns {
+    my $self = shift;
+    for my $col ($self->columns) {
+        return 1 if $col->can('volatile') && $col->volatile;
+    }
+    return 0;
+}
+
+sub mark_has_triggers { $_[0]->{+HAS_TRIGGERS} = 1 }
 
 =pod
 
