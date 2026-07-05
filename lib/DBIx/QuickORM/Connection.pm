@@ -225,7 +225,21 @@ sub init {
     }
 
     if (my $autofill = $orm->autofill) {
-        my $schema = $self->{+DIALECT}->build_schema_from_db(autofill => $autofill);
+        # Tables asserted to have no volatile columns (so the introspection
+        # trigger warning is silenced): the autofill/quick assertion plus any
+        # table the declared schema marked no_volatile.
+        my %no_volatile;
+        if (my $nv = $autofill->no_volatile) {
+            if (ref($nv) eq 'ARRAY') { $no_volatile{$_} = 1 for @$nv }
+            else                     { $no_volatile{'*'} = 1 }
+        }
+        if (my $schema2 = $orm->schema) {
+            for my $tbl ($schema2->tables) {
+                $no_volatile{$tbl->name} = 1 if $tbl->can('no_volatile') && $tbl->no_volatile;
+            }
+        }
+
+        my $schema = $self->{+DIALECT}->build_schema_from_db(autofill => $autofill, no_volatile => \%no_volatile);
 
         if (my $schema2 = $orm->schema) {
             $self->{+SCHEMA} = $schema->merge($schema2);

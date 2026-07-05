@@ -21,6 +21,7 @@ use Object::HashBase qw{
     <affinities
     <hooks
     +skip
+    <no_volatile
 };
 
 =pod
