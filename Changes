@@ -1,6 +1,9 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - cas() now croaks on unsupported limit, offset, order_by, and distinct clauses instead of silently ignoring them.
+    - cas() guard warnings now inspect structured where guards without treating operator keys as column names.
+    - MySQL-family CAS reliability checks now inspect the real MariaDB found-rows attribute name.
     - Schema merge utilities now preserve scalar and falsey hash values while cloning nested metadata.
     - Declared links now treat a target table's primary key as unique even when the key is not also listed in the table's unique constraints.
     - Merging duplicate links now preserves uniqueness when either link knows the relationship points to one row.
