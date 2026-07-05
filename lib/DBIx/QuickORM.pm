@@ -107,10 +107,7 @@ sub import {
         my $meth = $name;
         $export{$name} //= set_subname("${caller}::$meth" => sub {
             shift @_ if @_ && $_[0] && "$_[0]" eq $caller;
-            return CORE::connect($_[0], $_[1])         if $meth eq 'connect' && @_ == 2 && ref($_[0]);
-            return CORE::index($_[0], $_[1])           if $meth eq 'index' && @_ == 2 && !ref($_[0]) && !ref($_[1]);
-            return CORE::index($_[0], $_[1], $_[2])    if $meth eq 'index' && @_ == 3 && !grep { ref($_) } @_;
-            return CORE::socket($_[0], $_[1], $_[2], $_[3]) if $meth eq 'socket' && @_ == 4;
+            __PACKAGE__->_assert_not_core_shadow($meth, \@_);
             return $builder->$meth(@_);
         });
     }
@@ -875,6 +872,31 @@ sub _load_table {
     return $table;
 }
 
+sub _assert_not_core_shadow {
+    my $self = shift;
+    my ($meth, $args) = @_;
+
+    # connect/index/socket are exported as DSL builders, and importing
+    # DBIx::QuickORM installs them into the caller's package where they shadow
+    # the Perl built-ins of the same name. A call whose arguments have the
+    # shape of the built-in almost certainly meant the built-in, so rather than
+    # quietly misroute it into the builder, tell the caller how to disambiguate.
+    my $looks_builtin
+        = ($meth eq 'connect' && @$args == 2 && ref($args->[0]))                                        ? 1
+        : ($meth eq 'index'   && @$args == 2 && !ref($args->[0]) && !ref($args->[1]))                    ? 1
+        : ($meth eq 'index'   && @$args == 3 && !grep { ref($_) } @$args)                                ? 1
+        : ($meth eq 'socket'  && @$args == 4)                                                            ? 1
+        :                                                                                                  0;
+
+    return unless $looks_builtin;
+
+    croak "'$meth' here is DBIx::QuickORM's DSL builder, which shadows the "
+        . "built-in $meth() in this package, but these arguments look like a call "
+        . "to the Perl built-in $meth(). Use CORE::$meth(...) to reach the "
+        . "built-in; the DSL only shadows connect/index/socket in a package that "
+        . "imported DBIx::QuickORM.";
+}
+
 sub _clone_ref {
     my $self = shift;
     my ($value) = @_;
@@ -1617,6 +1639,17 @@ an end-to-end guide - for that, start with the manual.
 =head1 ORM BUILDER EXPORTS
 
 You get all these when using DBIx::QuickORM.
+
+Three of these exports (C<connect>, C<index>, and C<socket>) have the same
+names as Perl built-ins, so importing DBIx::QuickORM shadows those built-ins
+B<in the importing package only> (it is a lexical-scope import, not a global
+change). Inside such a package, C<connect(...)>, C<index(...)>, and
+C<socket(...)> call the DSL builders below. If you need the Perl built-in in
+that package, call it explicitly as C<CORE::connect(...)>,
+C<CORE::index(...)>, or C<CORE::socket(...)>. As a convenience, a call to one
+of these that has the exact argument shape of the built-in (for example
+C<index($string, $substr)>) croaks with a reminder to use C<CORE::> rather
+than silently misrouting into the builder.
 
 =over 4
 

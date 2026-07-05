@@ -5,15 +5,31 @@ use DBIx::QuickORM;
 use DBIx::QuickORM::Row;
 
 subtest builtin_shaped_calls => sub {
-    is( index( 'abcdef', 'cd' ),
-        2, "imported index() preserves the CORE builtin call shape" );
+    # connect/index/socket are DSL builders that shadow the Perl built-ins in a
+    # package that imported DBIx::QuickORM. A call shaped like the built-in now
+    # croaks with a hint to use CORE:: instead of silently misrouting into the
+    # builder.
+    like(
+        dies { index( 'abcdef', 'cd' ) },
+        qr/CORE::index/,
+        "built-in-shaped index() croaks pointing at CORE::index",
+    );
+
+    like(
+        dies { socket( my $fh, AF_UNIX, SOCK_STREAM, PF_UNSPEC ) },
+        qr/CORE::socket/,
+        "built-in-shaped socket() croaks pointing at CORE::socket",
+    );
+
+    # CORE:: reaches the real built-ins.
+    is( CORE::index( 'abcdef', 'cd' ), 2, "CORE::index reaches the Perl built-in" );
 
     ok(
         lives {
-            socket( my $fh, AF_UNIX, SOCK_STREAM, PF_UNSPEC );
+            CORE::socket( my $fh, AF_UNIX, SOCK_STREAM, PF_UNSPEC );
             close($fh) if $fh;
         },
-        "imported socket() preserves the CORE builtin call shape",
+        "CORE::socket reaches the Perl built-in",
     );
 };
 
