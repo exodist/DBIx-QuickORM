@@ -1,7 +1,8 @@
 {{$NEXT}}
-    - JSON deflate no longer dies on top-level booleans and now honors TO_JSON for blessed values.
 
     Bug Fixes:
+    - JSON deflate no longer dies on top-level booleans and now honors TO_JSON for blessed values.
+    - UUID comparisons now treat matching non-UUID raw values as equal instead of croaking during desync checks.
     - Lazy field fetches inside transactions now roll back with the transaction instead of leaking into the row's base state.
     - CAS field-list guards now croak when the guarded field was not fetched instead of treating it as NULL.
     - by_id() now validates primary-key arguments, honors extra hash constraints on loaded rows, and returns hashrefs in data_only mode even on cache hits.

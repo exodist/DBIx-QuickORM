@@ -122,6 +122,9 @@ subtest compare => sub {
     # Inflation canonicalizes to lowercase, so the same UUID written in upper
     # vs lower case compares equal.
     ok($C->qorm_compare($SAMPLE, uc $SAMPLE), "differing case compares equal (canonical lowercase)");
+
+    ok($C->qorm_compare('not-a-uuid', 'not-a-uuid'), "identical invalid values compare equal without croaking");
+    ok(!$C->qorm_compare('not-a-uuid', 'also-not-a-uuid'), "different invalid values compare unequal without croaking");
 };
 
 subtest autotype_registration => sub {
