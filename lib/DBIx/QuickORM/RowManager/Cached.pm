@@ -9,7 +9,10 @@ use Scalar::Util qw/weaken/;
 use parent 'DBIx::QuickORM::RowManager';
 use Object::HashBase qw {
     +cache
+    +sweep
 };
+
+use constant SWEEP_FLOOR => 8;
 
 =pod
 
@@ -38,6 +41,7 @@ sub init {
     my $self = shift;
     $self->SUPER::init();
     $self->{+CACHE} //= {};
+    $self->{+SWEEP} //= {};
 }
 
 =pod
@@ -100,6 +104,9 @@ sub cache {
 
     $scache->{$new_key} = $row;
     weaken($scache->{$new_key});
+
+    $self->_maybe_sweep($source, $scache);
+
     return $row;
 }
 
@@ -167,6 +174,14 @@ sub cache_key {
 
 =over 4
 
+=item $mgr->_maybe_sweep($source, $scache)
+
+Amortized sweep of a source bucket. A workload that inserts an unending stream
+of distinct primary keys never re-hits a key, so the targeted per-key purges
+never fire and the bucket accumulates dead (garbage-collected) entries. This
+purges the whole bucket once it grows past twice a per-source watermark, then
+resets the watermark to the surviving row count, keeping the bucket bounded.
+
 =item $mgr->_purge_dead($scache)
 
 Delete entries from a source bucket whose weakly-held row has been garbage
@@ -175,6 +190,23 @@ collected.
 =back
 
 =cut
+
+sub _maybe_sweep {
+    my $self = shift;
+    my ($source, $scache) = @_;
+
+    my $name = $source->source_orm_name;
+    my $watermark = $self->{+SWEEP}->{$name} //= SWEEP_FLOOR;
+
+    return unless keys(%$scache) > 2 * $watermark;
+
+    $self->_purge_dead($scache);
+
+    my $live = keys %$scache;
+    $self->{+SWEEP}->{$name} = $live > SWEEP_FLOOR ? $live : SWEEP_FLOOR;
+
+    return;
+}
 
 sub _purge_dead {
     my $self = shift;

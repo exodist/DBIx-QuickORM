@@ -140,10 +140,6 @@ True once results are available; always true for the synchronous base class.
 True once a result has been obtained; always true for the synchronous base
 class.
 
-=item $dialect = $sth->dialect
-
-The dialect, lazily taken from the connection.
-
 =item $bool = $sth->deferred_result
 
 True when the result is fetched lazily rather than up front. False for the
@@ -156,8 +152,6 @@ synchronous base class.
 sub clear      { my $self = shift; return }
 sub ready      { $_[0]->{+READY} //= 1 }
 sub got_result { 1 }
-
-sub dialect { $_[0]->{+DIALECT} //= $_[0]->{+CONNECTION}->dialect }
 
 sub deferred_result { 0 }
 
@@ -186,32 +180,6 @@ sub init {
 }
 
 sub in_owner_process { $_[0]->{+OWNER_PID} == $$ }
-
-=pod
-
-=item $row_hr = $sth->next
-
-Return the next row as a hashref, or undef once exhausted. With C<only_one>
-set, a second row is an error.
-
-=cut
-
-sub next {
-    my $self = shift;
-    my $row_hr  = $self->_next;
-
-    if ($self->{+ONLY_ONE}) {
-        # Finalize before throwing so the statement (and any async slot on
-        # the connection) is released even on the error path.
-        if ($self->_next) {
-            $self->set_done;
-            croak "Expected only 1 row, but got more than one";
-        }
-        $self->set_done;
-    }
-
-    return $row_hr;
-}
 
 =pod
 

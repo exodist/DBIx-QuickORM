@@ -29,10 +29,6 @@ do_for_all_dbs {
             user $db->username;
             pass $db->password;
         }
-        elsif (curdialect() =~ m/SQLite/) {
-            db_name 'quickdb';
-            db_name $db->dir . '/quickdb';
-        }
     };
 
     orm my_orm => sub {
@@ -59,22 +55,25 @@ do_for_all_dbs {
         )
     )->first;
 
-    my $counter = 0;
+    my $start = Time::HiRes::time();
     my $ready;
     until($ready = $aside->ready) {
-        $counter++;
-        sleep 0.1 if $counter > 1;
+        sleep 0.1;
     }
+    my $elapsed = Time::HiRes::time() - $start;
 
-    my $counterC = 0;
+    my $startC = Time::HiRes::time();
     my $readyC;
     until($readyC = $asideC->ready) {
-        $counterC++;
-        sleep 0.1 if $counterC > 1;
+        sleep 0.1;
     }
+    my $elapsedC = Time::HiRes::time() - $startC;
 
-    ok($counter > 5, "We waited at least once ($counter)");
-    ok($counterC < 5, "We did not need to wait much for the second ($counterC)");
+    # Both queries carry a server-side one-second sleep and run concurrently, so
+    # the first wait must span about a second and the second, already in flight,
+    # must resolve in no more time than the first did.
+    ok($elapsed >= 0.9, "The first async query blocked for about a second (${elapsed}s)");
+    ok($elapsedC <= $elapsed, "The second async result resolved no slower than the first (${elapsedC}s)");
 
     isa_ok($ready, ['DBIx::QuickORM::Row'], "Row was returned from ready()");
     ref_is($ready, $row, "same ref");

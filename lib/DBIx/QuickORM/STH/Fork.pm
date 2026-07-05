@@ -123,10 +123,6 @@ The pipe object messages are read from.
 
 Always true: a forked query can be cancelled by signalling the child.
 
-=item $dialect = $sth->dialect
-
-The dialect, lazily taken from the connection.
-
 =item $sth->clear
 
 Release the fork slot on the owning connection.
@@ -137,8 +133,7 @@ Release the fork slot on the owning connection.
 
 sub cancel_supported { 1 }
 
-sub dialect { $_[0]->{+DIALECT} //= $_[0]->{+CONNECTION}->dialect }
-sub clear   { $_[0]->{+CONNECTION}->clear_fork($_[0]) }
+sub clear { $_[0]->{+CONNECTION}->clear_fork($_[0]) }
 
 # }}} Role::STH / Role::Async interface
 
@@ -352,14 +347,10 @@ sub _next {
 
     my $msg = $self->_read_message(1);    # blocking
 
-    unless (defined $msg) {
-        # EOF with no terminal frame: the child died before signalling
-        # completion, so the streamed rows are truncated.
-        $self->{+TERMINATED} = 1;
-        $self->{+CLEAN}      = 0;
-        $self->set_done;
-        croak "Forked query ended before the child signalled completion (result was truncated)";
-    }
+    # EOF with no terminal frame: the child died before signalling completion,
+    # so the streamed rows are truncated.
+    $self->_fail_stream(message => "Forked query ended before the child signalled completion (result was truncated)")
+        unless defined $msg;
 
     my $frame = decode_json($msg);
 
@@ -370,19 +361,11 @@ sub _next {
         return;
     }
 
-    if (exists $frame->{error}) {    # the child reported a failure
-        $self->{+TERMINATED} = 1;
-        $self->{+CLEAN}      = 0;
-        $self->set_done;
-        $self->_croak_child_error($frame->{error});
-    }
+    $self->_fail_stream(error => $frame->{error}) if exists $frame->{error};
 
     return $frame->{row} if exists $frame->{row};
 
-    $self->{+TERMINATED} = 1;
-    $self->{+CLEAN}      = 0;
-    $self->set_done;
-    croak "Got invalid data from pipe: $msg";
+    $self->_fail_stream(message => "Got invalid data from pipe: $msg");
 }
 
 =pod
@@ -396,6 +379,11 @@ Read one raw message from the pipe, blocking or not per the argument.
 sub _read_message {
     my $self = shift;
     my ($blocking) = @_;
+
+    # ready/result/next all funnel through here. An inherited copy in a forked
+    # child must not read (and steal) frames off the pipe the owner is draining.
+    croak "Cannot read a forked statement handle from a different process than the one that created it"
+        unless $self->in_owner_process;
 
     my $pipe = $self->{+PIPE} or return undef;
     $pipe->read_blocking($blocking ? 1 : 0);
@@ -421,11 +409,32 @@ sub _decode_result {
     # An error frame or EOF arrived where the result frame was expected.
     # Finalize so the child is reaped and the fork slot released, then surface
     # the failure rather than hanging or returning bad data.
+    $self->_fail_stream(error => $data->{error}) if $data && exists $data->{error};
+    $self->_fail_stream(message => "Forked query produced no result before the child exited");
+}
+
+=pod
+
+=item $sth->_fail_stream(message => $str)
+
+=item $sth->_fail_stream(error => $child_error)
+
+Mark the stream terminated without a clean completion, finalize the handle
+(reaping the child and releasing the fork slot), then croak: with C<error>
+reporting the child's error message, otherwise with the given C<message>.
+
+=cut
+
+sub _fail_stream {
+    my $self = shift;
+    my %params = @_;
+
     $self->{+TERMINATED} = 1;
     $self->{+CLEAN}      = 0;
     $self->set_done;
-    $self->_croak_child_error($data->{error}) if $data && exists $data->{error};
-    croak "Forked query produced no result before the child exited";
+
+    $self->_croak_child_error($params{error}) if exists $params{error};
+    croak $params{message};
 }
 
 =pod

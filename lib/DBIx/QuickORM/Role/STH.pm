@@ -27,10 +27,36 @@ cancellable handles override both. Also provides C<cancel_on_destroy> (true):
 a handle whose destructor should wait for completion instead of cancelling an
 unfinished query overrides it to false.
 
+Provides C<dialect> (lazily taken from the connection) and C<next> (the
+C<only_one> policing iteration built on the required C<_next>/C<set_done>).
+
 =head1 REQUIRED METHODS
 
-C<connection>, C<source>, C<dialect>, C<only_one>, C<got_result>,
-C<result>, C<ready>, C<done>, C<set_done>, C<clear>, C<next>.
+C<connection>, C<source>, C<only_one>, C<got_result>, C<result>, C<ready>,
+C<done>, C<set_done>, C<clear>, C<_next>.
+
+=head1 PUBLIC METHODS
+
+=over 4
+
+=item $bool = $sth->cancel_supported
+
+=item $sth->cancel
+
+=item $bool = $sth->cancel_on_destroy
+
+Cancellation defaults; see the description above.
+
+=item $dialect = $sth->dialect
+
+The dialect, lazily taken from the connection and cached on the handle.
+
+=item $row_hr = $sth->next
+
+Return the next row as a hashref, or undef once exhausted. With C<only_one>
+set, a second row is an error.
+
+=back
 
 =cut
 
@@ -39,6 +65,27 @@ sub cancel_supported { 0 }
 sub cancel { croak "cancel() is not supported" }
 
 sub cancel_on_destroy { 1 }
+
+# Cache the dialect in the consumer's 'dialect' slot, populated lazily from the
+# connection on first use.
+sub dialect { $_[0]->{dialect} //= $_[0]->connection->dialect }
+
+sub next {
+    my $self = shift;
+    my $row = $self->_next;
+
+    if ($self->only_one) {
+        # Finalize before throwing so the statement is released (child reaped,
+        # async/fork slot on the connection freed) even on the error path.
+        if ($self->_next) {
+            $self->set_done;
+            croak "Expected only 1 row, but got more than one";
+        }
+        $self->set_done;
+    }
+
+    return $row;
+}
 
 1;
 

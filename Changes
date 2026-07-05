@@ -1,6 +1,10 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - The cached row manager now amortizes a sweep of dead cache entries, so a workload that inserts an unending stream of distinct primary keys no longer grows memory unbounded.
+    - A statement handle that outlives a connection reconnect no longer croaks when it finalizes: clearing an async/aside/fork entry from a registry that reconnect wiped is now a silent no-op.
+    - A forked write whose child fails now warns from its destructor instead of throwing an exception out of it.
+    - Reading a forked statement handle (next/result/ready) from a different process than the one that created it now croaks instead of stealing frames off the shared pipe.
     - SQLite introspection: a permanent table shadowed by a temporary table of the same name now keeps its own column, index, foreign-key, and DDL metadata instead of being poisoned with the temporary table's.
     - DuckDB generated-column detection now handles comma-bearing types like DECIMAL(10,2) and ignores GENERATED text inside string literals and comments, so generated columns are classified correctly.
     - DuckDB now clears its in-transaction flag even when a COMMIT or ROLLBACK is rejected, so a later transaction is no longer wrongly refused as already open, and the flag only tracks the dialect's own handle.
