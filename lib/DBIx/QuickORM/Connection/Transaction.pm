@@ -5,10 +5,11 @@ use warnings;
 our $VERSION = '0.000028';
 
 use Carp qw/croak confess/;
+use Scalar::Util qw/weaken/;
 
 use Object::HashBase qw{
     <id
-    +current_txn_lookup
+    +connection
     +savepoint
 
     +on_success
@@ -143,6 +144,12 @@ sub init {
 
     croak "A transaction ID is required" unless $self->{+ID};
 
+    # Hold the connection weakly. The connection holds its transactions weakly in
+    # turn, so this back-reference does not create a strong cycle; weakening it
+    # keeps a transaction from pinning its connection alive and from dragging the
+    # whole connection into a dump or deep comparison of the txn.
+    weaken($self->{+CONNECTION}) if $self->{+CONNECTION};
+
     $self->{+RESULT} = undef;
 
     $self->{+ON_SUCCESS}    = [$self->{+ON_SUCCESS}]    if 'CODE' eq ref($self->{+ON_SUCCESS});
@@ -207,8 +214,18 @@ sub _assert_innermost {
     # transaction callback, which is not necessarily this transaction's. When a
     # nested (callback-managed) transaction is open, committing or rolling back
     # an outer transaction object would resolve the wrong (inner) one, so refuse.
-    my $lookup = $self->{+CURRENT_TXN_LOOKUP} or return;
-    my $current = $lookup->() or return;
+    #
+    # The connection is held weakly (the connection already holds its
+    # transactions weakly, so this just avoids following the back-ref in a dump
+    # or deep comparison). By the time commit()/rollback() reach this point we
+    # are running inside the transaction's own action, so the connection is
+    # alive and it always has a current transaction (at least this one) --
+    # neither being missing is a normal case, so croak rather than skip the
+    # check silently.
+    my $con = $self->{+CONNECTION}
+        or croak "Cannot $op a transaction whose connection is gone";
+    my $current = $con->current_txn
+        or croak "Cannot $op: the connection reports no current transaction";
     return if $current == $self;
 
     croak "Cannot $op an outer transaction from within a nested transaction; resolve the innermost transaction first";

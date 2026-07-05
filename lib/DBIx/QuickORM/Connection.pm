@@ -615,16 +615,17 @@ sub txn {
 
     my $txn = DBIx::QuickORM::Connection::Transaction->new(
         id            => $self->{+_TXN_COUNTER}++,
-        # A closure rather than a direct connection reference: a data back-ref
-        # would form a cycle that deep comparisons (Test2's is()) choke on, and
-        # would show up in every dump of a transaction.
-        current_txn_lookup => sub { $self->current_txn },
-        savepoint          => $sp,
+        connection    => $self,
+        savepoint     => $sp,
         trace         => \@caller,
         on_fail       => $params{on_fail},
         on_success    => $params{on_success},
         on_completion => $params{on_completion},
     );
+
+    # The transaction weakens its own connection back-reference in its
+    # constructor (the connection holds its transactions weakly in turn, so there
+    # is no strong cycle).
 
     $self->_txn_attach_relative_callbacks($txn, \%params);
 
