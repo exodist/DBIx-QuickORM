@@ -154,6 +154,23 @@ sub column_names { sort keys %{$_[0]->{+COLUMNS}} }
 
 =pod
 
+=item $bool = $table->has_volatile_columns
+
+True when any column on the table is volatile (see the C<volatile> column
+marker). Used to identify tables whose written values may need re-reading.
+
+=cut
+
+sub has_volatile_columns {
+    my $self = shift;
+    for my $col ($self->columns) {
+        return 1 if $col->can('volatile') && $col->volatile;
+    }
+    return 0;
+}
+
+=pod
+
 =item $col_or_undef = $table->column($name)
 
 Get the column with the given name, or undef if it does not exist.

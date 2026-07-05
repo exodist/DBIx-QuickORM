@@ -423,11 +423,20 @@ needs (rows matched, not rows changed). See L<DBIx::QuickORM::DB/cas_count_relia
 
 Returns a completely new and independent C<$dbh> connected to the database.
 
+=item @names = $con->volatile_free_tables
+
+The sorted names of tables that have no volatile columns -- the tables whose
+written values can be trusted without a re-read. Delegates to the schema.
+
 =cut
 
 sub db { $_[0]->{+ORM}->db }
 sub cas_count_reliable { $_[0]->db->cas_count_reliable }
 sub aside_dbh { $_[0]->{+ORM}->db->new_dbh }
+
+# The sorted names of tables that have no volatile columns (see the volatile
+# column marker) -- the tables whose written values can be trusted as-is.
+sub volatile_free_tables { $_[0]->{+SCHEMA}->volatile_free_tables }
 
 ########################
 # }}} SIMPLE ACCESSORS #
