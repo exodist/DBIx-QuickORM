@@ -137,6 +137,18 @@ subtest callbacks_added_to_object => sub {
     is(\%seen, {success => 1, completion => 1}, "add_*_callback success path");
 };
 
+subtest callbacks_added_to_object_fail => sub {
+    my %seen;
+    $con->txn(sub {
+        my $t = shift;
+        $t->add_success_callback(sub    { $seen{success}++ });
+        $t->add_fail_callback(sub       { $seen{fail}++ });
+        $t->add_completion_callback(sub { $seen{completion}++ });
+        $t->rollback;
+    });
+    is(\%seen, {fail => 1, completion => 1}, "add_fail_callback + add_completion_callback fire on rollback, success does not");
+};
+
 subtest state_rolled_back => sub {
     my $txn = $con->txn(sub { $_[0]->rollback("nope") });
     is($txn->state, 'rolled_back', "state transitioned to rolled_back");

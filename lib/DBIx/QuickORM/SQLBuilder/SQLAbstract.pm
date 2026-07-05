@@ -56,8 +56,8 @@ a dialect-specific conflict clause.
 
 =item $builder = DBIx::QuickORM::SQLBuilder::SQLAbstract->new(%args)
 
-Construct a builder. Forces C<SQL::Abstract>'s C<bindtype> to C<'columns'> so
-binds carry their field names.
+Construct a builder. Defaults C<SQL::Abstract>'s C<bindtype> to C<'columns'> so
+binds carry their field names; a caller-supplied C<bindtype> overrides it.
 
 =cut
 

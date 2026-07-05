@@ -4,13 +4,17 @@ use warnings;
 
 our $VERSION = '0.000028';
 
+use Carp qw/croak/;
 use Role::Tiny::With qw/with/;
-with 'DBIx::QuickORM::Role::STH';
+
+# Role::Async composes Role::STH, and this class inherits from DBIx::QuickORM::STH
+# (which composes Role::STH) as well, so composing it again here is redundant.
 with 'DBIx::QuickORM::Role::Async';
 
 use parent 'DBIx::QuickORM::STH';
 use Object::HashBase qw{
     <got_result
+    <invalidated
 };
 
 =pod
@@ -42,6 +46,11 @@ in-flight query can be cancelled.
 
 The driver result once it has arrived; absent until then.
 
+=item invalidated
+
+True once the owning connection has reconnected out from under this handle,
+closing the driver handle it was running on.
+
 =back
 
 =head1 PUBLIC METHODS
@@ -69,6 +78,35 @@ sub deferred_result { 1 }
 sub cancel_supported { $_[0]->dialect->async_cancel_supported }
 
 sub clear { $_[0]->{+CONNECTION}->clear_async($_[0]) }
+
+=item $bool = $sth->invalidated
+
+=item $sth->mark_invalidated
+
+=item $sth->finalize_invalidated
+
+Reconnect support. A driver-level async query runs on the connection's shared
+database handle; if the connection reconnects (or disconnects) before the
+result is collected, that handle is closed and the query can never complete.
+C<mark_invalidated> flags this handle (the connection calls it during
+C<reconnect>), C<invalidated> reports the flag, and C<finalize_invalidated>
+drives the handle to its terminal state without touching the dead driver
+handle. Once invalidated, C<ready> and C<result> croak rather than call the
+closed driver.
+
+=cut
+
+sub mark_invalidated { $_[0]->{+INVALIDATED} = 1 }
+
+sub finalize_invalidated {
+    my $self = shift;
+
+    # The driver handle is gone; mark the fetch spent so set_done neither reads
+    # the dead handle for a result nor runs on_ready for a query that never
+    # completed, then finalize (releasing the async slot on the connection).
+    $self->{+FETCH_CB} = undef;
+    $self->set_done;
+}
 
 # }}} Role::STH / Role::Async interface
 
@@ -111,6 +149,9 @@ sub result {
     my $self = shift;
     return $self->{+GOT_RESULT} if exists $self->{+GOT_RESULT};
 
+    croak "This asynchronous statement handle was invalidated by a database reconnect and can no longer be used"
+        if $self->{+INVALIDATED};
+
     # Blocking
     $self->{+GOT_RESULT} = $self->dialect->async_result(sth => $self->{+STH}, dbh => $self->{+DBH});
 
@@ -137,6 +178,10 @@ on first readiness.
 sub ready {
     my $self = shift;
     return $self->{+READY} if $self->{+READY};
+
+    croak "This asynchronous statement handle was invalidated by a database reconnect and can no longer be used"
+        if $self->{+INVALIDATED};
+
     $self->{+READY} = $self->dialect->async_ready(dbh => $self->{+DBH}, sth => $self->{+STH});
     return 0 unless $self->{+READY};
 

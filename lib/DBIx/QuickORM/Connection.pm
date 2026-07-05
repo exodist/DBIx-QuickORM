@@ -308,10 +308,11 @@ sub clear_async {
     my $self = shift;
     my ($async) = @_;
 
-    croak "Not currently running an async query" unless $self->{+IN_ASYNC};
-
-    croak "Mismatch, we are in an async query, but not the one we are trying to clear"
-        unless $async == $self->{+IN_ASYNC};
+    # A reconnect drops the async registry; a handle that survived it (it ran on
+    # the now-dead handle) can still try to clear itself as it finalizes. Treat a
+    # missing or mismatched entry as an already-cleared no-op rather than an error.
+    my $current = $self->{+IN_ASYNC} or return;
+    return unless $async == $current;
 
     delete $self->{+IN_ASYNC};
 }
@@ -320,7 +321,9 @@ sub clear_aside {
     my $self = shift;
     my ($aside) = @_;
 
-    croak "Not currently running that aside query" unless $self->{+ASIDES}->{$aside};
+    # A reconnect drops the aside registry; a surviving handle can still clear
+    # itself as it finalizes, so a missing entry is an already-cleared no-op.
+    return unless $self->{+ASIDES}->{$aside};
 
     delete $self->{+ASIDES}->{$aside};
 }
@@ -329,7 +332,9 @@ sub clear_fork {
     my $self = shift;
     my ($fork) = @_;
 
-    croak "Not currently running that fork query" unless $self->{+FORKS}->{$fork};
+    # A reconnect drops the fork registry; a surviving handle can still clear
+    # itself as it finalizes, so a missing entry is an already-cleared no-op.
+    return unless $self->{+FORKS}->{$fork};
 
     delete $self->{+FORKS}->{$fork};
 }
@@ -450,9 +455,15 @@ sub reconnect {
     }
 
     # The old handle is gone, so an in-progress async query on it can never
-    # complete. Aside/forked queries hold their own private connections, but
-    # they belong to the pre-reconnect (possibly pre-fork) state, so stop
-    # tracking them.
+    # complete. Mark a surviving async handle invalidated so an attempt to use
+    # it gives a clear error instead of a raw driver failure, and so its
+    # finalizer does not read the dead handle. (Aside/forked queries hold their
+    # own private connections and legitimately survive, so they are not
+    # invalidated; they belong to the pre-reconnect state, so stop tracking
+    # them.)
+    if (my $async = $self->{+IN_ASYNC}) {
+        $async->mark_invalidated if $async->can('mark_invalidated');
+    }
     delete $self->{+IN_ASYNC};
     $self->{+ASIDES} = {};
     $self->{+FORKS}  = {};
@@ -594,11 +605,12 @@ sub txn {
         QORM_TRANSACTION: { $cb->($txn) };
         1;
     };
+    my $err = $@;
 
     # The body threw - record the exception that forced the rollback.
-    $txn->set_exception($@) unless $ok;
+    $txn->set_exception($err) unless $ok;
 
-    $finalize->($txn, $ok, $@);
+    $finalize->($txn, $ok, $err);
 
     return $txn;
 }
