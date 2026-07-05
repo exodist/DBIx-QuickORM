@@ -97,6 +97,15 @@ whatever is valid as C<bind_param>'s third argument — a DBI type constant
 
 True if the dialect supports a C<RETURNING> clause on the relevant statement.
 
+=item $bool = $dialect->returning_reflects_write($source)
+
+True if a write's C<RETURNING> clause can be trusted to reflect the final stored
+row for C<$source>. On every engine C<RETURNING> is computed before AFTER
+triggers run, so this returns false for a source with triggers (unless it is
+asserted volatile-free): such a write reads its row back with a follow-up fetch
+instead, so the in-memory result is consistent with engines that lack
+C<RETURNING>.
+
 =item $stype = $dialect->supports_type($type)
 
 Returns the database-native type name if the dialect supports the given
@@ -120,6 +129,25 @@ sub quote_binary_data         { my $self = shift; DBI::SQL_BINARY() }
 sub supports_returning_update { 0 }
 sub supports_returning_insert { 0 }
 sub supports_returning_delete { 0 }
+
+sub returning_reflects_write {
+    my $self = shift;
+    my ($source) = @_;
+
+    # Whether a write's RETURNING clause can be trusted to reflect the final
+    # stored row for this source. On every engine that supports RETURNING, the
+    # clause is computed before AFTER triggers run, so a column an AFTER trigger
+    # changes is not reflected. When the source has triggers we therefore do not
+    # use RETURNING to populate the in-memory row -- the write reads it back with
+    # a follow-up fetch instead, exactly as on engines without RETURNING, so the
+    # result is consistent across flavors. A table asserted volatile-free
+    # (no_volatile) declares its triggers change nothing, so RETURNING stays
+    # trustworthy for it.
+    return 1 unless $source;
+    return 1 if $source->can('no_volatile')  && $source->no_volatile;
+    return 0 if $source->can('has_triggers') && $source->has_triggers;
+    return 1;
+}
 
 sub supports_type { my $self = shift; return undef }
 

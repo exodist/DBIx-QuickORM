@@ -2151,6 +2151,29 @@ sub _insert_and_refresh {
     return $row;
 }
 
+sub _source_volatile_columns {
+    my $self = shift;
+    my $source = $self->{+SOURCE};
+    return () unless $source->can('columns');
+    return grep { $_->can('volatile') && $_->volatile } $source->columns;
+}
+
+# Columns that are BOTH volatile and omitted. A volatile value the caller sent
+# is trusted (kept) unless the column is also on the omit list, in which case the
+# omit+volatile contract clears it after the write so the next access lazily
+# re-fetches the real stored value. (A non-omitted volatile column that was NOT
+# sent is simply never in the stored data and lazily fetches on access; nothing
+# special to do for it here.)
+sub _omitted_volatile_field_names {
+    my $self = shift;
+    return map { $_->name } grep { $_->omit } $self->_source_volatile_columns;
+}
+
+sub _volatile_field_names {
+    my $self = shift;
+    return map { $_->name } $self->_source_volatile_columns;
+}
+
 sub _insert {
     my $self = shift;
     my %params = @_;
@@ -2213,10 +2236,25 @@ sub _insert {
 
     $builder_args->{insert} = $data;
 
+    # An omit+volatile column's sent value is cleared after the write (see the
+    # on_ready callback) so the next access lazily fetches the real stored value.
+    my @omit_volatile = $self->_omitted_volatile_field_names;
+
+    # RETURNING is computed before AFTER triggers run, so for a table with
+    # triggers it does not reflect a column a trigger changed. When that is the
+    # case we still use RETURNING for the primary key (identity/compound keys),
+    # but an auto_refresh reads the rest back with a follow-up refresh instead,
+    # so the in-memory result matches dialects without RETURNING.
+    my $ret_trusted = $dialect->returning_reflects_write($source);
+
     if ($has_ret && $has_pk) {
         my %seen;
         # @fields might omit some fields specified in $data, so we want to include any that were in data
-        $builder_args->{returning} = $self->{+AUTO_REFRESH} ? [ grep { !$seen{$_}++ } @$has_pk, @$fields, keys %$data ] : $has_pk;
+        $builder_args->{returning} = [
+            grep { !$seen{$_}++ }
+                @$has_pk,
+                ($ret_trusted && $self->{+AUTO_REFRESH} ? (@$fields, keys %$data) : ()),
+        ];
     }
 
     my $meth = $upsert ? 'qorm_upsert' : 'qorm_insert';
@@ -2228,13 +2266,12 @@ sub _insert {
             my ($dbh, $sth, $res, $sql) = @_;
 
             my $row_data;
+            my $fetched = {};
 
             # Add generated PKs, mixed with insert values
             if ($builder_args->{returning}) {
-                $row_data = {
-                    %$data,
-                    %{$self->sql_builder->qorm_row_to_orm($self->{+SOURCE}, $sth->fetchrow_hashref)},
-                };
+                $fetched  = $self->sql_builder->qorm_row_to_orm($self->{+SOURCE}, $sth->fetchrow_hashref);
+                $row_data = { %$data, %$fetched };
             }
             elsif($has_pk) {
                 $row_data = { %$data };
@@ -2252,6 +2289,13 @@ sub _insert {
             # read fetches it on demand.
             delete @{$row_data}{ grep { literal_write_value($row_data->{$_}) } keys %$row_data };
 
+            # An omit+volatile column: its sent value is neither trusted nor
+            # eagerly fetched. Drop it so the next access lazily fetches the real
+            # stored value. A non-omitted volatile value the caller sent is
+            # trusted (kept), and a non-omitted volatile column that was not sent
+            # is simply absent here and lazily fetches on access.
+            delete @{$row_data}{ @omit_volatile };
+
             my $sent = 0;
             return sub { $sent++ ? () : $row_data };
         },
@@ -2265,11 +2309,18 @@ sub _insert {
         );
     }
 
-    return $self->{+CONNECTION}->state_insert_row(
+    my $row = $self->{+CONNECTION}->state_insert_row(
         source  => $source,
         fetched => $sth->next,
         row     => $self->{+ROW},
     );
+
+    # RETURNING carried only the primary key for a table whose triggers make it
+    # untrustworthy, so an auto_refresh row is not yet fully populated: read it
+    # back with a follow-up SELECT, exactly as on a dialect without RETURNING.
+    $row->refresh if blessed($row) && $self->{+AUTO_REFRESH} && $has_ret && !$ret_trusted;
+
+    return $row;
 }
 
 =pod
@@ -2531,11 +2582,25 @@ sub update {
     # database, so the cached row takes their value from the database: via
     # UPDATE ... RETURNING when the dialect supports it (no extra round trip),
     # otherwise via a refresh.
-    my @literal_fields    = grep { literal_write_value($changes->{$_}) } keys %$changes;
-    my $literal_returning = @literal_fields && $row && $sync && $pk_fields && @$pk_fields && $dialect->supports_returning_update;
-    if ($literal_returning) {
+    my @literal_fields = grep { literal_write_value($changes->{$_}) } keys %$changes;
+
+    # Volatile columns the database may set/change on this write (on-update
+    # columns, triggers). On update we do not trust their in-memory value: any
+    # not read back is dropped (in handle_row below) so the next access lazily
+    # fetches the real stored value.
+    my @volatile_names = $self->_volatile_field_names;
+
+    # Columns whose stored value must be recovered from the database within the
+    # write itself: literal (database-computed) writes.
+    my @readback_fields = @literal_fields;
+
+    # A table whose triggers may change a written column cannot trust RETURNING
+    # (it is computed before AFTER triggers), so fall back to the refresh path
+    # below, consistent with dialects that have no RETURNING.
+    my $db_returning = @readback_fields && $row && $sync && $pk_fields && @$pk_fields && $dialect->supports_returning_update && $dialect->returning_reflects_write($source);
+    if ($db_returning) {
         my %seen;
-        $builder_args->{returning} = [ grep { !$seen{$_}++ } @$pk_fields, @literal_fields ];
+        $builder_args->{returning} = [ grep { !$seen{$_}++ } @$pk_fields, @readback_fields ];
     }
 
     my $sql = $self->sql_builder->qorm_update(%$builder_args, update => $changes);
@@ -2553,13 +2618,26 @@ sub update {
             $fetched = { %$row, %$changes };
         }
 
+        my $got = $db_row ? $self->sql_builder->qorm_row_to_orm($source, $db_row) : {};
+
         # Take literal fields from the RETURNING row when we have it; the refresh
         # fallback (below) covers dialects without RETURNING-on-update.
         if (@literal_fields) {
             delete @{$fetched}{@literal_fields};
-            if ($db_row) {
-                my $got = $self->sql_builder->qorm_row_to_orm($source, $db_row);
-                $fetched->{$_} = $got->{$_} for grep { exists $got->{$_} } @literal_fields;
+            $fetched->{$_} = $got->{$_} for grep { exists $got->{$_} } @literal_fields;
+        }
+
+        # A volatile column's value after this write is untrusted: take it from
+        # the RETURNING row when we have it, otherwise drop it so the next access
+        # lazily re-fetches. This clears a volatile+omit column, and any volatile
+        # column on a dialect without RETURNING (the refresh fallback below then
+        # re-reads the non-omitted ones). Never drop a primary-key column.
+        if (@volatile_names) {
+            my %is_pk = map { $_ => 1 } @{$pk_fields || []};
+            for my $v (@volatile_names) {
+                next if $is_pk{$v};
+                if   (exists $got->{$v}) { $fetched->{$v} = $got->{$v} }
+                else                     { delete $fetched->{$v} }
             }
         }
 
@@ -2582,9 +2660,9 @@ sub update {
     unless ($do_cache) {
         my $sth = $self->_make_sth($sql, no_rows => 1);
         if ($row) {
-            my $db_row = $literal_returning ? $sth->sth->fetchrow_hashref : undef;
+            my $db_row = $db_returning ? $sth->sth->fetchrow_hashref : undef;
             $handle_row->($row, $db_row);
-            $row->refresh if @literal_fields && $sync && !$literal_returning;
+            $row->refresh if @literal_fields && $sync && !$db_returning;
         }
         return $sth unless $sync;
         return;
@@ -2604,7 +2682,7 @@ sub update {
         }
 
         if ($row) {
-            my $db_row = $literal_returning ? $sth->fetchrow_hashref : undef;
+            my $db_row = $db_returning ? $sth->fetchrow_hashref : undef;
             $handle_row->($row, $db_row);
             return;
         }
@@ -2643,7 +2721,7 @@ sub update {
 
     # A literal write on a dialect without RETURNING-on-update leaves the
     # computed columns unknown to the cache; re-read them.
-    $row->refresh if $row && @literal_fields && $sync && !$literal_returning;
+    $row->refresh if $row && @literal_fields && $sync && !$db_returning;
 
     return undef;
 }
