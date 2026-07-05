@@ -1,0 +1,36 @@
+* 6f148fc 2026-07-01 Chad Granum Harden by_id cache lookups
+    The #<<< and #>>> markers are no longer needed
+
+* ffbfb2b 2026-07-01 Chad Granum Fix method-shape audit violations
+    Changing the functions that just return is pointless, change the style guide or whatever to allow `sub foo {}`
+    I think the changes to lib/DBIx/QuickORM/Type/UUID.pm are completely wrong. We first pop the last value, assuming it is the UUID, if there is an additional value it is self/class as things were called as a method. If there is only 1 value, either method or non-method, it is the uuid and may or may not be vlessed.
+
+* a092f54 2026-07-02 Chad Granum Fix accumulated audit findings
+    Split this into multiple commits, each with distinc focus, and better commit messages
+
+* af93195 2026-07-02 Chad Granum Fix DSL variant and default handling
+    Remove the CORE::* redirections. Just document that we override some core names, and that someone needs to use CORE::* to access them. IT is not global, it only effects the package importing the dsl.
+    It may be worthwhile to keep the heuristic, but have it throw an exception clearly stating it looks liek they intended to use CORE::XXX but got the DSL import instead, to help someone when they make the mistake.
+
+* 2539e6f 2026-07-02 Chad Granum Apply default DBI attributes to connect-callback handles
+    Instead of hardcoding the attr names, would it make more sense to iterate the list of defined keys on the %$attrs hash?
+
+* 09b5195 2026-07-02 Chad Granum Refuse to rebind a row_manager already in use by another connection
+    Do we need a follow up to this? Commit message says: "ORM::connect (callable repeatedly) passed the same blessed row_manager instance to every Connection", do we need to fix ORM::connect(), are there valid cases for it to be called multiple times where it should be creating new RowManagers? Or is this protection against an undeisrable use of the function?
+
+* cc2970d 2026-07-02 Chad Granum Croak when resolving an outer transaction from a nested action
+    Why `current_txn_lookup => sub { $self->current_txn },` instead of adding a weakened `connection` key and calling {connection}->current_txn?
+    Why are these simple returns?
+        my $lookup = $self->{+CURRENT_TXN_LOOKUP} or return;
+        my $current = $lookup->() or return;
+    Are there valid cases where we would not be able to get the current txn from inside a txn? It seems like thes eshould be error conditions unless we have valid cases for them?
+
+* 54c397d 2026-07-02 Chad Granum Resolve async row proxy bool/ready opportunistically
+    Note in a comment that we use ->row // 1 so that the side effect of ->row still happens, that simply returning 1 without calling ->row would not work right. -- Assuming I understand why we did this, double check that this statement is correct.
+
+* 8224e0f 2026-07-02 Chad Granum Integrate parallel audit implementation (74 findings across 6 clusters)
+    This commit is too large, break it up into distinct changes.
+
+* 22ee905 2026-07-02 Chad Granum Fix three defects found by adversarial review of the integration
+    If any of these were introduced in commits since 0096612 then squash the fixes into those commits.
+    Otherwise break into commits for each distinct change/fix

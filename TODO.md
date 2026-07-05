@@ -112,3 +112,96 @@ never needs patching.
 `%AFFINITY_BY_TYPE`); commit a092f54 (the type-alias churn this avoids); DBI
 `type_info_all` / `type_info` / `column_info` `DATA_TYPE` / `$sth->{TYPE}` and
 the `:sql_types` constants.
+
+---
+
+## volatile-columns
+
+**Status:** open
+
+Introduce a first-class notion of a **volatile** column: one whose stored value
+the database may set or change during a write, so the value the caller sent
+cannot be trusted as the in-memory truth. Sources of volatility include
+generated/computed columns, identity / auto-increment / sequence-backed columns,
+server-side `DEFAULT`s, `ON UPDATE` clauses, and triggers. This is the concrete
+design for the per-column retrieve-on-write opt-in tracked in
+`insert-retrieve-on-insert`; the "opt-in flag" there is this `volatile` marker.
+
+**DSL surface:**
+
+- A `volatile` column marker, e.g. `column foo => sub { volatile }`.
+- A way to mark a whole table **volatile-free** — an explicit assertion that no
+  column on the table is volatile. Used both to opt the table out of the
+  conservative trigger handling and to silence the per-table trigger warning
+  described below.
+
+**Auto-detection (best effort — mark it for the user where we can):**
+
+- *Obvious / declarative — auto-flag with confidence:* columns detected during
+  introspection as generated, identity/auto-increment/sequence-backed, carrying a
+  server-side `DEFAULT`, or with an `ON UPDATE` clause. Most of this metadata is
+  already captured by the dialects (`generated`, `identity`,
+  `dflt_value`/`column_default`, MySQL `EXTRA`); wire it up to set `volatile`.
+- *Triggers — not statically resolvable:* a trigger's existence and body text are
+  visible in the catalog (`sqlite_master`, `information_schema.triggers`,
+  `pg_trigger` + `pg_proc`), but *which* columns a trigger modifies cannot be
+  reliably determined without parsing arbitrary procedural code (PL/pgSQL,
+  conditionals, dynamic SQL, function calls). Do a best-effort parse for simple
+  `SET NEW.col = ...` / `UPDATE ... SET col = ...` shapes and flag what we can.
+- *Conservative fallback — one warning per table:* when a table has an
+  insert/update trigger whose column effects we could not confidently resolve,
+  emit a single per-table warning that a trigger was detected but we cannot be
+  sure whether it modifies rows on insert, telling the user to either mark the
+  affected columns `volatile` by hand, or mark the table volatile-free to assert
+  that none are (which also silences the warning).
+
+**Runtime behavior:**
+
+- A **volatile, non-omitted** column is re-fetched eagerly as part of the write
+  (added to `RETURNING`, or the post-write refresh) so the in-memory value is the
+  real stored value rather than the (untrusted) value that was sent.
+- A column that is **both volatile and omitted** is neither trusted nor eagerly
+  fetched: *volatile* means the written value cannot be trusted, and *omitted*
+  means the caller deliberately left it out (it may be a huge value, a lot of
+  data, or an expensive type inflation). So after the write the field is
+  **cleared** from the in-memory row — its stored value is neither the untrusted
+  written value nor a fetched one — and the next access lazily fetches the real
+  value from the DB on demand. It is intentionally NOT auto-fetched, precisely
+  because being on the omit list signals a good reason to avoid pulling it
+  eagerly. (This refines today's behavior, where a supplied omitted column is
+  kept as-sent.)
+
+So, in one line: for a value that is both omitted and volatile, on insert/update
+we do not trust the value provided and we do not fetch it — we drop it, forcing a
+refetch if and when it is actually needed.
+
+**Quick interface:**
+
+- An easy way to list the tables that have **no** volatility (every column
+  non-volatile), so callers can see at a glance which tables are "safe."
+- The same volatile-free marking / trigger-warning suppression available through
+  the DSL should be reachable from the Quick interface too.
+
+**Documentation needed:** what volatility is; how to mark a column `volatile`
+and a table volatile-free (in both the DSL and the Quick interface); how
+volatility is auto-detected and the limits of that detection (triggers
+especially); the omit+volatile clear-and-lazy behavior; and how to suppress the
+per-table trigger warning from both interfaces.
+
+**Limitations:** trigger column-effects are not statically knowable in the
+general case, so auto-detection is best-effort; the only fully general guarantee
+is a post-write re-fetch. Non-obvious cases must be marked `volatile` by the
+user. Also note the term overlaps PostgreSQL *function* volatility
+(VOLATILE/STABLE/IMMUTABLE) — that is about functions, not columns, so the
+context differs, but keep it in mind for docs.
+
+**Related:** resolves the `insert-retrieve-on-insert` gap (per-column opt-in),
+and settles the earlier omit-vs-refresh inconsistencies (a supplied omitted
+column being re-read under `auto_refresh` on RETURNING dialects but kept on
+MySQL) by making the omit+volatile case an explicit clear-and-lazy.
+
+**References:** `insert-retrieve-on-insert` (this is its chosen design); dialect
+introspection capture of `generated` / `identity` / `dflt_value` /
+`column_default` / MySQL `EXTRA`; catalog trigger sources (`sqlite_master`,
+`information_schema.triggers`, `pg_trigger` + `pg_proc`); DBIx::Class
+`retrieve_on_insert` (per-column analog, though it skips supplied plain values).
