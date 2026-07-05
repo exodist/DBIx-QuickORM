@@ -95,7 +95,7 @@ makes it convenient as a Perl C<default> for a UUID column.
 =head2 DATETIME
 
 L<DBIx::QuickORM::Type::DateTime> handles date/time columns. Its affinity is
-C<string>, and the parse/format and SQL type come from the dialect.
+C<string>, and the parse/format come from the dialect.
 
 It is B<lazy>: the inflated value is a L<DBIx::QuickORM::Util::Mask> wrapping a
 L<DateTime>, and the DateTime is not built until you actually use it (call a
