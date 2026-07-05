@@ -212,13 +212,13 @@ sub new_dbh {
     }
 
     # A connect callback returns its own handle, so the attributes the DSN path
-    # passes to DBI->connect never reach it. Enforce the same sensible defaults
-    # here (RaiseError, so the eval-based error handling throughout the codebase
-    # works; AutoCommit, so the dialect owns transaction control) as the DSN
-    # path already gets. Harmless on the DSN path, which already has them.
-    for my $attr (qw/RaiseError PrintError AutoCommit AutoInactiveDestroy/) {
-        $dbh->{$attr} = $attrs->{$attr} if defined $attrs->{$attr};
-    }
+    # passes to DBI->connect never reach it. Enforce the same attributes here
+    # (RaiseError, so the eval-based error handling throughout the codebase
+    # works; AutoCommit, so the dialect owns transaction control; and whatever
+    # else the DSN path was given) as the DSN path already gets, by copying
+    # every defined attribute onto the handle. Harmless on the DSN path, which
+    # already has them.
+    $dbh->{$_} = $attrs->{$_} for grep { defined $attrs->{$_} } keys %$attrs;
 
     return $dbh;
 }
