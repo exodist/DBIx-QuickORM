@@ -380,8 +380,6 @@ do_for_all_dbs {
     return unless My::ORM::curqdb() =~ m/PostgreSQL/;
 
     subtest disconnect => sub {
-        my $db = My::ORM::curdb();
-
         my ($e, $w);
         $w = warnings {
             $e = dies {

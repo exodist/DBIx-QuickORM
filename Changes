@@ -1,16 +1,6 @@
 {{$NEXT}}
 
     Bug Fixes:
-    - JSON type deflation no longer requires an affinity argument and encodes the value directly.
-    - The cached row manager now amortizes a sweep of dead cache entries, so a workload that inserts an unending stream of distinct primary keys no longer grows memory unbounded.
-    - A statement handle that outlives a connection reconnect no longer croaks when it finalizes: clearing an async/aside/fork entry from a registry that reconnect wiped is now a silent no-op.
-    - Using a driver-level async statement handle after its connection has reconnected now croaks with a clear "invalidated by a database reconnect" message instead of a raw driver error, and such a handle finalizes cleanly at destruction without a stray warning; aside and forked handles run on their own connections and are unaffected.
-    - A forked write whose child fails now warns from its destructor instead of throwing an exception out of it.
-    - Reading a forked statement handle (next/result/ready) from a different process than the one that created it now croaks instead of stealing frames off the shared pipe.
-    - SQLite introspection: a permanent table shadowed by a temporary table of the same name now keeps its own column, index, foreign-key, and DDL metadata instead of being poisoned with the temporary table's.
-    - DuckDB generated-column detection now handles comma-bearing types like DECIMAL(10,2) and ignores GENERATED text inside string literals and comments, so generated columns are classified correctly.
-    - DuckDB now clears its in-transaction flag even when a COMMIT or ROLLBACK is rejected, so a later transaction is no longer wrongly refused as already open, and the flag only tracks the dialect's own handle.
-    - DuckDB supports_type now reports native names for text (TEXT) and varchar (VARCHAR).
     - Defining two tables (or two schemas, dbs, or servers) with the same name in one registry now croaks instead of silently letting the last definition win (re-opening an alt/variant frame is unaffected).
     - Importing DBIx::QuickORM with 'only' or 'skip' no longer strips the generated import()/builder() helpers, so a downstream `use My::ORM` keeps working.
     - An unknown import 'type' now croaks at use-time instead of being silently accepted.
@@ -21,6 +11,16 @@
     - Merging an introspected schema with a declaration that renames a physical table via db_name now collapses them into a single source under the declared ORM name, instead of leaving both the declared name and the database name behind.
     - A generated relationship accessor that collides with a column accessor is now caught even when the relationship is only introduced by the merged (declared) schema, rather than being silently dropped.
     - Table definitions now croak when a unique constraint or index references a column that does not exist, or when a link entry is not a Link object; undefined/expression index key-parts surfaced by introspection are ignored.
+    - The cached row manager now amortizes a sweep of dead cache entries, so a workload that inserts an unending stream of distinct primary keys no longer grows memory unbounded.
+    - A statement handle that outlives a connection reconnect no longer croaks when it finalizes: clearing an async/aside/fork entry from a registry that reconnect wiped is now a silent no-op.
+    - Using a driver-level async statement handle after its connection has reconnected now croaks with a clear "invalidated by a database reconnect" message instead of a raw driver error, and such a handle finalizes cleanly at destruction without a stray warning; aside and forked handles run on their own connections and are unaffected.
+    - A forked write whose child fails now warns from its destructor instead of throwing an exception out of it.
+    - Reading a forked statement handle (next/result/ready) from a different process than the one that created it now croaks instead of stealing frames off the shared pipe.
+    - SQLite introspection: a permanent table shadowed by a temporary table of the same name now keeps its own column, index, foreign-key, and DDL metadata instead of being poisoned with the temporary table's.
+    - DuckDB generated-column detection now handles comma-bearing types like DECIMAL(10,2) and ignores GENERATED text inside string literals and comments, so generated columns are classified correctly.
+    - DuckDB now clears its in-transaction flag even when a COMMIT or ROLLBACK is rejected, so a later transaction is no longer wrongly refused as already open, and the flag only tracks the dialect's own handle.
+    - DuckDB supports_type now reports native names for text (TEXT) and varchar (VARCHAR).
+    - JSON type deflation no longer requires an affinity argument and encodes the value directly.
     - Writes (insert/update/delete/cas) through a handle-as-subquery (derived-table) source now croak with a clear message instead of dying deep in statement construction or on a missing method.
     - omit() on a handle-as-subquery source now croaks (its columns are not enumerable) instead of silently returning the column it was told to omit.
     - handle() now croaks on an unknown -flag (e.g. a misspelled -allow_overide) instead of silently storing and ignoring it, which previously left the intended protection disabled with no diagnostic.

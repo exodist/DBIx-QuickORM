@@ -75,7 +75,7 @@ subtest distinct_builder => sub {
         qr/Must not be called in void context/, "distinct() croaks in void context");
 
     my $kv = $con->handle('people', distinct => 1);
-    ok($kv, "distinct accepted as a constructor key/value pair");
+    ref_is($kv->distinct, $kv, "distinct flag stored from the constructor key/value pair");
 };
 
 subtest distinct_results => sub {

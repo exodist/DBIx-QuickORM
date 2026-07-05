@@ -3,8 +3,6 @@ use DBIx::QuickORM;
 
 use lib 't/lib';
 use DBIx::QuickORM::Test;
-use Hash::Merge qw/merge/;
-Hash::Merge::set_behavior('RIGHT_PRECEDENT');
 
 do_for_all_dbs {
     my $db = shift;

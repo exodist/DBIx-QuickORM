@@ -73,74 +73,19 @@ do_for_all_dbs {
     ok(!$iter->next, "Got all rows");
 
     $sel = $con->handle('foo')->left_join('bar')->left_join('bar:get_baz')->left_join('foo:get_baz')->order_by(qw/a.foo_id b.bar_id c.baz_id d.baz_id/);
-    ok(lives { $sel->data_only->all }, "Should come back and finish this");
-
+    my @rows = $sel->data_only->all;
+    is(scalar(@rows), 5, "composed 4-way left join returns one row per foo/bar pair");
+    is(
+        [map { [@{$_}{qw/a.foo_id b.bar_id c.baz_id d.baz_id/}] } @rows],
+        [
+            [1, 1, 1,     1],
+            [1, 2, undef, 1],
+            [1, 3, undef, 1],
+            [2, 4, undef, undef],
+            [3, 5, undef, undef],
+        ],
+        "each alias resolves to the expected row across the composed join",
+    );
 };
 
 done_testing;
-
-__END__
-
-These need to be refactored:
-
-    my $link = bless({}, 'DBIx::QuickORM::Link');
-    ref_is($foo_a->parse_link($link), $link, "If it is already a link just return it");
-
-    $link = $foo_a->parse_link({table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id']});
-    isa_ok($link, ['DBIx::QuickORM::Link'], "Created a link object");
-    like(
-        $link,
-        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
-        "Created link, and set unique"
-    );
-
-    $link = $has_foo_a1->parse_link({table => 'foo', local_columns => ['foo_id'], other_columns => ['foo_id']});
-    isa_ok($link, ['DBIx::QuickORM::Link'], "Created a link object");
-    like(
-        $link,
-        {local_table => 'has_foo', other_table => 'foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => T()},
-        "Created link, and set unique"
-    );
-
-    is(
-        $foo_a->parse_link(\'has_foo'),
-        $con->schema->table('foo')->links_by_alias->{get_has_foo},
-        "Got the only link to the specified table",
-    );
-
-    like(
-        $foo_a->parse_link({has_foo => 'foo_id'}),
-        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
-        "Super simple search"
-    );
-
-    like(
-        $foo_a->parse_link({has_foo => ['foo_id']}),
-        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
-        "Super simple search, multi-col"
-    );
-
-    like(
-        $foo_a->parse_link({has_foo => {local => 'foo_id', other => 'foo_id'}}),
-        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
-        "Another form"
-    );
-
-    like(
-        $foo_a->parse_link({local_table => 'foo', other_table => 'has_foo', fields => 'foo_id', has_foo => 'foo_id'}),
-        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
-        "Long form"
-    );
-
-    like(
-        $foo_a->parse_link({local_table => 'foo', other_table => 'has_foo', local_fields => 'foo_id', has_foo => 'foo_id'}),
-        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
-        "Long form 2"
-    );
-
-    like(
-        $foo_a->parse_link({table => 'has_foo', fields => ['foo_id']}),
-        {local_table => 'foo', other_table => 'has_foo', local_columns => ['foo_id'], other_columns => ['foo_id'], unique => F()},
-        "Long form 3"
-    );
-

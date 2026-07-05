@@ -411,7 +411,6 @@ do_for_all_dbs {
     };
 
     my $con = orm('myorm')->connect;
-    use DBIx::QuickORM::Util qw/debug/;
     note "Using dialect '" . $con->dialect->dialect_name . "'";
 
     my $schema = $con->schema;

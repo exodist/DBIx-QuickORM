@@ -38,6 +38,14 @@ do_for_all_dbs {
     ref_is($row, $row3, "Same row ref");
     is($row->field('name'), "x", "Upsert name!");
     is($row->field('xxx'), "c", "Upsert xxx!");
+
+    # Insert arm: upserting a novel key with no matching row creates a new row.
+    my $new = $h->upsert({name => 'z'});
+    ok($new, "Upsert of a novel key returned a row");
+    ref_is_not($new, $row, "Insert arm produced a distinct row ref");
+    ok(defined($new->field('id')), "New row has a generated primary key");
+    isnt($new->field('id'), $row->field('id'), "New row got a fresh id");
+    is($new->field('name'), 'z', "New row has the inserted name");
 };
 
 done_testing;
