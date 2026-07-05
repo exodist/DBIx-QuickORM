@@ -39,6 +39,12 @@ do_for_all_dbs {
     is($row2->field('derived'), 'bar', "generated value passed in via insert() is silently dropped");
 
     like(
+        dies { $orm->handle('widgets')->insert({derived => 'only'}) },
+        qr/Refusing to insert an empty row/,
+        "insert with only a generated field collapses to empty and croaks"
+    );
+
+    like(
         dies { $row->field(derived => 'x') },
         qr/Cannot set field 'derived'.*generated/,
         "setting a generated field via row->field croaks"

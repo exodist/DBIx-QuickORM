@@ -72,7 +72,7 @@ do_for_all_dbs {
     subtest async => sub {
         like(
             dies { $h->handle(where => {id => 2})->async->update({name => 'a'}) },
-            qr/Cannot do an async update without a specific row to update/,
+            qr/Cannot maintain the row cache for a bulk update without a specific row/,
             "cannot do bulk async update"
         );
 

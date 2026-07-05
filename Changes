@@ -1,6 +1,9 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Inserts that only provide database-generated columns now croak cleanly instead of emitting invalid empty INSERT SQL.
+    - Bulk deletes on primary-key-less tables now skip cache maintenance instead of failing before the delete runs.
+    - Bulk update/delete diagnostics now describe deferred-handle restrictions correctly and fix a garbled internal-transaction message.
     - cas() now croaks on unsupported limit, offset, order_by, and distinct clauses instead of silently ignoring them.
     - cas() guard warnings now inspect structured where guards without treating operator keys as column names.
     - MySQL-family CAS reliability checks now inspect the real MariaDB found-rows attribute name.
