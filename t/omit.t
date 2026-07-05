@@ -1,6 +1,8 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 
+use Scalar::Util qw/weaken/;
+
 use lib 't/lib';
 use DBIx::QuickORM::Test;
 
@@ -20,11 +22,8 @@ do_for_all_dbs {
         };
 
         schema my_schema => sub {
-            meta->{merged} = 'foo';
             table example => sub {
-                meta->{merged} = 'bar';
                 column data => sub {
-                    meta->{merged} = 'baz';
                     type 'JSON';
                     omit;
                 };
@@ -39,12 +38,13 @@ do_for_all_dbs {
     ok(!exists($row->row_data->{stored}->{data}), "did not fetch data");
 
     is($row->field('data'), {foo => 'bar'}, "Can fetch data");
-    my $addr = "$row";
+    my $weak = $row;
+    weaken($weak);
     $row = undef;
+    ok(!defined($weak), "Previous row expired once all references were cleared");
     $row = $orm->handle('example')->one({name => 'a'});
 
     ok($row, "got row");
-    isnt("$row", $addr, "uncached copy");
     ok(!exists($row->row_data->{stored}->{data}), "did not fetch data");
 
     $row = undef;
