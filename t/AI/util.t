@@ -7,6 +7,7 @@ use Scalar::Util qw/blessed/;
 
 use DBIx::QuickORM::Util qw{
     column_key
+    literal_write_value
     load_class
     find_modules
     merge_hash_of_objs
@@ -26,7 +27,7 @@ use DBIx::QuickORM::Util qw{
 subtest exports => sub {
     can_ok(
         __PACKAGE__,
-        [qw/column_key load_class find_modules merge_hash_of_objs clone_hash_of_objs parse_conflate_args/],
+        [qw/column_key literal_write_value load_class find_modules merge_hash_of_objs clone_hash_of_objs parse_conflate_args/],
         "requested functions imported",
     );
 };
@@ -40,6 +41,20 @@ subtest column_key => sub {
 
     # Sorting is plain string sort.
     is(column_key('Z', 'a', 'B'), 'B, Z, a', "ASCII-betical sort");
+};
+
+subtest literal_write_value => sub {
+    # POD: a scalar ref of SQL, or an arrayref led by a scalar ref of SQL plus
+    # its bind values, is an intentional literal; everything else is data.
+    ok(literal_write_value(\'NOW()'),        "scalar ref of SQL is a literal");
+    ok(literal_write_value([\'col + ?', 1]), "arrayref led by a scalar ref is a literal");
+
+    ok(!literal_write_value('NOW()'),          "plain string is data");
+    ok(!literal_write_value(42),               "number is data");
+    ok(!literal_write_value(undef),            "undef is data");
+    ok(!literal_write_value({a => 1}),         "hashref is data");
+    ok(!literal_write_value([1, 2]),           "plain arrayref is data");
+    ok(!literal_write_value(bless {}, 't::Obj'), "blessed object is data");
 };
 
 subtest load_class => sub {

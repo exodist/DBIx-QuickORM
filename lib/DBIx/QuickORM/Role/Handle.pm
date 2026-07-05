@@ -4,8 +4,6 @@ use warnings;
 
 our $VERSION = '0.000028';
 
-use Carp qw/croak/;
-
 use Role::Tiny;
 
 =pod
@@ -20,8 +18,7 @@ DBIx::QuickORM::Role::Handle - Role defining the query/handle interface.
 
 Defines the common interface for handle objects used to build and run
 queries against a source. Consumers implement the bulk of the interface;
-this role supplies a small set of convenience aliases and a group of
-explicitly-unsupported operations that C<croak> when called.
+this role supplies a small set of convenience aliases.
 
 =head1 SYNOPSIS
 
@@ -108,40 +105,6 @@ Alias for C<first>.
 =cut
 
 sub any { shift->first(@_) }
-
-# {{{ Unsupported operations
-
-=pod
-
-The following methods exist for interface compatibility but are not
-supported by this role; calling any of them dies.
-
-=over 4
-
-=item $handle->internal_transactions
-
-=item $handle->internal_txns
-
-=item $handle->insert_and_refresh
-
-=item $handle->auto_refresh
-
-=item $handle->no_internal_transactions
-
-=item $handle->no_internal_txns
-
-=back
-
-=cut
-
-sub internal_transactions    { croak "Not Supported" }
-sub internal_txns            { croak "Not Supported" }
-sub insert_and_refresh       { croak "Not Supported" }
-sub auto_refresh             { croak "Not Supported" }
-sub no_internal_transactions { croak "Not Supported" }
-sub no_internal_txns         { croak "Not Supported" }
-
-# }}} Unsupported operations
 
 1;
 

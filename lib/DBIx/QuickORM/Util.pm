@@ -8,6 +8,9 @@ use Data::Dumper;
 use Scalar::Util qw/blessed/;
 use Carp qw/croak confess/;
 
+# Module::Pluggable installs a public search_path sub into this package. Alias
+# it to the internal _find_paths name and delete it from the package stash so
+# it is neither mistaken for nor exportable as a Util function.
 use Module::Pluggable sub_name => '_find_mods';
 BEGIN {
     *_find_paths = \&search_path;
@@ -310,6 +313,14 @@ True if C<$thing> is a mask.
 
 Returns the wrapped object (building it if needed) for a mask, or C<$thing>
 unchanged otherwise.
+
+=item $bool = literal_write_value($val)
+
+True when a write value (an insert/update/cas/upsert column value) is an
+intentional SQL literal rather than data to bind: a scalar ref of SQL such
+as C<\'NOW()'>, or an arrayref whose first element is a scalar ref of SQL
+plus its bind values such as C<[\'col + ?', $n]>. Everything else (plain
+scalars, C<undef>, hashrefs, plain arrayrefs, blessed objects) is data.
 
 =back
 

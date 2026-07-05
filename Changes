@@ -1,6 +1,7 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - JSON type deflation no longer requires an affinity argument and encodes the value directly.
     - The cached row manager now amortizes a sweep of dead cache entries, so a workload that inserts an unending stream of distinct primary keys no longer grows memory unbounded.
     - A statement handle that outlives a connection reconnect no longer croaks when it finalizes: clearing an async/aside/fork entry from a registry that reconnect wiped is now a silent no-op.
     - A forked write whose child fails now warns from its destructor instead of throwing an exception out of it.

@@ -62,7 +62,7 @@ sub qorm_deflate {
     my $params = parse_conflate_args(@_);
     my $val    = $params->{value};
     return undef unless defined $val;
-    my $class  = $params->{class} // __PACKAGE__;
+    my $class = $params->{class} // __PACKAGE__;
 
     if (blessed($val) && !$val->can('TO_JSON')) {
         my $r = reftype($val) // '';
