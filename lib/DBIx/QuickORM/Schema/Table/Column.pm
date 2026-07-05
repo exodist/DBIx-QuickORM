@@ -132,6 +132,8 @@ sub init {
 
     croak "A 'name' is a required${debug}"           unless $self->{+NAME};
     croak "Column must have an order number${debug}" unless $self->{+ORDER};
+    croak "'$self->{+AFFINITY}' is not a valid affinity${debug}"
+        if $self->{+AFFINITY} && !validate_affinity($self->{+AFFINITY});
 }
 
 =pod
@@ -179,7 +181,7 @@ sub affinity {
 
     croak "'$type' is not a valid type${debug}" unless $type->DOES('DBIx::QuickORM::Role::Type');
 
-    return $self->{+AFFINITY} = $type->qorm_affinity(column => $self, dialect => $dialect);
+    return $type->qorm_affinity(column => $self, dialect => $dialect);
 }
 
 =pod
