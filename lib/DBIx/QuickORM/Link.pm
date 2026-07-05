@@ -143,6 +143,7 @@ sub merge {
         unless $self->{+KEY} eq $other->{+KEY};
 
     my $new = {%$self, %$other};
+    $new->{+UNIQUE} = ($self->{+UNIQUE} || $other->{+UNIQUE}) ? 1 : 0;
 
     $new->{+CREATED} = $self->{+CREATED};
     if ($new->{+CREATED}) {
@@ -181,7 +182,7 @@ sub clone {
 
     my $out = blessed($self)->new(%$self, %params);
     delete $out->{+COMPILED};
-    delete $out->{+CREATED};
+    delete $out->{+CREATED} unless exists $params{+CREATED};
 
     return $out;
 }
@@ -240,6 +241,8 @@ sub parse {
     my $fields = delete $link->{fields};
     my $local_columns = delete $link->{+LOCAL_COLUMNS} // delete $link->{local_fields} // delete $link->{local};
     my $other_columns = delete $link->{+OTHER_COLUMNS} // delete $link->{other_fields} // delete $link->{other};
+    my $unique = delete $link->{+UNIQUE};
+    my $aliases = delete $link->{+ALIASES};
 
     my @keys = keys %$link;
     if (@keys == 1) {
@@ -283,8 +286,11 @@ sub parse {
     croak "expected an arrayref in 'local_columns' got '$local_columns'" unless ref($local_columns) eq 'ARRAY' && @$local_columns;
     croak "expected an arrayref in 'other_columns' got '$other_columns'" unless ref($other_columns) eq 'ARRAY' && @$other_columns;
 
-    my $unique = $link->{+UNIQUE};
-    $unique //= $other->unique->{column_key(@$other_columns)} ? 1 : 0 if $other;
+    if (!defined($unique) && $other) {
+        my $key    = column_key(@$other_columns);
+        my $pk_key = $other->primary_key ? column_key(@{$other->primary_key}) : undef;
+        $unique = ($other->unique->{$key} || (defined($pk_key) && $pk_key eq $key)) ? 1 : 0;
+    }
     croak "'unique' not defined, and no schema provided to check" unless defined $unique;
 
     return $class->new(
@@ -293,6 +299,7 @@ sub parse {
         LOCAL_COLUMNS() => $local_columns,
         OTHER_COLUMNS() => $other_columns,
         UNIQUE()        => $unique,
+        ALIASES()       => $aliases // [],
     );
 }
 

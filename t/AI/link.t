@@ -77,6 +77,9 @@ subtest clone => sub {
     my $over = $orig->clone(local_columns => ['x']);
     is($over->local_columns, ['x'], "clone applies overrides");
     is($over->key, column_key('x'), "clone recomputes key from overridden columns");
+
+    my $with_created = $orig->clone(created => 'override');
+    is($with_created->created, 'override', "clone honors an explicit created override");
 };
 
 subtest merge => sub {
@@ -86,6 +89,11 @@ subtest merge => sub {
     my $m = $a->merge($b);
     is($m->aliases, ['author', 'writer'], "merge combines aliases from both links");
     is($m->created, 'A, B', "merge combines created notes");
+    ok($m->unique, "merge preserves unique when both links are unique");
+
+    my $alias = $a->merge(link_obj(unique => 0, aliases => ['declared'], created => 'D'));
+    ok($alias->unique, "merge preserves unique when only one side is unique");
+    is($alias->aliases, ['author', 'declared'], "merge still combines aliases when uniqueness differs");
 
     is($a->aliases, ['author'], "merge does not mutate the first link's aliases");
     is($b->aliases, ['writer'], "merge does not mutate the second link's aliases");
@@ -141,11 +149,33 @@ subtest parse_hash_spec => sub {
     });
     is($non_unique->unique, 0, "unique inferred false: other side is not unique");
 
+    my $pk_only = DBIx::QuickORM::Schema::Table->new(
+        name        => 'pk_only',
+        columns     => {id => col('id', 1)},
+        primary_key => ['id'],
+    );
+    my $pk_schema = DBIx::QuickORM::Schema->new(name => 'pk', tables => {posts => $posts, pk_only => $pk_only});
+    my $pk_link = DBIx::QuickORM::Link->parse($pk_schema, {
+        local_table => 'posts', other_table => 'pk_only',
+        local => ['user_id'], other => ['id'],
+    });
+    is($pk_link->unique, 1, "unique inferred true when other side is the primary key");
+
     my $single = DBIx::QuickORM::Link->parse($schema, {local_table => 'posts', users => ['user_id']});
     is($single->local_table, 'posts', "single-key hash form: local_table");
     is($single->other_table, 'users', "single-key hash form infers other_table from the key");
     is($single->local_columns, ['user_id'], "single-key hash form fills local_columns");
     is($single->other_columns, ['user_id'], "single-key hash form fills other_columns");
+
+    my $single_with_options = DBIx::QuickORM::Link->parse($schema, {
+        local_table => 'posts',
+        users       => ['user_id'],
+        unique      => 0,
+        aliases     => ['author'],
+    });
+    is($single_with_options->other_table, 'users', "single-key hash form ignores option keys when finding the other table");
+    is($single_with_options->unique, 0, "single-key hash form keeps an explicit unique option");
+    is($single_with_options->aliases, ['author'], "single-key hash form keeps aliases");
 };
 
 subtest parse_rejects_scalar_ref => sub {
