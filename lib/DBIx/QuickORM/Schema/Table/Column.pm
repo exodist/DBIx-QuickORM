@@ -20,6 +20,7 @@ use Object::HashBase qw{
     <nullable
     <identity
     <generated
+    <volatile
     +affinity
     <type
     <created
@@ -182,6 +183,21 @@ sub affinity {
 
     return $type->qorm_affinity(column => $self, dialect => $dialect);
 }
+
+=pod
+
+=item $col->mark_volatile
+
+=item $col->clear_volatile
+
+Set or clear the column's volatile flag. Used by schema introspection (e.g. to
+flag a column a trigger modifies, or to clear an inherited flag from a view
+column, which is never written through).
+
+=cut
+
+sub mark_volatile  { $_[0]->{+VOLATILE} = 1 }
+sub clear_volatile { delete $_[0]->{+VOLATILE}; return }
 
 =pod
 
