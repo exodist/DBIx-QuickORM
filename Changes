@@ -1,6 +1,8 @@
 {{$NEXT}}
 
     Bug Fixes:
+    - Table merges now croak when column aliasing would map two database columns to one ORM field instead of silently dropping one.
+    - Columns declared with type class names now keep using those classes for field inflate/deflate.
     - SQL type affinity detection now recognizes PostgreSQL int/float aliases and DuckDB unsigned and huge integer types as numeric.
     - Column affinity validation now rejects invalid explicit affinities and avoids caching dialect-dependent type-object affinities across dialects.
     - JSON deflate no longer dies on top-level booleans and now honors TO_JSON for blessed values.

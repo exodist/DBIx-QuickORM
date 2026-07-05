@@ -396,6 +396,7 @@ sub field_type {
     my $col = $self->_column($field) or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
     my $type = $col->type or return undef;
     return $type if ref($type) && blessed($type) && $type->DOES('DBIx::QuickORM::Role::Type');
+    return $type if !ref($type) && $type->DOES('DBIx::QuickORM::Role::Type');
     return undef;
 }
 
@@ -497,6 +498,9 @@ sub _rekey_columns {
     for my $key (keys %$cols) {
         my $col = $cols->{$key};
         my $orm = $db_to_orm->{$col->db_name} // $key;
+        if (my $other = $out{$orm}) {
+            croak "Columns with database names '" . $other->db_name . "' and '" . $col->db_name . "' both map to ORM column '$orm'";
+        }
         $out{$orm} = $col;
     }
 
