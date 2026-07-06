@@ -7,6 +7,7 @@ our $VERSION = '0.000028';
 use Data::Dumper;
 use Scalar::Util qw/blessed/;
 use Carp qw/croak confess/;
+use Role::Tiny ();
 
 # Module::Pluggable installs a public search_path sub into this package. Alias
 # it to the internal _find_paths name and delete it from the package stash so
@@ -192,7 +193,7 @@ sub parse_conflate_args {
     my ($proto, %params);
     $proto = shift if @_ % 2;
 
-    if ((blessed($_[0]) || !ref($_[0])) && @_ > 1 && eval { $_[0]->does('DBIx::QuickORM::Role::Type') ? 1 : 0 }) {
+    if (@_ > 1 && defined($_[0]) && Role::Tiny::does_role($_[0], 'DBIx::QuickORM::Role::Type')) {
         # A type class name OR a blessed type instance followed by a value:
         # $Type->qorm_inflate($raw) and $instance->qorm_inflate($raw) both mean
         # (class/instance => class, value => $raw).

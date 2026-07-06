@@ -10,6 +10,7 @@ $Carp::Internal{ (__PACKAGE__) }++;
 
 use Sub::Util qw/set_subname/;
 use Scalar::Util qw/blessed/;
+use Role::Tiny ();
 
 use DBIx::QuickORM::Schema::Autofill();
 
@@ -1047,7 +1048,7 @@ sub column {
                 my $arg = shift @$extra;
                 local $@;
                 if (blessed($arg)) {
-                    if ($arg->DOES('DBIx::QuickORM::Role::Type')) {
+                    if (Role::Tiny::does_role($arg, 'DBIx::QuickORM::Role::Type')) {
                         $meta->{type} = $arg;
                     }
                     else {
@@ -1084,7 +1085,7 @@ sub column {
                     $meta->{affinity} = $arg;
                 }
                 elsif (my $class = load_class($arg, 'DBIx::QuickORM::Type')) {
-                    croak "Class '$class' does not implement DBIx::QuickORM::Role::Type" unless $class->DOES('DBIx::QuickORM::Role::Type');
+                    croak "Class '$class' does not implement DBIx::QuickORM::Role::Type" unless Role::Tiny::does_role($class, 'DBIx::QuickORM::Role::Type');
                     $meta->{type} = $class;
                 }
                 else {
@@ -1161,7 +1162,7 @@ sub _check_type {
 
     return $type if ref($type) eq 'SCALAR';
     return undef if ref($type);
-    return $type if $type->DOES('DBIx::QuickORM::Role::Type');
+    return $type if Role::Tiny::does_role($type, 'DBIx::QuickORM::Role::Type');
 
     my $class = load_class($type, 'DBIx::QuickORM::Type') or return undef;
     return $class;
