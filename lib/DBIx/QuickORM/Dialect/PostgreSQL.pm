@@ -726,14 +726,18 @@ sub _search_path_schemas {
 
 =item $affinity_or_undef = $dialect->_affinity_from_native_type($type)
 
-Resolve an affinity for a user-defined PostgreSQL type that the generic driver
-catalog does not list. An enum stores and compares as its label string, so it
-maps to C<string>; a domain inherits the affinity of the base type it wraps;
-anything else falls back to the type's C<pg_type> category (numeric, boolean, or
-string). Returns undef when the name is not a resolvable type in the connection's
-search path, letting the caller warn and default. This is what keeps an enum
-column (e.g. a C<color> enum) from tripping the "unrecognized type" warning
-during introspection.
+Resolve an affinity for a PostgreSQL type the generic driver catalog does not
+list. An enum stores and compares as its label string, so it maps to C<string>;
+a domain inherits the affinity of the base type it wraps; otherwise the type's
+C<pg_type> category decides. Only categories whose values DBD::Pg returns as a
+plain scalar are resolved -- numeric, boolean, string, date/time, range (and
+multirange), network, and geometric -- so string affinity's C<eq> comparison is
+valid. Array, composite, and unknown/extension types are deliberately left
+unresolved (an array comes back as an arrayref, which no scalar affinity can
+compare), so they fall through to the warning that prompts a proper C<Type>.
+Returns undef when the name is not a resolvable type, letting the caller warn and
+default. This keeps enum, range, C<inet>, and geometric columns from tripping the
+"unrecognized type" warning during introspection.
 
 =cut
 
@@ -759,8 +763,23 @@ sub _affinity_from_native_type {
     # is belt-and-suspenders for callers that hand us the domain name directly.)
     return $self->affinity_from_db_type($base) if $typtype eq 'd' && defined($base) && length $base;
 
-    # Otherwise lean on the type's broad pg_type category.
-    my %BY_CATEGORY = (N => 'numeric', B => 'boolean', S => 'string', D => 'string');
+    # Otherwise lean on the type's broad pg_type category. Only categories whose
+    # values DBD::Pg hands back as a plain scalar string (so string affinity's eq
+    # comparison is correct) are resolved here: numeric, boolean, string, date/
+    # time, range/multirange (R), network address (I), and geometric (G) all
+    # fetch as scalars. Array (A) is intentionally NOT mapped -- DBD::Pg expands
+    # arrays to arrayrefs, which no scalar affinity can compare -- so an array
+    # column falls through to the warning, prompting a proper Type. Composite (C)
+    # and the user/extension grab-bag (U) likewise fall through.
+    my %BY_CATEGORY = (
+        N => 'numeric',    # numeric
+        B => 'boolean',    # boolean
+        S => 'string',     # string
+        D => 'string',     # date/time
+        R => 'string',     # range / multirange
+        I => 'string',     # network address (inet/cidr/macaddr)
+        G => 'string',     # geometric (point/line/box/...)
+    );
     return $BY_CATEGORY{$typcategory // ''};
 }
 
@@ -769,10 +788,12 @@ sub _affinity_from_native_type {
 =item ($typtype, $typcategory, $base_name) = $dialect->_pg_type_info($type)
 
 Look a type name up in C<pg_type>, scoped to the connection's search-path
-schemas (first match in search-path order wins, mirroring PostgreSQL's own
-unqualified-name resolution). Returns the type's C<typtype> and C<typcategory>
+schemas plus C<pg_catalog> (where the built-in range/network/geometric types
+live). First match in search-path order wins, with C<pg_catalog> last, so a
+user-defined type shadows a built-in of the same name, mirroring PostgreSQL's own
+unqualified-name resolution. Returns the type's C<typtype> and C<typcategory>
 plus, for a domain, the name of the base type it wraps. Returns an empty list
-when the name is not found in the search path.
+when the name is not found.
 
 =cut
 
@@ -782,10 +803,16 @@ sub _pg_type_info {
 
     my $dbh = $self->dbh or return ();
 
-    my $schemas = $self->_search_path_schemas;
-    return () unless $schemas && @$schemas;
+    # Look in the search-path schemas (user-defined types such as enums live
+    # there) and also in pg_catalog, where the built-in types the driver catalog
+    # did not list -- ranges, network, and geometric types -- are defined.
+    # _search_path_schemas drops pg_catalog (correct for table introspection),
+    # so add it back here at the lowest priority: a user type shadows a built-in
+    # of the same name, matching how PostgreSQL resolves unqualified names.
+    my @schemas = (@{$self->_search_path_schemas}, 'pg_catalog');
+    return () unless @schemas;
 
-    my $in  = join(', ' => ('?') x @$schemas);
+    my $in  = join(', ' => ('?') x @schemas);
     my $sth = $dbh->prepare(<<"    EOT");
         SELECT t.typtype, t.typcategory, bt.typname AS base_name, n.nspname
           FROM pg_catalog.pg_type      t
@@ -794,10 +821,10 @@ sub _pg_type_info {
          WHERE t.typname = ?
            AND n.nspname IN ($in)
     EOT
-    $sth->execute($tname, @$schemas);
+    $sth->execute($tname, @schemas);
 
     my %rank;
-    @rank{@$schemas} = (1 .. @$schemas);
+    @rank{@schemas} = (1 .. @schemas);
 
     my $best;
     while (my $row = $sth->fetchrow_hashref) {

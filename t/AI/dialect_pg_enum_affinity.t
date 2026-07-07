@@ -1,11 +1,15 @@
 use Test2::V0 '!meta', '!pass';
 use lib 't/lib';
 
-# A PostgreSQL enum is a user-defined type: information_schema reports the column
-# as data_type 'USER-DEFINED' with the enum's name as udt_name, and the generic
-# driver type catalog does not list it. The dialect resolves such types from
-# pg_type (enum -> string affinity) so introspection does not fall through to the
-# "unrecognized type" warning.
+# PostgreSQL types the generic driver catalog does not list are resolved from
+# pg_type during introspection:
+#  - an enum (a user-defined type, reported as data_type 'USER-DEFINED') maps to
+#    string affinity, and a domain inherits its base type's affinity;
+#  - built-in scalar types the name-map lacks -- ranges, network, geometric --
+#    also resolve to string (they come back from DBD::Pg as scalar strings), so
+#    they no longer trip the "unrecognized type" warning;
+#  - an array is deliberately left to warn: DBD::Pg expands it to an arrayref,
+#    which string affinity's eq cannot compare, so it needs a proper Type.
 
 BEGIN {
     skip_all "DBD::Pg is required for these tests"
@@ -25,7 +29,11 @@ my $db = psql() or skip_all "Could not provision a PostgreSQL database";
             id    SERIAL PRIMARY KEY,
             shade color        NOT NULL DEFAULT 'red',
             rank  positive_int,
-            label TEXT
+            label TEXT,
+            net   inet,
+            spot  point,
+            span  int4range,
+            tags  integer[]
         )
     EOT
     $dbh->disconnect;
@@ -44,15 +52,24 @@ my $con;
     $con->schema;
 }
 
-my $swatches = $con->schema->table('swatches');
+my $s = $con->schema->table('swatches');
 
-is($swatches->column('shade')->affinity, 'string',  "enum column resolves to string affinity");
-is(${$swatches->column('shade')->type},  'color',   "enum column keeps its database type name");
-is($swatches->column('rank')->affinity,  'numeric', "domain-over-integer column resolves to numeric affinity");
-is($swatches->column('label')->affinity, 'string',  "plain text column resolves to string affinity");
+is($s->column('shade')->affinity, 'string',  "enum column resolves to string affinity");
+is(${$s->column('shade')->type},  'color',   "enum column keeps its database type name");
+is($s->column('rank')->affinity,  'numeric', "domain-over-integer column resolves to numeric affinity");
+is($s->column('label')->affinity, 'string',  "plain text column resolves to string affinity");
+is($s->column('net')->affinity,   'string',  "inet (network) column resolves to string affinity");
+is($s->column('spot')->affinity,  'string',  "point (geometric) column resolves to string affinity");
+is($s->column('span')->affinity,  'string',  "int4range (range) column resolves to string affinity");
 
 my @type_warnings = grep { /does not recognize the database type/ } @warnings;
-is(\@type_warnings, [], "no unrecognized-type warning for a resolvable enum/domain")
-    or diag("unexpected warnings: @type_warnings");
+
+my @scalar_warned = grep { /'(?:color|inet|point|int4range)'/ } @type_warnings;
+is(\@scalar_warned, [], "enum/domain/range/network/geometric types resolve without a warning")
+    or diag("unexpected warnings: @scalar_warned");
+
+ok((grep { /'_int4'/ } @type_warnings),
+    "an array column still warns (DBD::Pg returns an arrayref; it needs a Type)")
+    or diag("array warning missing; got: @type_warnings");
 
 done_testing;
