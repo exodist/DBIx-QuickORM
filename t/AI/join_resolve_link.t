@@ -1,4 +1,6 @@
-use Test2::V0 '!meta', '!pass';
+# '!L': this test defines its own L() helper for Link objects, which would
+# otherwise clash with Test2::Tools::Compare's exported L() (array-check builder).
+use Test2::V0 '!meta', '!pass', '!L';
 
 # Regression: resolving links against a Join.
 #  B2: Join::links mixes links from every component table. Two components that

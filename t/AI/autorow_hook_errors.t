@@ -21,11 +21,18 @@ close $g;
 
 push @INC, $dir;
 
-like(
-    dies { DBIx::QuickORM->_autorow_hook('MyBroken::Base', undef, 'x') },
-    qr/Array found where operator expected|valid perl|syntax/i,
-    "a base class that fails to compile rethrows instead of silently using the stock Row",
-);
+# The broken base is deliberately invalid Perl, so compiling it emits a warning
+# to STDERR in addition to the fatal error we assert on. Trap the warning so it
+# does not pollute the test's STDERR; the death (not the warning) is the point.
+my @compile_warnings;
+{
+    local $SIG{__WARN__} = sub { push @compile_warnings, @_ };
+    like(
+        dies { DBIx::QuickORM->_autorow_hook('MyBroken::Base', undef, 'x') },
+        qr/Array found where operator expected|valid perl|syntax/i,
+        "a base class that fails to compile rethrows instead of silently using the stock Row",
+    );
+}
 
 ok(
     lives { DBIx::QuickORM->_autorow_hook('MyTotally::Absent::Base', undef, 'x') },

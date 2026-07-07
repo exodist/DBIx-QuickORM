@@ -1,4 +1,6 @@
-use Test2::V0 '!meta', '!pass';
+# '!L': this test defines its own L() helper for Link objects, which would
+# otherwise clash with Test2::Tools::Compare's exported L() (array-check builder).
+use Test2::V0 '!meta', '!pass', '!L';
 
 # Regression tests for Join field/alias resolution:
 #  B5: a bare (unqualified) field present in more than one component must be a
