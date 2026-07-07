@@ -675,9 +675,16 @@ sub _apply_trigger_volatility {
         for my $t (@triggers) {
             $affected{$_} = 1 for $self->_columns_set_by_trigger($t->{body}, \%cols);
         }
-        $cols{$_}->mark_volatile for grep { $cols{$_} } keys %affected;
 
-        $self->_warn_trigger_volatility($tname);
+        my @marked = grep { $cols{$_} } keys %affected;
+        $cols{$_}->mark_volatile for @marked;
+
+        # Only warn when the best-effort parse could not name a single column the
+        # trigger sets: then a written column really might hold a stale value and
+        # the user needs to mark it volatile (or assert no_volatile). When the
+        # parse did resolve columns we have already marked them volatile, so there
+        # is nothing left to warn about.
+        $self->_warn_trigger_volatility($tname) unless @marked;
     }
 
     return;
