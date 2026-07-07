@@ -646,10 +646,6 @@ sub txn {
         on_completion => $params{on_completion},
     );
 
-    # The transaction weakens its own connection back-reference in its
-    # constructor (the connection holds its transactions weakly in turn, so there
-    # is no strong cycle).
-
     $self->_txn_attach_relative_callbacks($txn, \%params);
 
     push @{$txns} => $txn;
