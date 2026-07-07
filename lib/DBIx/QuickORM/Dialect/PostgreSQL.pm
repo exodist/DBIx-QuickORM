@@ -724,6 +724,93 @@ sub _search_path_schemas {
 
 =pod
 
+=item $affinity_or_undef = $dialect->_affinity_from_native_type($type)
+
+Resolve an affinity for a user-defined PostgreSQL type that the generic driver
+catalog does not list. An enum stores and compares as its label string, so it
+maps to C<string>; a domain inherits the affinity of the base type it wraps;
+anything else falls back to the type's C<pg_type> category (numeric, boolean, or
+string). Returns undef when the name is not a resolvable type in the connection's
+search path, letting the caller warn and default. This is what keeps an enum
+column (e.g. a C<color> enum) from tripping the "unrecognized type" warning
+during introspection.
+
+=cut
+
+sub _affinity_from_native_type {
+    my $self = shift;
+    my ($name) = @_;
+
+    my $tname = $self->_normalize_type_name($name);
+    return undef unless length $tname;
+
+    # information_schema reports 'USER-DEFINED' as a column's data_type; it is a
+    # placeholder, never a pg_type name, so do not bother the catalog with it.
+    return undef if $tname eq 'user-defined';
+
+    my ($typtype, $typcategory, $base) = $self->_pg_type_info($tname);
+    return undef unless defined $typtype;
+
+    # Enum: values are stored and compared as their label strings.
+    return 'string' if $typtype eq 'e';
+
+    # Domain: inherits the affinity of the base type it constrains. (In practice
+    # information_schema already reports a domain column as its base type, so this
+    # is belt-and-suspenders for callers that hand us the domain name directly.)
+    return $self->affinity_from_db_type($base) if $typtype eq 'd' && defined($base) && length $base;
+
+    # Otherwise lean on the type's broad pg_type category.
+    my %BY_CATEGORY = (N => 'numeric', B => 'boolean', S => 'string', D => 'string');
+    return $BY_CATEGORY{$typcategory // ''};
+}
+
+=pod
+
+=item ($typtype, $typcategory, $base_name) = $dialect->_pg_type_info($type)
+
+Look a type name up in C<pg_type>, scoped to the connection's search-path
+schemas (first match in search-path order wins, mirroring PostgreSQL's own
+unqualified-name resolution). Returns the type's C<typtype> and C<typcategory>
+plus, for a domain, the name of the base type it wraps. Returns an empty list
+when the name is not found in the search path.
+
+=cut
+
+sub _pg_type_info {
+    my $self = shift;
+    my ($tname) = @_;
+
+    my $dbh = $self->dbh or return ();
+
+    my $schemas = $self->_search_path_schemas;
+    return () unless $schemas && @$schemas;
+
+    my $in  = join(', ' => ('?') x @$schemas);
+    my $sth = $dbh->prepare(<<"    EOT");
+        SELECT t.typtype, t.typcategory, bt.typname AS base_name, n.nspname
+          FROM pg_catalog.pg_type      t
+          JOIN pg_catalog.pg_namespace n  ON n.oid = t.typnamespace
+     LEFT JOIN pg_catalog.pg_type      bt ON bt.oid = t.typbasetype
+         WHERE t.typname = ?
+           AND n.nspname IN ($in)
+    EOT
+    $sth->execute($tname, @$schemas);
+
+    my %rank;
+    @rank{@$schemas} = (1 .. @$schemas);
+
+    my $best;
+    while (my $row = $sth->fetchrow_hashref) {
+        next if $best && $rank{$best->{nspname}} <= $rank{$row->{nspname}};
+        $best = $row;
+    }
+
+    return () unless $best;
+    return ($best->{typtype}, $best->{typcategory}, $best->{base_name});
+}
+
+=pod
+
 =item $schema_or_undef = $dialect->_table_schema($table)
 
 The first schema in C<search_path> order that contains the named table, or

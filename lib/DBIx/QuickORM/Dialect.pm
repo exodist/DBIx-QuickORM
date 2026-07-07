@@ -408,11 +408,13 @@ Per-table introspection helpers. Stubs; subclasses override.
 Resolve a storage affinity for a database column type during introspection.
 Tries the static type-name map first (the fast, authoritative path); on a miss,
 consults the database's own type catalog to turn the name into a numeric SQL
-type code and maps that code to an affinity, caching the result. When even the
-catalog does not recognize the type, warns once (asking for a ticket so the type
-can be added) and defaults to C<string>. Always returns a defined affinity.
-Accepts more than one candidate name (e.g. a driver's concrete and standard
-names) and tries each in turn.
+type code and maps that code to an affinity; on a further miss, gives the
+dialect a chance to resolve the name from its own system catalogs (see
+C<_affinity_from_native_type>, which the PostgreSQL dialect uses for enums and
+other user-defined types). The result is cached. When nothing recognizes the
+type, warns once (asking for a ticket so the type can be added) and defaults to
+C<string>. Always returns a defined affinity. Accepts more than one candidate
+name (e.g. a driver's concrete and standard names) and tries each in turn.
 
 =item $bool = $dialect->column_is_volatile_by_metadata(\%col, default => $raw, on_update => $bool)
 
@@ -487,7 +489,17 @@ sub affinity_from_db_type {
         return $cache->{$key} = $aff;
     }
 
-    # 3. Unknown even to the database catalog: warn once, default to string.
+    # 3. Dialect-native type catalog. The generic driver catalog above does not
+    #    list a database's user-defined types (e.g. a PostgreSQL enum), so a
+    #    dialect that can resolve those from its own system catalogs gets a shot
+    #    before we give up. Base classes return undef; the PostgreSQL dialect
+    #    overrides this.
+    for my $name (@names) {
+        my $aff = $self->_affinity_from_native_type($name) // next;
+        return $cache->{$key} = $aff;
+    }
+
+    # 4. Unknown even to the database catalog: warn once, default to string.
     $self->_warn_unknown_type($names[0]);
     return $cache->{$key} = 'string';
 }
@@ -543,6 +555,14 @@ SQL type code, derived from the driver's C<type_info_all> catalog.
 
 The numeric SQL type code for a type name from the driver's catalog, or undef
 when the driver does not list it.
+
+=item $affinity_or_undef = $dialect->_affinity_from_native_type($type)
+
+Resolve an affinity for a type the generic driver catalog does not list, using
+the dialect's own system catalogs. The base implementation returns undef (no
+native resolution); the PostgreSQL dialect overrides it to resolve user-defined
+types such as enums. Called by C<affinity_from_db_type> as a last step before
+warning and defaulting to C<string>.
 
 =item $dialect->_warn_unknown_type($type)
 
@@ -617,6 +637,8 @@ sub _sql_type_code_for {
     my ($name) = @_;
     return $self->_type_code_map->{$self->_normalize_type_name($name)};
 }
+
+sub _affinity_from_native_type { my $self = shift; return undef }
 
 sub _warn_unknown_type {
     my $self = shift;
