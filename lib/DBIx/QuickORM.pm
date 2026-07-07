@@ -1640,6 +1640,65 @@ With this ORM builder you can specify:
 
 =back
 
+=head1 EARLY DEVELOPMENT NOTICE
+
+It is important to note that if you use DBIx::QuickORM currently you will be an
+early adopter. The userbase is still small, so a lot has not been battle
+tested. Also with a small userbase I still feel free to try a few things out
+and make breaking changes. This will change if enough people indicate active
+use of this project. Once it has an active userbase it will stabilize and
+breaking changes will require good reason. Also with active users come bug
+reports that will help make the project more robust.
+
+=head2 NOTES ON AI USE IN THIS PROJECT
+
+=head3 HUMAN WRITTEN FROM THE START
+
+This project was initially entirely human authored for ~2 years. Most of the
+code is still human written.
+
+Recently AI/LLM has been leveraged to find bugs and write some missing
+documentation.
+
+Some partially implemented features have also been completed with AI/LLM
+assistance.
+
+=head3 AI/LLM IS ALLOWED
+
+I will not police what tools contributors use to write and submit their
+contributions, this includes AI/LLM. I will however verify quality of any and
+all submissions.
+
+I expect all PRs, bug reports, and feature requests to be:
+
+=over 4
+
+=item Reasonably sized
+
+Nobody likes a wall of text or code that takes forever to read.
+
+=item Human Reviewable
+
+If a human (usually me) cannot read, digest, and understand the review, it will
+not be merged. I may delegate this to other trusted DBIx::QuickORM contributors
+who have a proven track record.
+
+=item Understood by the one submitting them
+
+For a PR you MUST understand what you are submitting, full stop.
+
+For bug reports it is ok to report a bug that is affecting you, even if you do
+not understand the bug. Usually bugs come from misunderstanding, so this bullet
+point is largely about code submissions.
+
+=item Documentation must not be in "the uncanny valley"
+
+AI Authored documentation is fine, as long as it can be read and understood
+easily. A lot of AI documentation can look good on the surface, but be utterly
+perplexing when a human reads it, which is not acceptable.
+
+=back
+
 =head1 DOCUMENTATION
 
 The best place to start is L<DBIx::QuickORM::Manual::QuickStart>, which walks
