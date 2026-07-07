@@ -6,12 +6,11 @@ our $VERSION = '0.000028';
 
 use DBIx::QuickORM::Util qw/parse_conflate_args/;
 
-use Carp qw/croak/;
-use Scalar::Util qw/reftype blessed/;
+use Scalar::Util qw/blessed reftype/;
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Type';
 
-use Cpanel::JSON::XS qw/decode_json/;
+use Cpanel::JSON::XS();
 
 =pod
 
@@ -56,21 +55,19 @@ sub qorm_inflate {
     my $class  = $params->{class} // __PACKAGE__;
 
     return $val if ref($val);
-    return decode_json($val);
+    return $class->JSON->decode($val);
 }
 
 sub qorm_deflate {
-    my $params   = parse_conflate_args(@_);
-    my $val      = $params->{value};
+    my $params = parse_conflate_args(@_);
+    my $val    = $params->{value};
     return undef unless defined $val;
-    my $affinity = $params->{affinity} or croak "Could not determine affinity";
-    my $class    = $params->{class} // __PACKAGE__;
+    my $class = $params->{class} // __PACKAGE__;
 
-    if (blessed($val)) {
+    if (blessed($val) && !$val->can('TO_JSON')) {
         my $r = reftype($val) // '';
         if    ($r eq 'HASH')  { $val = {%$val} }
         elsif ($r eq 'ARRAY') { $val = [@$val] }
-        else                  { die "Not sure what to do with $val" }
     }
 
     return $class->JSON->encode($val);

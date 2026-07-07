@@ -68,6 +68,18 @@ subtest affinity_from_type => sub {
     is(affinity_from_type('real'),             'numeric', "real -> numeric");
     is(affinity_from_type('serial'),           'numeric', "serial -> numeric");
     is(affinity_from_type('double precision'), 'numeric', "multi-word 'double precision' -> numeric");
+    is(affinity_from_type('smallint'),         'numeric', "smallint -> numeric");
+    is(affinity_from_type('int2'),             'numeric', "int2 -> numeric");
+    is(affinity_from_type('int4'),             'numeric', "int4 -> numeric");
+    is(affinity_from_type('int8'),             'numeric', "int8 -> numeric");
+    is(affinity_from_type('float4'),           'numeric', "float4 -> numeric");
+    is(affinity_from_type('float8'),           'numeric', "float8 -> numeric");
+    is(affinity_from_type('hugeint'),          'numeric', "hugeint -> numeric");
+    is(affinity_from_type('utinyint'),         'numeric', "utinyint -> numeric");
+    is(affinity_from_type('usmallint'),        'numeric', "usmallint -> numeric");
+    is(affinity_from_type('uinteger'),         'numeric', "uinteger -> numeric");
+    is(affinity_from_type('ubigint'),          'numeric', "ubigint -> numeric");
+    is(affinity_from_type('uhugeint'),         'numeric', "uhugeint -> numeric");
 
     # Date/Time map to string per the internal table.
     is(affinity_from_type('date'),        'string', "date -> string");
@@ -167,6 +179,17 @@ subtest compare_affinity_values => sub {
             "invalid affinity croaks",
         );
     };
+};
+
+subtest declared_type_affinity_names => sub {
+    # Regression: user-declared scalar-ref SQL types the audit named must
+    # resolve to an affinity instead of returning undef (which croaks at
+    # Column->affinity).
+    is(affinity_from_type('datetime'),              'string',  "datetime => string");
+    is(affinity_from_type('character'),             'string',  "character => string");
+    is(affinity_from_type('character varying'),     'string',  "character varying => string");
+    is(affinity_from_type('character varying(50)'), 'string',  "sized character varying => string");
+    is(affinity_from_type('smallserial'),           'numeric', "smallserial => numeric");
 };
 
 done_testing;

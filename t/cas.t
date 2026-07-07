@@ -170,7 +170,7 @@ do_for_all_dbs {
 
         # Poll without blocking, then read the outcome.
         my $lose = $h->row($row)->async->cas({revision => 999}, {revision => 3, name => 'never'});
-        Time::HiRes::sleep(0.001) until $lose->ready;
+        wait_ready($lose);
         ok(!$lose, "async cas lost");
         is($lose->count, 0, "async loss count 0");
         is($row->field('name'), 'async2', "row unchanged after async loss");
@@ -200,7 +200,8 @@ subtest cas_count_reliable_unit => sub {
     ok($d->cas_count_reliable({mysql_client_found_rows => 1}), "reliable when on");
     ok($d->cas_count_reliable({}), "reliable when unset (driver defaults on)");
     ok(!$d->cas_count_reliable({mysql_client_found_rows => 0}), "unreliable when explicitly off");
-    ok(!$d->cas_count_reliable({mariadb_found_rows => 0}), "unreliable when mariadb flag off");
+    ok(!$d->cas_count_reliable({mariadb_client_found_rows => 0}), "unreliable when mariadb flag off");
+    ok($d->cas_count_reliable({mariadb_found_rows => 0}), "unknown mariadb flag spelling is ignored");
 };
 
 done_testing;

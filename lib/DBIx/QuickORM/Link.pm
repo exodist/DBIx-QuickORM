@@ -5,6 +5,7 @@ use warnings;
 our $VERSION = '0.000028';
 
 use Carp qw/croak/;
+use List::Util qw/uniq/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/column_key/;
 
@@ -143,6 +144,7 @@ sub merge {
         unless $self->{+KEY} eq $other->{+KEY};
 
     my $new = {%$self, %$other};
+    $new->{+UNIQUE} = ($self->{+UNIQUE} || $other->{+UNIQUE}) ? 1 : 0;
 
     $new->{+CREATED} = $self->{+CREATED};
     if ($new->{+CREATED}) {
@@ -155,7 +157,7 @@ sub merge {
         $new->{+CREATED} = $other->{+CREATED};
     }
 
-    $new->{+ALIASES} = [@{$self->{+ALIASES} // []}, @{$other->{+ALIASES} // []}];
+    $new->{+ALIASES} = [uniq(@{$self->{+ALIASES} // []}, @{$other->{+ALIASES} // []})];
 
     return bless($new, blessed($self));
 }
@@ -181,7 +183,7 @@ sub clone {
 
     my $out = blessed($self)->new(%$self, %params);
     delete $out->{+COMPILED};
-    delete $out->{+CREATED};
+    delete $out->{+CREATED} unless exists $params{+CREATED};
 
     return $out;
 }
@@ -240,9 +242,11 @@ sub parse {
     my $fields = delete $link->{fields};
     my $local_columns = delete $link->{+LOCAL_COLUMNS} // delete $link->{local_fields} // delete $link->{local};
     my $other_columns = delete $link->{+OTHER_COLUMNS} // delete $link->{other_fields} // delete $link->{other};
+    my $unique = delete $link->{+UNIQUE};
+    my $aliases = delete $link->{+ALIASES};
 
     my @keys = keys %$link;
-    if (@keys == 1) {
+    if (@keys == 1 && !defined $other_table) {
         ($other_table) = @keys;
         my $val = delete $link->{$other_table};
 
@@ -265,7 +269,21 @@ sub parse {
         }
     }
 
-    $local_table //= $source ? $source->name : croak "No local_table or source provided";
+    # Drop link-object-internal keys a spec might carry, then reject anything
+    # genuinely unknown so a typo is surfaced rather than silently ignored or
+    # (with other_table already set) misread as the other-table name.
+    delete @{$link}{qw/key created compiled/};
+    croak "Unknown link specification key(s): " . join(', ', sort keys %$link)
+        if keys %$link;
+
+    unless (defined $local_table) {
+        croak "No local_table or source provided" unless $source;
+        # A Join source has no single local table, so it provides no name();
+        # tell the caller to be explicit rather than dying on a missing method.
+        croak "Cannot infer local_table from this source; pass local_table or from"
+            unless $source->can('name');
+        $local_table = $source->name;
+    }
     croak "no other_table provided" unless $other_table;
 
     my ($local, $other);
@@ -283,8 +301,11 @@ sub parse {
     croak "expected an arrayref in 'local_columns' got '$local_columns'" unless ref($local_columns) eq 'ARRAY' && @$local_columns;
     croak "expected an arrayref in 'other_columns' got '$other_columns'" unless ref($other_columns) eq 'ARRAY' && @$other_columns;
 
-    my $unique = $link->{+UNIQUE};
-    $unique //= $other->unique->{column_key(@$other_columns)} ? 1 : 0 if $other;
+    if (!defined($unique) && $other) {
+        my $key    = column_key(@$other_columns);
+        my $pk_key = $other->primary_key ? column_key(@{$other->primary_key}) : undef;
+        $unique = ($other->unique->{$key} || (defined($pk_key) && $pk_key eq $key)) ? 1 : 0;
+    }
     croak "'unique' not defined, and no schema provided to check" unless defined $unique;
 
     return $class->new(
@@ -293,6 +314,7 @@ sub parse {
         LOCAL_COLUMNS() => $local_columns,
         OTHER_COLUMNS() => $other_columns,
         UNIQUE()        => $unique,
+        ALIASES()       => $aliases // [],
     );
 }
 

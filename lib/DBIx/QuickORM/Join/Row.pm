@@ -235,9 +235,12 @@ by C<alias.field>.
 
 =item $bool = $row->is_invalid
 
+True if the corresponding condition holds for any sub-row.
+
 =item $bool = $row->is_valid
 
-True if the corresponding condition holds for any sub-row.
+True only when every sub-row is valid, so a join row that contains an
+invalidated sub-row is not reported as valid.
 
 =back
 
@@ -253,7 +256,7 @@ sub has_pending { $_[0]->_row_any(sub { $_->has_pending }) }
 sub in_storage  { $_[0]->_row_any(sub { $_->in_storage  }) }
 sub is_stored   { $_[0]->_row_any(sub { $_->is_stored   }) }
 sub is_invalid  { $_[0]->_row_any(sub { $_->is_invalid  }) }
-sub is_valid    { $_[0]->_row_any(sub { $_->is_valid    }) }
+sub is_valid    { $_[0]->_row_all(sub { $_->is_valid    }) }
 #>>>
 
 #####################
@@ -333,8 +336,25 @@ sub insert_or_save {
 sub force_sync { $_[0]->_row_map(sub {$b->force_sync}); $_[0] }
 sub discard    { $_[0]->_row_map(sub {$b->discard   }); $_[0] }
 sub refresh    { $_[0]->_row_map(sub {$b->refresh   }); $_[0] }
-sub save       { $_[0]->_row_map(sub {$b->save      }); $_[0] }
-sub delete     { $_[0]->_row_map(sub {$b->delete    }); $_[0] }
+sub save {
+    my $self = shift;
+    # Save foreign-key parents before children (deterministic, not hash order).
+    for my $as (@{$self->source->save_order}) {
+        my $row = $self->{+BY_ALIAS}->{$as} or next;
+        $row->save;
+    }
+    return $self;
+}
+
+sub delete {
+    my $self = shift;
+    # Delete children before parents (reverse of the save order).
+    for my $as (reverse @{$self->source->save_order}) {
+        my $row = $self->{+BY_ALIAS}->{$as} or next;
+        $row->delete;
+    }
+    return $self;
+}
 #>>>
 
 ############################
@@ -389,14 +409,29 @@ pulled from the relevant sub-rows.
 
 sub _split_field { split( /\./, (@_ ? $_[0] : $_), 2 ) }
 
+sub _subrow_field {
+    my $self = shift;
+    my ($method, $proto, @args) = @_;
+
+    my ($as, $f) = _split_field($proto);
+
+    # Unknown alias (typo or a bare proto with no alias) is a caller error;
+    # a known alias whose sub-row was dropped by fracture (a LEFT-JOIN miss
+    # where every column was NULL) is legitimately absent, so return undef.
+    croak "No subrow with alias '$as' in this join" unless $self->source->components->{$as};
+    my $sub = $self->{+BY_ALIAS}->{$as} or return undef;
+
+    return $sub->$method($f, @args);
+}
+
 #<<<
-sub field             { my $self = shift; my ($as, $f) = _split_field(shift); $self->{+BY_ALIAS}->{$as}->field($f, @_) }
-sub raw_field         { my $self = shift; my ($as, $f) = _split_field(shift); $self->{+BY_ALIAS}->{$as}->raw_field($f, @_) }
-sub stored_field      { my $self = shift; my ($as, $f) = _split_field(shift); $self->{+BY_ALIAS}->{$as}->stored_field($f, @_) }
-sub pending_field     { my $self = shift; my ($as, $f) = _split_field(shift); $self->{+BY_ALIAS}->{$as}->pending_field($f, @_) }
-sub raw_stored_field  { my $self = shift; my ($as, $f) = _split_field(shift); $self->{+BY_ALIAS}->{$as}->raw_stored_field($f, @_) }
-sub raw_pending_field { my $self = shift; my ($as, $f) = _split_field(shift); $self->{+BY_ALIAS}->{$as}->raw_pending_field($f, @_) }
-sub field_is_desynced { my $self = shift; my ($as, $f) = _split_field(shift); $self->{+BY_ALIAS}->{$as}->field_is_desynced($f, @_) }
+sub field             { my $self = shift; $self->_subrow_field(field             => @_) }
+sub raw_field         { my $self = shift; $self->_subrow_field(raw_field         => @_) }
+sub stored_field      { my $self = shift; $self->_subrow_field(stored_field      => @_) }
+sub pending_field     { my $self = shift; $self->_subrow_field(pending_field     => @_) }
+sub raw_stored_field  { my $self = shift; $self->_subrow_field(raw_stored_field  => @_) }
+sub raw_pending_field { my $self = shift; $self->_subrow_field(raw_pending_field => @_) }
+sub field_is_desynced { my $self = shift; $self->_subrow_field(field_is_desynced => @_) }
 #>>>
 
 #<<<

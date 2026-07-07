@@ -56,8 +56,8 @@ a dialect-specific conflict clause.
 
 =item $builder = DBIx::QuickORM::SQLBuilder::SQLAbstract->new(%args)
 
-Construct a builder. Forces C<SQL::Abstract>'s C<bindtype> to C<'columns'> so
-binds carry their field names.
+Construct a builder. Defaults C<SQL::Abstract>'s C<bindtype> to C<'columns'> so
+binds carry their field names; a caller-supplied C<bindtype> overrides it.
 
 =cut
 
@@ -107,13 +107,11 @@ BEGIN {
             if (blessed($source)) {
                 croak "'$source' does not implement the 'DBIx::QuickORM::Role::Source' role" unless $source->DOES('DBIx::QuickORM::Role::Source');
                 my $moniker = $source->source_db_moniker;
-                # Emit the FROM target verbatim. With quote_char set,
-                # SQL::Abstract would otherwise quote a plain-string moniker as
-                # a single identifier, corrupting literal-source subqueries
-                # ("( SELECT ... ) AS x") and join FROM fragments. A scalar ref
-                # is passed through as literal SQL; join monikers are already
-                # refs, so only wrap when one is not.
-                my $from = ref($moniker) ? $moniker : \$moniker;
+                # Table/view monikers are identifiers and must let
+                # SQL::Abstract quote them. Literal, join, and subquery
+                # monikers are already complete FROM fragments.
+                my $from = $moniker;
+                $from = \$moniker unless ref($moniker) || $source->isa('DBIx::QuickORM::Schema::Table');
                 ($stmt, @bind) = $self->$meth($from, @args);
             }
             else {
@@ -180,7 +178,10 @@ sub qorm_upsert {
 
     my $returning = "";
     my $statement = $sql->{statement};
-    $returning = $1 if $statement =~ s/\s+(returning.*)$//is;
+    # Only split off a trailing RETURNING clause if one was actually requested;
+    # otherwise a literal write value containing the word "returning" (on a
+    # dialect with no RETURNING support) would be mistaken for the clause.
+    ($statement, $returning) = ($1, $2) if $params{returning} && $statement =~ m/(.*)\s+(returning\b.*)\z/is;
 
     my $pk_db = [ map { $source->field_db_name($_) } @$pk ];
     my $dbh   = $params{dialect}->dbh;
@@ -211,8 +212,8 @@ sub qorm_upsert {
             next;
         }
 
-        my ($sql, @lits) = @$v;
-        push @inject => "$col = $$sql";
+        my ($lit_sql, @lits) = @$v;
+        push @inject => "$col = $$lit_sql";
         push @$binds => {field => $db_field, value => $_, type => 'field', param => $counter++} for @lits;
     }
     # When every field is part of the primary key there is nothing to update
@@ -222,7 +223,7 @@ sub qorm_upsert {
     # needs VALUES() so MySQL still reports the row via last_insert_id.
     unless (@inject) {
         my $col = $dbh->quote_identifier($pk_db->[0]);
-        push @inject => $conf =~ m/ON DUPLICATE KEY UPDATE/i ? "$col = VALUES($col)" : "$col = $col";
+        push @inject => $params{dialect}->upsert_noop_assignment($col);
     }
 
     $conf .= " " . join(', ' => @inject);
@@ -245,19 +246,41 @@ sub qorm_upsert {
 =item @args = $builder->_where_args(\%params)
 
 Translate the ORM parameter hash into the positional argument list the
-corresponding C<SQL::Abstract> method expects. Insert and delete confess on
-unsupported C<limit> / C<order_by> clauses.
+corresponding C<SQL::Abstract> method expects. Insert, update, and delete
+reject unsupported C<limit> / C<offset> / C<order_by> / C<distinct> clauses;
+C<where> rejects C<distinct>.
+
+=item $builder->_reject_unsupported_clauses($verb, \%params, @clauses)
+
+Confess (naming C<$verb>) for each of the named clauses that is present in
+C<%params>. Shared by the C<_*_args> helpers so the messages stay identical.
 
 =cut
+
+# Clause name => [ human description, whether presence is tested with defined() ].
+my %UNSUPPORTED_CLAUSE = (
+    limit    => ["a 'limit' clause",     1],
+    offset   => ["an 'offset' clause",   1],
+    order_by => ["an 'order_by' clause", 0],
+    distinct => ["'distinct' set",       0],
+);
+
+sub _reject_unsupported_clauses {
+    my $self = shift;
+    my ($verb, $params, @clauses) = @_;
+
+    for my $clause (@clauses) {
+        my $spec = $UNSUPPORTED_CLAUSE{$clause} or confess "Unknown clause '$clause'";
+        my $present = $spec->[1] ? defined($params->{$clause}) : $params->{$clause};
+        confess "$verb() with $spec->[0] is not currently supported" if $present;
+    }
+}
 
 sub _insert_args {
     my $self = shift;
     my ($params) = @_;
 
-    confess "insert() with a 'limit' clause is not currently supported"     if defined $params->{limit};
-    confess "insert() with an 'offset' clause is not currently supported"   if defined $params->{offset};
-    confess "insert() with an 'order_by' clause is not currently supported" if $params->{order_by};
-    confess "insert() with 'distinct' set is not currently supported"       if $params->{distinct};
+    $self->_reject_unsupported_clauses(insert => $params, qw/limit offset order_by distinct/);
 
     my $values = $params->{insert} // croak "'insert' is required";
     my $returning = $params->{returning};
@@ -271,12 +294,9 @@ sub _delete_args {
     my $self = shift;
     my ($params) = @_;
 
-    confess "delete() with a 'limit' clause is not currently supported"     if defined $params->{limit};
-    confess "delete() with an 'offset' clause is not currently supported"   if defined $params->{offset};
-    confess "delete() with an 'order_by' clause is not currently supported" if $params->{order_by};
-    confess "delete() with 'distinct' set is not currently supported"       if $params->{distinct};
+    $self->_reject_unsupported_clauses(delete => $params, qw/limit offset order_by distinct/);
 
-    my $where = $params->{where} // undef;
+    my $where = $params->{where};
     my $returning = $params->{returning};
 
     return ($where, $returning ? {returning => $returning} : ());
@@ -286,10 +306,7 @@ sub _update_args {
     my $self = shift;
     my ($params) = @_;
 
-    confess "update() with a 'limit' clause is not currently supported"     if defined $params->{limit};
-    confess "update() with an 'offset' clause is not currently supported"   if defined $params->{offset};
-    confess "update() with an 'order_by' clause is not currently supported" if $params->{order_by};
-    confess "update() with 'distinct' set is not currently supported"       if $params->{distinct};
+    $self->_reject_unsupported_clauses(update => $params, qw/limit offset order_by distinct/);
 
     my $values    = $params->{update} or croak "'update' is required";
     my $returning = $params->{returning};
@@ -313,6 +330,8 @@ sub _select_args {
 sub _where_args {
     my $self = shift;
     my ($params) = @_;
+
+    $self->_reject_unsupported_clauses(where => $params, 'distinct');
 
     my $where = $params->{where};
     my $order = $params->{order_by};
@@ -496,17 +515,49 @@ sub _translate_where {
                 $out{$key} = ref($val) ? $self->_translate_where($source, $val) : $self->_field_to_db($source, $val);
             }
             else {
-                $out{$self->_field_to_db($source, $key)} = $val;
+                $out{$self->_field_to_db($source, $key)} = $self->_translate_value($source, $val);
             }
         }
         return \%out;
     }
 
     if ($ref eq 'ARRAY') {
-        return [ map { $self->_translate_where($source, $_) } @$where ];
+        # An arrayref is either a list of OR-ed conditions (refs) or a flat
+        # field => value pair list; walk pairwise so a bare field name is
+        # translated and its following value passed through untranslated, while
+        # a -op token or a nested condition is not treated as a field name.
+        my @in = @$where;
+        my @out;
+        while (@in) {
+            my $el = shift @in;
+            if (ref $el) {
+                push @out => $self->_translate_where($source, $el);
+            }
+            elsif ($el =~ m/^-/) {
+                push @out => $el;
+            }
+            else {
+                push @out => $self->_field_to_db($source, $el);
+                push @out => $self->_translate_value($source, shift(@in)) if @in;
+            }
+        }
+        return \@out;
     }
 
     return $where;
+}
+
+sub _translate_value {
+    my $self = shift;
+    my ($source, $val) = @_;
+
+    # A field value that is an -ident expression names another column, not data,
+    # so its identifier must be translated to the database name too.
+    if (ref($val) eq 'HASH' && exists $val->{'-ident'} && !ref($val->{'-ident'})) {
+        return {%$val, '-ident' => $self->_field_to_db($source, $val->{'-ident'})};
+    }
+
+    return $val;
 }
 
 =pod

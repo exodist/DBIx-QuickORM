@@ -162,7 +162,8 @@ Returns the active connection, creating it via C<connect> on first use.
 
 =item $orm->disconnect
 
-Drops the cached connection.
+Disconnects and drops the cached connection. Croaks if the connection has
+active ORM-managed transactions.
 
 =item $con = $orm->reconnect
 
@@ -178,7 +179,9 @@ Delegates to the active connection's C<handle>.
 
 sub disconnect {
     my $self = shift;
-    delete $self->{+CONNECTION};
+    my $con = delete $self->{+CONNECTION} or return;
+    $con->disconnect;
+    return;
 }
 
 sub reconnect {

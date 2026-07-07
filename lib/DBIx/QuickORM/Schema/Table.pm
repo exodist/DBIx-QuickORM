@@ -8,6 +8,7 @@ use Carp qw/croak/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/column_key merge_hash_of_objs clone_hash_of_objs/;
 
+use Role::Tiny ();
 use Role::Tiny::With qw/with/;
 with 'DBIx::QuickORM::Role::Linked';
 
@@ -21,6 +22,8 @@ use Object::HashBase qw{
     <created
     <compiled
     <is_temp
+    <no_volatile
+    <has_triggers
     <links
     <indexes
     <primary_key
@@ -153,6 +156,37 @@ sub column_names { sort keys %{$_[0]->{+COLUMNS}} }
 
 =pod
 
+=item $bool = $table->has_volatile_columns
+
+True when any column on the table is volatile (see the C<volatile> column
+marker). Used to identify tables whose written values may need re-reading.
+
+=item $bool = $table->has_triggers
+
+True when the table has an insert or update trigger (set during introspection).
+Used to decide whether a write's C<RETURNING> clause can be trusted to reflect
+the final stored row: it cannot when a trigger may change a row after the
+statement, so such a table reads its written row back with a follow-up fetch
+instead (see L<DBIx::QuickORM::Dialect/returning_reflects_write>).
+
+=item $table->mark_has_triggers
+
+Flag the table as having triggers. Used by schema introspection.
+
+=cut
+
+sub has_volatile_columns {
+    my $self = shift;
+    for my $col ($self->columns) {
+        return 1 if $col->can('volatile') && $col->volatile;
+    }
+    return 0;
+}
+
+sub mark_has_triggers { $_[0]->{+HAS_TRIGGERS} = 1 }
+
+=pod
+
 =item $col_or_undef = $table->column($name)
 
 Get the column with the given name, or undef if it does not exist.
@@ -270,9 +304,41 @@ sub init {
     }
 
     if (my $pk = $self->{+PRIMARY_KEY}) {
+        croak "The 'primary_key' attribute must be an arrayref of column names${debug}" unless ref($pk) eq 'ARRAY';
         for my $cname (@$pk) {
-            my $col = $self->{+COLUMNS}->{$cname} or croak "Primary Key column '$cname' is not present in the column list";
-            croak "Primary key column '$cname' is set to be omitted, this is not allowed" if $col->omit;
+            my $col = $self->{+COLUMNS}->{$cname} or croak "Primary Key column '$cname' is not present in the column list${debug}";
+            croak "Primary key column '$cname' is set to be omitted, this is not allowed${debug}" if $col->omit;
+        }
+    }
+
+    if (my $unique = $self->{+UNIQUE}) {
+        croak "The 'unique' attribute must be a hashref${debug}" unless ref($unique) eq 'HASH';
+        for my $ckey (sort keys %$unique) {
+            my $cols = $unique->{$ckey};
+            next unless ref($cols) eq 'ARRAY';
+            $self->_assert_index_columns($cols, "Unique constraint '$ckey'", $debug);
+        }
+    }
+
+    if (my $indexes = $self->{+INDEXES}) {
+        croak "The 'indexes' attribute must be an arrayref${debug}" unless ref($indexes) eq 'ARRAY';
+        for my $idx (@$indexes) {
+            my $ref = ref($idx);
+            my ($iname, $cols);
+            if    ($ref eq 'HASH')  { ($iname, $cols) = ($idx->{name}, $idx->{columns}) }
+            elsif ($ref eq 'ARRAY') { $cols = $idx }
+            else                    { next }
+
+            next unless ref($cols) eq 'ARRAY';
+            $self->_assert_index_columns($cols, "Index '" . ($iname // 'unnamed') . "'", $debug);
+        }
+    }
+
+    if (my $links = $self->{+LINKS}) {
+        croak "The 'links' attribute must be an arrayref${debug}" unless ref($links) eq 'ARRAY';
+        for my $link (@$links) {
+            next if blessed($link) && $link->isa('DBIx::QuickORM::Link');
+            croak "Links must be 'DBIx::QuickORM::Link' instances, got '" . (defined($link) ? $link : 'undef') . "'${debug}";
         }
     }
 
@@ -377,9 +443,13 @@ Arrayref of all column names.
 
 =cut
 
-sub fields_to_fetch { $_[0]->{+FIELDS_TO_FETCH} //= [ map { $_->name } grep { !$_->omit } values %{$_[0]->{+COLUMNS}} ] }
-sub fields_to_omit  { $_[0]->{+FIELDS_TO_OMIT}  //= [ map { $_->name } grep { $_->omit }  values %{$_[0]->{+COLUMNS}} ] }
-sub fields_list_all { $_[0]->{+FIELDS_LIST_ALL} //= [ map { $_->name }                    values %{$_[0]->{+COLUMNS}} ] }
+# Sorted by each column's order slot so generated field lists (and thus the
+# SELECT column order) are deterministic run-to-run instead of hash order.
+sub fields_to_fetch { $_[0]->{+FIELDS_TO_FETCH} //= [ map { $_->name } grep { !$_->omit } $_[0]->_columns_in_order ] }
+sub fields_to_omit  { $_[0]->{+FIELDS_TO_OMIT}  //= [ map { $_->name } grep { $_->omit }  $_[0]->_columns_in_order ] }
+sub fields_list_all { $_[0]->{+FIELDS_LIST_ALL} //= [ map { $_->name }                    $_[0]->_columns_in_order ] }
+
+sub _columns_in_order { sort { $a->order <=> $b->order } values %{$_[0]->{+COLUMNS}} }
 
 =pod
 
@@ -395,8 +465,7 @@ sub field_type {
     my ($field) = @_;
     my $col = $self->_column($field) or croak "No column '$field' in table '$self->{+NAME}' ($self->{+DB_NAME})";
     my $type = $col->type or return undef;
-    return undef if ref($type);
-    return $type if $type->DOES('DBIx::QuickORM::Role::Type');
+    return $type if Role::Tiny::does_role($type, 'DBIx::QuickORM::Role::Type');
     return undef;
 }
 
@@ -465,6 +534,14 @@ hashrefs with a C<columns> arrayref; other shapes pass through.
 True when any database name in the map differs from its ORM name, i.e. real
 aliasing is present.
 
+=item $table->_assert_index_columns(\@columns, $label, $debug)
+
+Assert that every plain column name in a unique-constraint or index column list
+resolves to a known column (by either ORM or database name), croaking with
+C<$label> otherwise. Undefined entries and references are skipped: some dialects
+surface functional / expression index key-parts that way during introspection,
+and those have no ORM column to check against.
+
 =back
 
 =cut
@@ -498,6 +575,9 @@ sub _rekey_columns {
     for my $key (keys %$cols) {
         my $col = $cols->{$key};
         my $orm = $db_to_orm->{$col->db_name} // $key;
+        if (my $other = $out{$orm}) {
+            croak "Columns with database names '" . $other->db_name . "' and '" . $col->db_name . "' both map to ORM column '$orm'";
+        }
         $out{$orm} = $col;
     }
 
@@ -556,6 +636,19 @@ sub _has_alias {
         return 1 if $db ne $db_to_orm->{$db};
     }
     return 0;
+}
+
+sub _assert_index_columns {
+    my $self = shift;
+    my ($cols, $label, $debug) = @_;
+
+    for my $cname (@$cols) {
+        next unless defined($cname) && !ref($cname);
+        next if $self->_column($cname);
+        croak "$label references column '$cname', which is not present in the column list${debug}";
+    }
+
+    return;
 }
 
 sub _db_to_orm { $_[0]->{+DB_TO_ORM} //= { map { $_->db_name => $_->name } values %{$_[0]->{+COLUMNS}} } }

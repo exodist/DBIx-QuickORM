@@ -110,6 +110,47 @@ subtest blessed_manager_validation => sub {
     ok(Scalar::Util::isweak($manager->{connection}), "the manager's connection reference is weak (no cycle)");
 };
 
+subtest live_manager_cannot_be_shared => sub {
+    # A blessed manager that is already the live manager of another connection
+    # must not be silently rebound: doing so repoints that connection's row
+    # cache and transaction stack at the new connection.
+    my $con1 = connect_orm();
+    my $orm  = $con1->orm;
+    my $mgr  = $con1->manager;
+
+    require DBIx::QuickORM::Connection;
+
+    ref_is($mgr->connection, $con1, "the manager belongs to its connection");
+    my $err = dies { DBIx::QuickORM::Connection->new(orm => $orm, manager => $mgr) };
+    like($err, qr/already in use by another live connection/, "rebinding a live connection's manager croaks");
+    ref_is($con1->manager, $mgr, "the original connection keeps its manager");
+    ref_is($mgr->connection, $con1, "and the manager still points at the original connection");
+};
+
+subtest disconnected_manager_can_rebind => sub {
+    # Disconnecting the owning connection frees its blessed manager to be
+    # rebound to a new connection -- the supported way to move a blessed
+    # manager once you are done with the first connection.
+    my $con1 = connect_orm();
+    my $orm  = $con1->orm;
+    my $mgr  = $con1->manager;
+
+    require DBIx::QuickORM::Connection;
+
+    ref_is($mgr->connection, $con1, "the manager starts on the first connection");
+    ok($con1->connected, "the first connection is connected");
+
+    $con1->disconnect;
+    ok(!$con1->connected, "the first connection reports disconnected after disconnect()");
+
+    my $con2;
+    ok(
+        lives { $con2 = DBIx::QuickORM::Connection->new(orm => $orm, manager => $mgr) },
+        "the manager rebinds to a new connection once the old one is disconnected",
+    ) or diag $@;
+    ref_is($mgr->connection, $con2, "the manager now points at the new connection");
+};
+
 subtest auto_retry_terminal_failure => sub {
     my $con = connect_orm();
 

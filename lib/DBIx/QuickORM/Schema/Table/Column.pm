@@ -4,8 +4,7 @@ use warnings;
 
 our $VERSION = '0.000028';
 
-use Carp qw/croak confess/;
-use Scalar::Util qw/blessed/;
+use Carp qw/croak/;
 
 use DBIx::QuickORM::Affinity qw{
     validate_affinity
@@ -21,6 +20,7 @@ use Object::HashBase qw{
     <nullable
     <identity
     <generated
+    <volatile
     +affinity
     <type
     <created
@@ -132,6 +132,8 @@ sub init {
 
     croak "A 'name' is a required${debug}"           unless $self->{+NAME};
     croak "Column must have an order number${debug}" unless $self->{+ORDER};
+    croak "'$self->{+AFFINITY}' is not a valid affinity${debug}"
+        if $self->{+AFFINITY} && !validate_affinity($self->{+AFFINITY});
 }
 
 =pod
@@ -179,8 +181,23 @@ sub affinity {
 
     croak "'$type' is not a valid type${debug}" unless $type->DOES('DBIx::QuickORM::Role::Type');
 
-    return $self->{+AFFINITY} = $type->qorm_affinity(column => $self, dialect => $dialect);
+    return $type->qorm_affinity(column => $self, dialect => $dialect);
 }
+
+=pod
+
+=item $col->mark_volatile
+
+=item $col->clear_volatile
+
+Set or clear the column's volatile flag. Used by schema introspection (e.g. to
+flag a column a trigger modifies, or to clear an inherited flag from a view
+column, which is never written through).
+
+=cut
+
+sub mark_volatile  { $_[0]->{+VOLATILE} = 1 }
+sub clear_volatile { delete $_[0]->{+VOLATILE}; return }
 
 =pod
 

@@ -30,8 +30,12 @@ fast introduction, and L<DBIx::QuickORM::Manual::Concepts> for the key concepts
 =head1 YOUR ORM PACKAGE
 
 The simplest layout is a single package that uses L<DBIx::QuickORM>, defines an
-C<orm> containing a C<db> (the connection) and a C<schema> (the tables), and
-exports an C<orm()> accessor for your app code.
+C<orm> containing a C<db> (the connection) and a C<schema> (the tables). When
+your app code does C<use My::ORM>, it gets a C<qorm()> accessor.
+C<qorm('name')> returns a ready-to-query L<DBIx::QuickORM::Connection>, while
+C<< qorm(orm => 'name') >> returns the underlying L<DBIx::QuickORM::ORM>
+object. The accessor name can be changed at import time; see
+L<DBIx::QuickORM::Manual::Recipes>.
 
 There are two ways to populate the schema: define it by hand (manual schema) or
 let DBIx::QuickORM introspect the live database and fill it in for you
@@ -75,7 +79,7 @@ does not require the database to exist when the schema is defined.
                 };
 
                 column added => sub {
-                    type 'Stamp';            # Short for DBIx::QuickORM::Type::Stamp
+                    type 'DateTime';         # Short for DBIx::QuickORM::Type::DateTime
                     not_null;
 
                     # Exact SQL to use if DBIx::QuickORM generates the table SQL
@@ -112,56 +116,65 @@ naming).
             pass $PASS;
         };
 
-        # Define your schema
-        schema myschema => sub {
-            # The class name is optional, the one shown here is the default
-            autofill 'DBIx::QuickORM::Schema::Autofill' => sub {
-                autotype 'UUID';    # Automatically handle UUID fields
-                autotype 'JSON';    # Automatically handle JSON fields
+        # Introspect the connected database and fill in the schema. The
+        # autofill builder goes directly inside orm(), not inside schema() -
+        # it produces the schema for you. The class name is optional; the one
+        # shown here is the default.
+        autofill 'DBIx::QuickORM::Schema::Autofill' => sub {
+            autotype 'UUID';    # Automatically handle UUID fields
+            autotype 'JSON';    # Automatically handle JSON fields
 
-                # Do not autofill these tables
-                autoskip table => qw/foo bar baz/;
+            # Do not autofill these tables. autoskip takes a single name per
+            # call, so call it once per table you want to skip.
+            autoskip table => 'foo';
+            autoskip table => 'bar';
+            autoskip table => 'baz';
 
-                # Will automatically create My::Row::Table classes for you with
-                # accessors for links and fields If My::Table::Row can be
-                # loaded (IE My/Row/Table.pm exists) it will load it then
-                # autofill anything missing.
-                autorow 'My::Row';
+            # To skip a single column instead of a whole table, name both the
+            # table and the column:
+            autoskip column => 'some_table', 'some_column';
 
-                # autorow can also take a subref that accepts a table name as
-                # input and provides the class name for it, here is the default
-                # one used if none if provided:
-                autorow 'My::Row' => sub {
-                    my $name = shift;
-                    my @parts = split /_/, $name;
-                    return join '' => map { ucfirst(lc($_)) } @parts;
-                };
+            # autorow will automatically create row classes for you with
+            # accessors for links and fields. With a base of 'My::Row', a
+            # table named "table" becomes My::Row::Table; if My/Row/Table.pm
+            # exists it is loaded and anything missing is autofilled.
+            autorow 'My::Row';
 
-                # You can provide custom names for tables. It will still refer
-                # to the correct name in queries, but will provide an alternate
-                # name for the orm to use in perl code.
-                autoname table => sub {
-                    my %params = @_;
-                    my $table_hash = $params{table}; # unblessed ref that will become a table
-                    my $name = $params{name}; # The name of the table
-                    ...
-                    return $new_name;
-                };
+            # autorow can instead take a subref that accepts a table name and
+            # returns the class name to use. Use this form OR the plain form
+            # above, not both - a second autorow call croaks. The subref below
+            # is the default name generator, used if none is provided:
+            #
+            #   autorow 'My::Row' => sub {
+            #       my $name = shift;
+            #       my @parts = split /_/, $name;
+            #       return join '' => map { ucfirst(lc($_)) } @parts;
+            #   };
 
-                # You can provide custom names for link (foreign key) accessors when using autorow
-                autoname link_accessor => sub {
-                    my %params = @_;
-                    my $link = $params{link};
+            # You can provide custom names for tables. It will still refer to
+            # the correct name in queries, but will provide an alternate name
+            # for the orm to use in perl code.
+            autoname table => sub {
+                my %params = @_;
+                my $table_hash = $params{table}; # unblessed ref that will become a table
+                my $name = $params{name}; # The name of the table
+                ...
+                return $new_name;
+            };
 
-                    return "obtain_" . $link->other_table if $params{link}->unique;
-                    return "select_" . $link->other_table . "s";
-                };
+            # You can provide custom names for link (foreign key) accessors when using autorow
+            autoname link_accessor => sub {
+                my %params = @_;
+                my $link = $params{link};
 
-                # You can provide custom names for field accessors when using autorow
-                autoname field_accessor => sub {
-                    my %params = @_;
-                    return "get_$params{name}";
-                };
+                return "obtain_" . $link->other_table if $params{link}->unique;
+                return "select_" . $link->other_table . "s";
+            };
+
+            # You can provide custom names for field accessors when using autorow
+            autoname field_accessor => sub {
+                my %params = @_;
+                return "get_$params{name}";
             };
         };
     };
@@ -248,19 +261,21 @@ combine them. You can also define a C<server> that has multiple databases.
         schema 'otherapp';
     };
 
-Then to use them:
+Then to use them (each C<qorm('name')> call returns a ready-to-query
+L<DBIx::QuickORM::Connection>; use C<< qorm(orm => 'name') >> if you want the
+L<DBIx::QuickORM::ORM> object itself):
 
     use My::ORM;
 
-    my $myapp    = orm('myapp');
-    my $otherapp = orm('otherapp');
+    my $myapp    = qorm('myapp');
+    my $otherapp = qorm('otherapp');
 
 Also note that C<< alt(variant => sub { ... }) >> can be used in any of the
 above builders to create MySQL/PostgreSQL/etc. variants on the databases and
 schemas. Then access them like:
 
-    my $myapp_pgsql = orm('myapp:pgsql');
-    my $myapp_mysql = orm('myapp:myql');
+    my $myapp_pgsql = qorm('myapp:pgsql');
+    my $myapp_mysql = qorm('myapp:mysql');
 
 The MySQL/PostgreSQL variant recipe is covered in full in
 L<DBIx::QuickORM::Manual::Recipes>.
@@ -268,9 +283,98 @@ L<DBIx::QuickORM::Manual::Recipes>.
 =head1 MORE RECIPES
 
 This guide does not cover every composition trick. For defining the database
-connection separately and attaching it later, renaming the exported C<orm()>
+connection separately and attaching it later, renaming the exported C<qorm()>
 accessor, supporting nearly-identical MySQL and PostgreSQL databases from one
 codebase, and other focused tasks, see L<DBIx::QuickORM::Manual::Recipes>.
+
+=head1 VOLATILE COLUMNS
+
+A B<volatile> column is one whose stored value the database may set or change
+during a write, so the value you sent cannot be trusted as the in-memory truth.
+Typical sources are generated/computed columns, identity / auto-increment /
+sequence-backed columns, server-side C<DEFAULT>s, C<ON UPDATE> clauses, and
+triggers.
+
+Mark a column volatile with the C<volatile> marker:
+
+    column updated_at => sub {
+        affinity 'string';
+        volatile;
+    };
+
+QuickORM B<auto-detects> volatile columns during introspection: generated
+columns, identity / sequence-backed columns, columns carrying a server-side
+default, and (on MySQL/MariaDB) C<ON UPDATE> columns. Only the existence of a
+default matters, not its value. Trigger effects cannot be determined in general
+(a trigger runs arbitrary code); QuickORM makes a best-effort attempt to flag
+the columns a simple trigger is seen to set, and otherwise warns once per table
+that a trigger was found whose column effects it could not resolve. Use the
+C<volatile> marker for anything auto-detection cannot see.
+
+=head2 WHAT VOLATILE DOES ON A WRITE
+
+QuickORM does not keep a stale in-memory value for a volatile column: rather than
+the value you sent, it lazily fetches the real stored value from the database the
+next time the column is read. It does B<not> fetch it eagerly on the write (use
+C<auto_refresh> / C<insert_and_refresh> to read the whole row back at once).
+
+=over 4
+
+=item A value you B<explicitly send> on an insert
+
+is kept as-is -- a server default does not override a value you provided, so
+there is nothing to distrust.
+
+=item A column the database fills or changes
+
+-- a generated or defaulted column you did not send, a column both B<volatile and
+omitted>, or any volatile column on an B<update> (where an C<ON UPDATE> or trigger
+may have changed it) -- is not kept from what you sent; it lazily fetches the real
+value the next time you read it.
+
+=back
+
+This is consistent on every database. A subtlety it papers over: C<RETURNING>
+reflects generated/default and C<BEFORE>-trigger values but not C<AFTER>-trigger
+effects (the row is captured before C<AFTER> triggers run), so an
+C<auto_refresh>/literal read on a table with triggers cannot trust C<RETURNING>.
+QuickORM detects a table's triggers during introspection and, for a table that
+has any, reads the row back with a follow-up fetch instead -- just as it does on
+databases without C<RETURNING> -- so a trigger-changed value reads back correctly
+whether you are on SQLite, PostgreSQL, MySQL, or MariaDB.
+
+=head2 ASSERTING A TABLE IS VOLATILE-FREE
+
+If you know a table has no volatile columns -- in particular that its triggers
+do not make any column volatile -- you can say so, which also silences the
+per-table trigger warning. In the DSL:
+
+    table events => sub {
+        no_volatile;
+        ...
+    };
+
+Or from the C<quick> interface, for one or more tables (or C<< => 1 >> for every
+table):
+
+    my $con = DBIx::QuickORM->quick(
+        credentials => { dsn => $dsn },
+        no_volatile => [ 'events', 'audit_log' ],
+    );
+
+A volatile-free assertion skips both the best-effort trigger flagging and the
+warning for that table; it does not clear the generated/identity auto-detection,
+which is based on declared facts rather than trigger guesses.
+
+To see which tables are safe (every column non-volatile) at a glance:
+
+    my @safe = $con->volatile_free_tables;   # sorted table names
+
+C<< $schema->volatile_free_tables >> and C<< $table->has_volatile_columns >> are
+also available.
+
+Note the term overlaps PostgreSQL I<function> volatility
+(C<VOLATILE>/C<STABLE>/C<IMMUTABLE>); that is about functions, not columns.
 
 =head1 SEE ALSO
 

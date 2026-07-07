@@ -1,6 +1,8 @@
 use Test2::V0 -target => 'DBIx::QuickORM', '!meta', '!pass';
 use DBIx::QuickORM;
 
+use Scalar::Util qw/weaken/;
+
 use lib 't/lib';
 use DBIx::QuickORM::Test;
 
@@ -31,10 +33,11 @@ do_for_all_dbs {
     $row->update({name => 'b'});
     is($row->field('name'), 'b', "Got new value");
 
-    my $addr = "$row";
+    my $weak = $row;
+    weaken($weak);
     $row = undef;
+    ok(!defined($weak), "Previous row expired once all references were cleared");
     $row = $h->one({id => 1});
-    ok("$row" ne $addr, "Got a new ref");
     is($row->field('name'), 'b', "Got new value");
 
     $row = undef;
@@ -72,7 +75,7 @@ do_for_all_dbs {
     subtest async => sub {
         like(
             dies { $h->handle(where => {id => 2})->async->update({name => 'a'}) },
-            qr/Cannot do an async update without a specific row to update/,
+            qr/Cannot maintain the row cache for a bulk update without a specific row/,
             "cannot do bulk async update"
         );
 

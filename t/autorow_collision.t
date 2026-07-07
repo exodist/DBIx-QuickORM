@@ -118,6 +118,7 @@ do_for_all_dbs {
 
     ok(my $con2 = orm('by_alias')->connect, "connected once collisions are resolved by alias");
     check_both_directions($con2);
+    check_defaults_preserved($con2);
 };
 
 done_testing;

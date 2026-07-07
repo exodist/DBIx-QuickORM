@@ -74,7 +74,7 @@ do_for_all_dbs {
         else {
             like(
                 dies { $h->async->delete },
-                qr/Cannot do an async delete without a specific row to delete on a database that does not support 'returning on delete'/,
+                qr/Cannot maintain the row cache for a bulk delete without a specific row.*'returning on delete'/,
                 "cannot do bulk async delete without returning on delete"
             );
         }

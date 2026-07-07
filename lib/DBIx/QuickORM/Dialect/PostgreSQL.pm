@@ -14,7 +14,7 @@ use DBIx::QuickORM::Schema::Table::Column;
 use DBIx::QuickORM::Schema::View;
 
 use parent 'DBIx::QuickORM::Dialect';
-use Object::HashBase;
+use Object::HashBase qw{ +all_triggers };
 
 =pod
 
@@ -97,34 +97,26 @@ sub async_cancel           { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->db
 
 =pod
 
-=item $dialect->start_txn(%params)
-
-=item $dialect->commit_txn(%params)
-
-=item $dialect->rollback_txn(%params)
-
 =item $dialect->create_savepoint(%params)
 
 =item $dialect->commit_savepoint(%params)
 
 =item $dialect->rollback_savepoint(%params)
 
-Transaction and savepoint control via C<DBD::Pg>. Each accepts an optional
-C<dbh> parameter, defaulting to the dialect's own handle; savepoint methods
-take a C<savepoint> name.
+Savepoint control via C<DBD::Pg>'s native savepoint API. Each accepts an
+optional C<dbh> parameter, defaulting to the dialect's own handle, and a
+C<savepoint> name. Transaction control uses the inherited driver-level
+defaults.
 
 =cut
 
-# {{{ Transactions and savepoints
+# {{{ Savepoints
 
-sub start_txn          { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->begin_work }
-sub commit_txn         { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->commit }
-sub rollback_txn       { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->rollback }
 sub create_savepoint   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->pg_savepoint($p{savepoint}) }
 sub commit_savepoint   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->pg_release($p{savepoint}) }
 sub rollback_savepoint { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->pg_rollback_to($p{savepoint}) }
 
-# }}} Transactions and savepoints
+# }}} Savepoints
 
 =pod
 
@@ -368,10 +360,12 @@ sub build_columns_from_db {
         # otherwise; _col_field_to_bool treats 'NEVER' as false.
         $col->{generated} = 1 if $self->_col_field_to_bool($res->{is_generated});
 
+        $col->{volatile} //= 1 if $self->column_is_volatile_by_metadata($col, default => $res->{column_default});
+
         $col->{affinity} //= affinity_from_type($res->{udt_name}) // affinity_from_type($res->{data_type});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/character/ } keys %$res;
         $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/numeric/ } keys %$res;
-        $col->{affinity} //= 'string';
+        $col->{affinity} //= $self->affinity_from_db_type($res->{udt_name}, $res->{data_type});
 
         $params{autofill}->process_column($col);
 
@@ -385,32 +379,6 @@ sub build_columns_from_db {
 }
 
 =pod
-
-=head1 PRIVATE METHODS
-
-=over 4
-
-=item $bool = $dialect->_col_field_to_bool($val)
-
-Normalizes an C<information_schema> truthy/falsey string (C<YES>/C<NO>,
-etc.) to a 1/0 boolean.
-
-=back
-
-=cut
-
-sub _col_field_to_bool {
-    my $self = shift;
-    my ($val) = @_;
-
-    return 0 unless defined $val;
-    return 0 unless $val;
-    $val = lc($val);
-    return 0 if $val eq 'no';
-    return 0 if $val eq 'undef';
-    return 0 if $val eq 'never';
-    return 1;
-}
 
 =pod
 
@@ -459,9 +427,35 @@ sub build_indexes_from_db {
 
 =pod
 
+=over 4
+
+=item @triggers = $dialect->triggers_for_table($table)
+
+Returns the insert/update/delete triggers on a table (across the search-path
+schemas), each as a C<< { event => ..., body => $function_source } >> hashref,
+for volatile-column and has-triggers detection.
+
+=back
+
+=cut
+
+sub triggers_for_table {
+    my $self = shift;
+    my ($table) = @_;
+    return @{$self->_all_triggers->{$table} // []};
+}
+
+=pod
+
 =head1 PRIVATE METHODS (schema introspection)
 
 =over 4
+
+=item $by_table = $dialect->_all_triggers
+
+All non-internal triggers keyed by table name, fetched once per dialect from the
+C<pg_catalog> trigger/function catalogs (scoped to the search-path schemas and
+cached), so trigger detection adds a single query rather than one per table.
 
 =item $by_schema = $dialect->_fetch_all_columns($schemas)
 
@@ -486,6 +480,45 @@ pre-fetched rows. Each issues one query scoped to C<$table> in C<$tschema>.
 =back
 
 =cut
+
+sub _all_triggers {
+    my $self = shift;
+
+    return $self->{+ALL_TRIGGERS} if $self->{+ALL_TRIGGERS};
+
+    my $schemas = $self->_search_path_schemas;
+    my %map;
+
+    if (@$schemas) {
+        my $in = join(', ' => ('?') x @$schemas);
+
+        # pg_trigger.tgtype is a bitmask: INSERT = 4, DELETE = 8, UPDATE = 16.
+        # tgisinternal excludes the system triggers backing foreign keys, etc.
+        # The trigger's real logic lives in its function, so pull pg_proc.prosrc
+        # for the best-effort column parse.
+        my $sql = <<"        SQL";
+            SELECT c.relname AS tbl,
+                   (CASE WHEN (tg.tgtype &  4) > 0 THEN 'INSERT ' ELSE '' END ||
+                    CASE WHEN (tg.tgtype & 16) > 0 THEN 'UPDATE ' ELSE '' END ||
+                    CASE WHEN (tg.tgtype &  8) > 0 THEN 'DELETE ' ELSE '' END) AS event,
+                   p.prosrc AS body
+              FROM pg_catalog.pg_trigger   tg
+              JOIN pg_catalog.pg_class     c ON c.oid = tg.tgrelid
+              JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+              JOIN pg_catalog.pg_proc      p ON p.oid = tg.tgfoid
+             WHERE NOT tg.tgisinternal
+               AND n.nspname IN ($in)
+        SQL
+
+        my $rows = eval { $self->dbh->selectall_arrayref($sql, {Slice => {}}, @$schemas) } || [];
+        for my $r (@$rows) {
+            next unless defined $r->{tbl};
+            push @{$map{$r->{tbl}}} => {event => $r->{event}, body => $r->{body}};
+        }
+    }
+
+    return $self->{+ALL_TRIGGERS} = \%map;
+}
 
 sub _fetch_all_columns {
     my $self = shift;

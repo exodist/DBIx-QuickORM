@@ -24,6 +24,7 @@ use Object::HashBase qw{
     +ready
     <result
     <done
+    <owner_pid
 
     on_ready
     +fetch_cb
@@ -139,10 +140,6 @@ True once results are available; always true for the synchronous base class.
 True once a result has been obtained; always true for the synchronous base
 class.
 
-=item $dialect = $sth->dialect
-
-The dialect, lazily taken from the connection.
-
 =item $bool = $sth->deferred_result
 
 True when the result is fetched lazily rather than up front. False for the
@@ -155,8 +152,6 @@ synchronous base class.
 sub clear      { }
 sub ready      { $_[0]->{+READY} //= 1 }
 sub got_result { 1 }
-
-sub dialect { $_[0]->{+DIALECT} //= $_[0]->{+CONNECTION}->dialect }
 
 sub deferred_result { 0 }
 
@@ -178,33 +173,13 @@ sub init {
     croak "'sth' is a required attribute"        unless $self->{+STH};
     croak "'dbh' is a required attribute"        unless $self->{+DBH};
     croak "'result' is a required attribute"     unless exists($self->{+RESULT}) || $self->deferred_result;
+
+    # The process that owns this handle. An inherited copy in a forked child
+    # must not touch the shared pipe / driver socket during destruction.
+    $self->{+OWNER_PID} //= $$;
 }
 
-=pod
-
-=item $row_hr = $sth->next
-
-Return the next row as a hashref, or undef once exhausted. With C<only_one>
-set, a second row is an error.
-
-=cut
-
-sub next {
-    my $self = shift;
-    my $row_hr  = $self->_next;
-
-    if ($self->{+ONLY_ONE}) {
-        # Finalize before throwing so the statement (and any async slot on
-        # the connection) is released even on the error path.
-        if ($self->_next) {
-            $self->set_done;
-            croak "Expected only 1 row, but got more than one";
-        }
-        $self->set_done;
-    }
-
-    return $row_hr;
-}
+sub in_owner_process { $_[0]->{+OWNER_PID} == $$ }
 
 =pod
 

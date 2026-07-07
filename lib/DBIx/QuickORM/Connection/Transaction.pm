@@ -5,9 +5,11 @@ use warnings;
 our $VERSION = '0.000028';
 
 use Carp qw/croak confess/;
+use Scalar::Util qw/weaken/;
 
 use Object::HashBase qw{
     <id
+    +connection
     +savepoint
 
     +on_success
@@ -142,6 +144,12 @@ sub init {
 
     croak "A transaction ID is required" unless $self->{+ID};
 
+    # Hold the connection weakly. The connection holds its transactions weakly in
+    # turn, so this back-reference does not create a strong cycle; weakening it
+    # keeps a transaction from pinning its connection alive and from dragging the
+    # whole connection into a dump or deep comparison of the txn.
+    weaken($self->{+CONNECTION}) if $self->{+CONNECTION};
+
     $self->{+RESULT} = undef;
 
     $self->{+ON_SUCCESS}    = [$self->{+ON_SUCCESS}]    if 'CODE' eq ref($self->{+ON_SUCCESS});
@@ -197,6 +205,31 @@ sub rolled_back {
 # True if an explicit rollback was requested (drives the commit/rollback
 # decision in Connection::txn before the result is recorded).
 sub aborted { $_[0]->{+ABORTED} ? 1 : 0 }
+
+sub _assert_innermost {
+    my $self = shift;
+    my ($op) = @_;
+
+    # last QORM_TRANSACTION unwinds to the innermost dynamically-enclosing
+    # transaction callback, which is not necessarily this transaction's. When a
+    # nested (callback-managed) transaction is open, committing or rolling back
+    # an outer transaction object would resolve the wrong (inner) one, so refuse.
+    #
+    # The connection is held weakly (the connection already holds its
+    # transactions weakly, so this just avoids following the back-ref in a dump
+    # or deep comparison). By the time commit()/rollback() reach this point we
+    # are running inside the transaction's own action, so the connection is
+    # alive and it always has a current transaction (at least this one) --
+    # neither being missing is a normal case, so croak rather than skip the
+    # check silently.
+    my $con = $self->{+CONNECTION}
+        or croak "Cannot $op a transaction whose connection is gone";
+    my $current = $con->current_txn
+        or croak "Cannot $op: the connection reports no current transaction";
+    return if $current == $self;
+
+    croak "Cannot $op an outer transaction from within a nested transaction; resolve the innermost transaction first";
+}
 
 sub state {
     my $self = shift;
@@ -254,6 +287,8 @@ sub rollback {
 
     return if $self->{+NO_LAST};
 
+    $self->_assert_innermost('roll back');
+
     no warnings 'exiting';
     last QORM_TRANSACTION;
 }
@@ -275,6 +310,13 @@ sub commit {
 
     croak "Transaction is already complete" if $self->complete;
 
+    # rollback() sets ABORTED before running finalize; if that finalize was
+    # refused by a guard (e.g. an in-flight async query) the transaction stays
+    # recoverable but aborted. A later commit would silently issue a ROLLBACK
+    # while returning normally, so the caller believes the data committed.
+    croak "Cannot commit a transaction that has already been rolled back"
+        if $self->{+ABORTED};
+
     if ($self->{+VERBOSE} || !$why) {
         my @caller = caller;
         my $trace = "$caller[1] line $caller[2]";
@@ -295,6 +337,8 @@ sub commit {
     $self->finalize(1) if $self->{+FINALIZE};
 
     return if $self->{+NO_LAST};
+
+    $self->_assert_innermost('commit');
 
     no warnings 'exiting';
     last QORM_TRANSACTION;

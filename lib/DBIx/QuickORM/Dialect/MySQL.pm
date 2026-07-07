@@ -20,6 +20,7 @@ use parent 'DBIx::QuickORM::Dialect';
 use Object::HashBase qw{
     +dbi_driver
     +db_vendor
+    +all_triggers
 };
 
 =pod
@@ -102,7 +103,7 @@ sub async_cancel           { my $self = shift; croak "Dialect '" . $self->dialec
 
 The MySQL and MariaDB drivers enable the found-rows client flag by default, so
 the affected-row count reflects rows matched. This returns false only when that
-flag (C<mysql_client_found_rows> / C<mariadb_found_rows>) was explicitly turned
+flag (C<mysql_client_found_rows> / C<mariadb_client_found_rows>) was explicitly turned
 off in the connect attributes.
 
 =cut
@@ -110,38 +111,11 @@ off in the connect attributes.
 sub cas_count_reliable {
     my $self = shift;
     my ($attrs) = @_;
-    for my $key (qw/mysql_client_found_rows mariadb_found_rows/) {
+    for my $key (qw/mysql_client_found_rows mariadb_client_found_rows/) {
         return 0 if exists $attrs->{$key} && !$attrs->{$key};
     }
     return 1;
 }
-
-=pod
-
-=item $dialect->start_txn(%params)
-
-=item $dialect->commit_txn(%params)
-
-=item $dialect->rollback_txn(%params)
-
-=item $dialect->create_savepoint(%params)
-
-=item $dialect->commit_savepoint(%params)
-
-=item $dialect->rollback_savepoint(%params)
-
-Transaction and savepoint control. Each accepts an optional C<dbh> parameter,
-defaulting to the dialect's own handle; savepoint methods take a C<savepoint>
-name.
-
-=cut
-
-sub start_txn          { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; $dbh->begin_work }
-sub commit_txn         { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; $dbh->commit }
-sub rollback_txn       { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; $dbh->rollback }
-sub create_savepoint   { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($params{savepoint}); $dbh->do("SAVEPOINT $sp") }
-sub commit_savepoint   { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($params{savepoint}); $dbh->do("RELEASE SAVEPOINT $sp") }
-sub rollback_savepoint { my ($self, %params) = @_; my $dbh = $params{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($params{savepoint}); $dbh->do("ROLLBACK TO SAVEPOINT $sp") }
 
 =pod
 
@@ -378,6 +352,13 @@ sub upsert_statement {
     return "ON DUPLICATE KEY UPDATE";
 }
 
+sub upsert_noop_assignment {
+    my $self = shift;
+    my ($quoted_col) = @_;
+    # MySQL needs VALUES(col) so it still reports the row via last_insert_id.
+    return "$quoted_col = VALUES($quoted_col)";
+}
+
 ###############################################################################
 # {{{ Schema Builder Code
 ###############################################################################
@@ -536,10 +517,16 @@ sub build_columns_from_db {
         $col->{generated} = 1
             if defined($res->{GENERATION_EXPRESSION}) && length $res->{GENERATION_EXPRESSION};
 
+        $col->{volatile} //= 1 if $self->column_is_volatile_by_metadata(
+            $col,
+            default   => $res->{COLUMN_DEFAULT},
+            on_update => ($res->{EXTRA} && $res->{EXTRA} =~ m/\bon update\b/i) ? 1 : 0,
+        );
+
         $col->{affinity} //= affinity_from_type($res->{DATA_TYPE});
         $col->{affinity} //= 'string'  if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/CHARACTER/ } keys %$res;
         $col->{affinity} //= 'numeric' if grep { $self->_col_field_to_bool($res->{$_}) } grep { m/NUMERIC/ } keys %$res;
-        $col->{affinity} //= 'string';
+        $col->{affinity} //= $self->affinity_from_db_type($res->{DATA_TYPE});
 
         $params{autofill}->process_column($col);
         $params{autofill}->hook(post_column => {column => $col, table_name => $table, column_info => $res});
@@ -582,27 +569,9 @@ sub _vendor_from_string {
 
 =pod
 
-=item $bool = $dialect->_col_field_to_bool($val)
-
-Interprets an C<information_schema> string field as a boolean, treating
-C<no>/C<undef>/C<never> and empty/undefined values as false.
-
 =back
 
 =cut
-
-sub _col_field_to_bool {
-    my $self = shift;
-    my ($val) = @_;
-
-    return 0 unless defined $val;
-    return 0 unless $val;
-    $val = lc($val);
-    return 0 if $val eq 'no';
-    return 0 if $val eq 'undef';
-    return 0 if $val eq 'never';
-    return 1;
-}
 
 sub build_indexes_from_db {
     my $self = shift;
@@ -622,9 +591,35 @@ sub build_indexes_from_db {
 
 =pod
 
+=over 4
+
+=item @triggers = $dialect->triggers_for_table($table)
+
+Returns the triggers on a table, each as a
+C<< { event => 'INSERT'|'UPDATE'|'DELETE', body => $action_statement } >>
+hashref, for volatile-column and has-triggers detection.
+
+=back
+
+=cut
+
+sub triggers_for_table {
+    my $self = shift;
+    my ($table) = @_;
+    return @{$self->_all_triggers->{$table} // []};
+}
+
+=pod
+
 =head1 PRIVATE METHODS (schema introspection)
 
 =over 4
+
+=item $by_table = $dialect->_all_triggers
+
+All triggers in the connected database keyed by table name, fetched once from
+C<information_schema.triggers> (cached), so trigger detection adds a single
+query rather than one per table.
 
 =item $by_table = $dialect->_fetch_all_columns
 
@@ -648,6 +643,27 @@ pre-fetched rows. Each issues one query scoped to C<$table>.
 =back
 
 =cut
+
+sub _all_triggers {
+    my $self = shift;
+
+    return $self->{+ALL_TRIGGERS} if $self->{+ALL_TRIGGERS};
+
+    my %map;
+    my $sql = <<'    SQL';
+        SELECT event_object_table AS tbl, event_manipulation AS event, action_statement AS body
+          FROM information_schema.triggers
+         WHERE trigger_schema = ?
+    SQL
+
+    my $rows = eval { $self->dbh->selectall_arrayref($sql, {Slice => {}}, $self->{+DB_NAME}) } || [];
+    for my $r (@$rows) {
+        next unless defined $r->{tbl};
+        push @{$map{$r->{tbl}}} => {event => $r->{event}, body => $r->{body}};
+    }
+
+    return $self->{+ALL_TRIGGERS} = \%map;
+}
 
 sub _fetch_all_columns {
     my $self = shift;

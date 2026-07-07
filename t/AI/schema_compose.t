@@ -35,6 +35,12 @@ subtest column_affinity => sub {
     my $explicit = col('x', 1, type => undef, affinity => 'numeric');
     is($explicit->affinity, 'numeric', "explicit affinity used as-is, no type needed");
 
+    like(
+        dies { col('bad', 1, type => undef, affinity => 'sting') },
+        qr/not a valid affinity/,
+        "explicit affinity is validated at init",
+    );
+
     my $cached = col('c', 1, type => \'integer');
     $cached->affinity;
     is($cached->{affinity}, 'numeric', "affinity is resolved and cached onto the column");
@@ -50,6 +56,41 @@ subtest column_affinity => sub {
         qr/could not be derived from type/,
         "an unknown sql type that yields no affinity croaks",
     );
+
+    {
+        package DBIx::QuickORM::Test::DialectAffinityType;
+        use Role::Tiny::With qw/with/;
+        with 'DBIx::QuickORM::Role::Type';
+
+        sub qorm_affinity {
+            my $self = shift;
+            my %params = @_;
+            return $params{dialect}->{numeric} ? 'numeric' : 'string';
+        }
+    }
+
+    my $typed = col('typed', 1, type => bless({}, 'DBIx::QuickORM::Test::DialectAffinityType'));
+    is($typed->affinity({numeric => 0}), 'string', "type-object affinity can resolve for one dialect");
+    is($typed->affinity({numeric => 1}), 'numeric', "type-object affinity is not cached across dialects");
+};
+
+subtest field_type => sub {
+    require DBIx::QuickORM::Type::JSON;
+
+    my $json = bless {}, 'DBIx::QuickORM::Type::JSON';
+    my $table = DBIx::QuickORM::Schema::Table->new(
+        name    => 'docs',
+        columns => {
+            id      => col('id',      1),
+            payload => col('payload', 2, type => $json),
+            meta    => col('meta',    3, type => 'DBIx::QuickORM::Type::JSON'),
+            raw     => col('raw',     3, type => \'TEXT'),
+        },
+    );
+
+    ref_is($table->field_type('payload'), $json, "field_type returns blessed type instances");
+    is($table->field_type('meta'), 'DBIx::QuickORM::Type::JSON', "field_type returns type class names");
+    is($table->field_type('raw'), undef, "field_type ignores raw SQL scalar-ref types");
 };
 
 subtest table_name_db_name_fallback => sub {
@@ -180,6 +221,61 @@ subtest table_merge => sub {
 
     is([$a->column_names], [qw/id n/], "original table untouched by merge");
     is($a->column('n')->{type}, \'integer', "original column untouched by merge");
+};
+
+subtest table_merge_alias_collision => sub {
+    my $db = DBIx::QuickORM::Schema::Table->new(
+        name    => 'accounts',
+        columns => {
+            user    => col('user',    1, type => \'TEXT'),
+            user_id => col('user_id', 2, type => \'INTEGER'),
+        },
+    );
+
+    my $declared = DBIx::QuickORM::Schema::Table->new(
+        name    => 'accounts',
+        columns => {
+            user => col('user', 1, db_name => 'user_id'),
+        },
+    );
+
+    like(
+        dies { $db->merge($declared) },
+        qr/both map to ORM column 'user'/,
+        "merge croaks instead of silently dropping a real column on alias collision",
+    );
+};
+
+subtest link_resolution_treats_primary_key_as_unique => sub {
+    my $users = DBIx::QuickORM::Schema::Table->new(
+        name        => 'users',
+        columns     => {id => col('id', 1)},
+        primary_key => ['id'],
+    );
+
+    my $posts = DBIx::QuickORM::Schema::Table->new(
+        name        => 'posts',
+        columns     => {id => col('id', 1), user_id => col('user_id', 2)},
+        primary_key => ['id'],
+    );
+
+    DBIx::QuickORM::Schema->new(
+        name   => 'declared',
+        tables => {users => $users, posts => $posts},
+        _links => [
+            [
+                ['posts', ['user_id'], undef],
+                ['users', ['id'],      undef],
+                'test link',
+            ],
+        ],
+    );
+
+    my ($to_user) = grep { $_->other_table eq 'users' } @{$posts->links};
+    my ($to_post) = grep { $_->other_table eq 'posts' } @{$users->links};
+
+    ok($to_user->unique, "link to a declared primary key is unique even without a unique hash entry");
+    ok(!$to_post->unique, "reverse link to a non-unique foreign key is not unique");
 };
 
 subtest schema_clone_and_merge => sub {

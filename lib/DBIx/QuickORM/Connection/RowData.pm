@@ -153,10 +153,10 @@ sub invalidate {
 
     $self->{+INVALID} = $reason;
 
-    my @old_stack = @{$self->{+STACK}};
-
-    my $active = $self->active(no_fatal => 1) // (@old_stack ? $old_stack[0] : undef);
-
+    # Only warn when the resolved active frame genuinely holds pending data;
+    # falling back to a bottom frame that a rolled-back transaction left behind
+    # produced spurious "pending data" warnings.
+    my $active  = $self->active(no_fatal => 1);
     my $pending = $active ? $active->{+PENDING} : undef;
 
     carp "Row invalidated with pending data" if $pending && keys %$pending;
@@ -178,8 +178,6 @@ The resolved connection object.
 
 =item $href = $data->pending_data
 
-=item $href = $data->desync_data
-
 =item $txn = $data->transaction
 
 The respective fields of the active state frame.
@@ -193,7 +191,6 @@ sub connection { $_[0]->{+CONNECTION}->() }
 
 sub stored_data  { $_[0]->active->{+STORED} }
 sub pending_data { $_[0]->active->{+PENDING} }
-sub desync_data  { $_[0]->active->{+DESYNC} }
 sub transaction  { $_[0]->active->{+TRANSACTION} }
 
 sub init {
@@ -313,7 +310,13 @@ sub change_state {
     my $self = shift;
     my ($state) = @_;
 
-    my $active = $self->active(no_fatal => 1) or return $self->_up_state($state);
+    my $active = $self->active(no_fatal => 1);
+    unless ($active) {
+        # Resurrecting an invalidated row: drop the stale invalidation reason so
+        # a later access does not report the old reason on a now-valid row.
+        delete $self->{+INVALID};
+        return $self->_up_state($state);
+    }
 
     my $row_txn   = $active->{+TRANSACTION};
     my $state_txn = $state->{+TRANSACTION};
@@ -339,15 +342,19 @@ sub change_state {
 
 =pod
 
-=head1 PUBLIC METHODS
-
 =over 4
 
 =item $bool = $data->compare_field($field, \%a, \%b)
 
+=item $bool = $data->compare_field($field, \%a, \%b, $source, $connection)
+
 Returns true when the named field compares equal between two field hashes,
 using the field's type comparator when one exists and otherwise comparing by
 affinity. Treats existence and definedness mismatches as unequal.
+
+C<$source> and C<$connection> are optional and default to the row's own
+source and connection; callers that already hold them (or that compare
+against a different source) may pass them to avoid the lookup.
 
 =back
 
@@ -517,11 +524,15 @@ sub _merge_state {
         }
         else {
             delete $into->{+DESYNC};
-            $into->{+STORED} = $into->{+STORED} ? {%{$into->{+STORED} // {}}, %{$stored}} : $stored;
+            $into->{+STORED} = $into->{+STORED} ? {%{$into->{+STORED}}, %{$stored}} : {%$stored};
         }
     }
     elsif (exists $merge->{+STORED}) {
-        delete $into->{+STORED};
+        # A stored-clear marker (from a delete). On a transaction frame it must
+        # survive as an explicit undef so it still clears the layer below when
+        # this frame merges down on commit; only the base frame may delete it.
+        if ($into->{+TRANSACTION}) { $into->{+STORED} = undef }
+        else                       { delete $into->{+STORED} }
         delete $into->{+DESYNC};
         delete $merge->{+DESYNC};
     }
@@ -530,11 +541,15 @@ sub _merge_state {
 
     my $desync = $merge->{+DESYNC};
     if (my $pending = $merge->{+PENDING}) {
-        $into->{+PENDING} = $into->{+PENDING} ? {%{$into->{+PENDING}}, %$pending} : $pending;
-        $into->{+DESYNC}  = $into->{+DESYNC}  ? {%{$into->{+DESYNC}},  %$desync}  : $desync if $desync;
+        $into->{+PENDING} = $into->{+PENDING} ? {%{$into->{+PENDING}}, %$pending} : {%$pending};
+        $into->{+DESYNC}  = $into->{+DESYNC}  ? {%{$into->{+DESYNC}},  %$desync}  : {%$desync} if $desync;
     }
     elsif (exists $merge->{+PENDING}) {
-        delete $into->{+PENDING};
+        # A pending-clear marker (from a successful insert/update). Keep it as
+        # an explicit undef on a transaction frame so the pending-clear still
+        # propagates to the layer below on commit; only the base frame deletes.
+        if ($into->{+TRANSACTION}) { $into->{+PENDING} = undef }
+        else                       { delete $into->{+PENDING} }
     }
 
     delete $into->{+PENDING} if $into->{+PENDING} && !keys %{$into->{+PENDING}};

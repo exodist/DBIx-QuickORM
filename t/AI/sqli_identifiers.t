@@ -26,6 +26,10 @@ my $dbfile = "$dir/sqli.db";
     $dbh->do('CREATE TABLE evt ("order" INTEGER PRIMARY KEY, note TEXT)');
     $dbh->do(qq{INSERT INTO evt ("order", note) VALUES (1,'x'),(2,'y')});
 
+    # Reserved-word table name, to exercise the FROM identifier position.
+    $dbh->do('CREATE TABLE "order" (id INTEGER PRIMARY KEY, note TEXT)');
+    $dbh->do(qq{INSERT INTO "order" (id, note) VALUES (1,'reserved table')});
+
     # A second table for a cross join.
     $dbh->do('CREATE TABLE tags (id INTEGER PRIMARY KEY, label TEXT)');
     $dbh->do("INSERT INTO tags (id, label) VALUES (1,'a'),(2,'b')");
@@ -67,7 +71,7 @@ subtest order_by_injection_is_inert => sub {
     }
     else {
         # Or the database rejects the quoted identifier outright -- also safe.
-        ok(1, "order_by payload rejected by the database (no SQLi): $@");
+        like($@, qr/no such column|syntax error|unrecognized token/i, "order_by payload rejected by the database as a bad identifier (no SQLi): $@");
     }
 };
 
@@ -87,6 +91,21 @@ subtest identifiers_are_quoted => sub {
 
     my $by_field = $builder->qorm_select(source => $source, fields => [$payload]);
     like($by_field->{statement}, qr/"id\) OR \(1=1"/, "malicious field name becomes a single quoted identifier");
+};
+
+subtest source_table_name_is_quoted => sub {
+    my $h = $con->handle('order');
+
+    my $sql = $con->default_sql_builder->qorm_select(
+        source => $h->source,
+        fields => ['id'],
+    );
+    like($sql->{statement}, qr/FROM "order"/, "reserved-word table name is quoted in FROM");
+
+    my @rows;
+    ok(lives { @rows = $h->data_only->all }, "reserved-word table name queries successfully")
+        or note $@;
+    is([map { $_->{note} } @rows], ['reserved table'], "reserved-word table returned the expected row");
 };
 
 # Upsert builds its conflict SET clause by hand, after SQL::Abstract has run, so

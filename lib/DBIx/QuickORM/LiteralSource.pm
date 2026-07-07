@@ -77,11 +77,12 @@ sub new {
     # gets wrapped as a derived table: "( <sql> ) AS <alias>". The alias is the
     # value of 'subquery' (a true value of 1 uses a default alias).
     if (defined(my $sq = $params{subquery})) {
-        my $alias = (length($sq) && $sq ne '1') ? $sq : 'subquery';
-        # The alias is interpolated into raw SQL and there is no dbh here to
-        # quote it, so reject anything that is not a plain identifier rather
-        # than letting it break out into the statement.
-        croak "subquery alias '$alias' is not a valid identifier" unless $alias =~ /\A\w+\z/;
+        # An empty or true-of-1 value means "wrap with the default alias"; any
+        # other value is the alias. The alias is interpolated into raw SQL with
+        # no dbh to quote it, so it must be a leading-letter identifier -- a
+        # bare number like 0 would emit an invalid "AS 0".
+        my $alias = (!length($sq) || $sq eq '1') ? 'subquery' : $sq;
+        croak "subquery alias '$alias' is not a valid identifier" unless $alias =~ /\A[A-Za-z_]\w*\z/;
         $sql = "( $sql ) AS $alias";
     }
 
@@ -92,7 +93,7 @@ sub new {
 
 # {{{ Role::Source interface
 
-sub cachable { 0 }
+# No primary key, so Role::Source's cachable default already returns 0.
 
 sub source_db_moniker { ${$_[0]} }
 sub source_orm_name   { 'LITERAL' }

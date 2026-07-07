@@ -65,6 +65,17 @@ subtest auto_retry_txn_forms => sub {
 
     my $err = dies { $con->auto_retry_txn(2, \"nope") };
     like($err, qr/Not sure what to do with second argument/, "bad second argument croaks");
+
+    # Two-element flat form (action => sub): the first argument is not a count,
+    # so it must be parsed as flat params and still retry, not be mistaken for
+    # ($count='action', $cb) which numifies to 0 and never retries.
+    $calls = 0;
+    my $flat_warns = warns {
+        $txn = $con->auto_retry_txn(action => sub { die "boom\n" unless ++$calls > 1 });
+    };
+    is($calls, 2, "(action => sub) flat form retried instead of running once");
+    is($flat_warns, 1, "(action => sub) flat form warned once on the retry");
+    ok($txn->committed, "(action => sub) flat form eventually committed");
 };
 
 {
@@ -101,6 +112,33 @@ subtest failed_commit_is_recoverable => sub {
     my ($count) = $dbh->selectrow_array("SELECT COUNT(*) FROM things WHERE name = 'wedge'");
     $dbh->disconnect;
     is($count, 0, "the insert really was rolled back");
+};
+
+subtest failed_rollback_does_not_leak_a_silent_commit => sub {
+    my $con = connect_orm();
+
+    my $txn = $con->txn();
+    $con->handle('things')->insert({name => 'sticky'});
+
+    my $fake = My::Test::FakeAsync->new(done => 0);
+    $con->{in_async} = $fake;
+
+    my $err = dies { $txn->rollback };
+    like($err, qr/Cannot stop a transaction while there is an active async query/, "rollback during an active async query throws");
+    ok(!$txn->complete, "transaction is still open after the failed rollback");
+
+    $fake->set_done(1);
+
+    # The failed rollback left the transaction aborted-but-recoverable. A commit
+    # must not silently issue a ROLLBACK and report success; it croaks so the
+    # caller is not misled into thinking the data committed.
+    my $cerr = dies { $txn->commit };
+    like($cerr, qr/already been rolled back/, "commit after a failed rollback croaks instead of silently rolling back");
+    ok(!$txn->complete, "transaction is still recoverable after the refused commit");
+
+    ok(lives { $txn->rollback }, "an explicit rollback still resolves the transaction") or diag $@;
+    ok($txn->rolled_back, "transaction rolled back");
+    is(scalar(@{$con->transactions}), 0, "transaction stack is clean");
 };
 
 subtest on_parent_callbacks => sub {
@@ -158,6 +196,46 @@ subtest savepoint_metadata_survives_completion => sub {
     });
 
     is($saw, 1, "post-completion callbacks still see is_savepoint true for a savepoint txn");
+};
+
+subtest cannot_resolve_outer_txn_from_nested_action => sub {
+    my $con = connect_orm();
+
+    # Committing/rolling back an OUTER transaction object from inside a nested
+    # action used to unwind (via last QORM_TRANSACTION) to the innermost label
+    # and resolve the wrong (inner) transaction. It now croaks, and the whole
+    # structure rolls back cleanly.
+    my $err = dies {
+        $con->txn(sub {
+            my $outer = shift;
+            $con->txn(sub { $outer->commit });
+            $con->handle('things')->insert({name => 'should_not_persist'});
+        });
+    };
+    like($err, qr/outer transaction from within a nested transaction/, "committing an outer txn from a nested action croaks");
+
+    my $err2 = dies {
+        $con->txn(sub {
+            my $outer = shift;
+            $con->txn(sub { $outer->rollback });
+        });
+    };
+    like($err2, qr/outer transaction from within a nested transaction/, "rolling back an outer txn from a nested action croaks");
+
+    ok(!$con->in_txn, "no lingering transaction after the refusals");
+
+    ok(lives {
+        $con->txn(sub {
+            $con->txn(sub { $con->handle('things')->insert({name => 'nested_ok'}) });
+        });
+    }, "ordinary nested transactions still work");
+
+    my $dbh = DBI->connect($dsn, '', '', {RaiseError => 1, PrintError => 0});
+    my ($bad)  = $dbh->selectrow_array("SELECT COUNT(*) FROM things WHERE name = 'should_not_persist'");
+    my ($good) = $dbh->selectrow_array("SELECT COUNT(*) FROM things WHERE name = 'nested_ok'");
+    $dbh->disconnect;
+    is($bad, 0, "the refused transaction did not persist anything");
+    is($good, 1, "the ordinary nested transaction persisted");
 };
 
 done_testing;

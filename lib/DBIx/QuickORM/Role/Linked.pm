@@ -5,6 +5,7 @@ use warnings;
 our $VERSION = '0.000028';
 
 use Carp qw/croak/;
+use List::Util qw/uniq/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/column_key/;
 
@@ -168,21 +169,38 @@ sub _link_from_name {
     $cache = $self->{+LINKS} = {CACHE_ID() => "$self"} unless $cache && $cache->{+CACHE_ID} eq "$self";
 
     unless ($cache->{+BUILT}) {
-        my %lookup;
-        for my $l (sort { $a->other_table cmp $b->other_table || $a->key cmp $b->key } @{$self->links}) {
-            my $f = $lookup{$l->other_table}->{$l->key};
-            $lookup{$l->other_table}->{$l->key} = $f ? $f->merge($l) : $l;
+        # Merge only true duplicates -- links that share local_table, other_table
+        # AND key (e.g. the same table's link appearing twice in a self-join, or
+        # links repeated across a join's components). Two links to the same
+        # target via same-named columns from *different* local tables (common
+        # audit/address_id columns across joined tables) are distinct
+        # relationships; Link::merge would croak on them, so they stay separate.
+        my %merged;
+        for my $l (
+            sort { $a->local_table cmp $b->local_table || $a->other_table cmp $b->other_table || $a->key cmp $b->key }
+            @{$self->links}
+        ) {
+            my $fk = join("\0" => $l->local_table, $l->other_table, $l->key);
+            my $f  = $merged{$fk};
+            $merged{$fk} = $f ? $f->merge($l) : $l;
         }
 
-        $cache->{+BY_TABLE_KEY} = \%lookup;
+        for my $link (values %merged) {
+            # Keyed by (other_table, key). Distinct links colliding here are
+            # genuinely ambiguous, so keep every candidate; single candidates
+            # are collapsed below so an unambiguous lookup returns the link.
+            push @{$cache->{+BY_TABLE_KEY}->{$link->other_table}->{$link->key}} => $link;
 
-        for my $link (map {values %{$_}} values %lookup) {
             push @{$cache->{+BY_TABLE}->{$link->other_table}} => $link;
 
-            for my $alias (@{$link->aliases}) {
+            for my $alias (uniq @{$link->aliases}) {
                 push @{$cache->{+BY_ALIAS}->{$alias}} => $link;
                 $cache->{+BY_TABLE_ALIAS}->{$link->other_table}->{$alias} //= $link;
             }
+        }
+
+        for my $by_key (values %{$cache->{+BY_TABLE_KEY} // {}}) {
+            $_ = @$_ == 1 ? $_->[0] : $_ for values %$by_key;
         }
 
         $cache->{+BUILT} = 1;

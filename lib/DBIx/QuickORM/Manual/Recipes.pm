@@ -43,12 +43,13 @@ Bootstrap process:
         # Get the orm (the `orm => ...` param is required to prevent it from attempting a connection now)
         my $orm = qorm(orm => 'MyORM');
 
-        return if $orm->db; # Already bootstrapped
+        # Already bootstrapped? $orm->db croaks when no db is set, so guard it.
+        return if eval { $orm->db };
 
         my %db_params = decrypt_creds();
 
-        # Define the DB
-        my $db = db {
+        # Define the DB. db() has no block prototype, so pass an explicit sub.
+        my $db = db sub {
             db_name 'quickdb';
             host $db_params{host};
             port $db_params{port};
@@ -137,6 +138,25 @@ gets produced, you can also add C<< type => 'porcelain' >>.
 Really any 'type' other than 'orm' and undef (which becomes 'orm' by default)
 will work to prevent C<import()> from being exported to your namespace.
 
+=head2 RENAMING THE EXPORTED ACCESSOR
+
+The section above renames the DSL builders inside the package that B<defines>
+the ORM. This recipe renames the accessor installed into a package that
+B<uses> it.
+
+When another package does C<use My::ORM>, it gets a C<qorm()> accessor by
+default. Pass a name to the C<use> line to install the accessor under that
+name instead:
+
+    package My::App;
+    use My::ORM 'myorm';    # installs myorm() instead of qorm()
+
+    my $con = myorm('MyORM');           # a ready-to-query Connection
+    my $orm = myorm(orm => 'MyORM');    # the ORM object
+
+This affects only the accessor installed into the calling package; the names
+you use inside C<My::ORM> to define the ORM are unaffected.
+
 =head2 APP THAT CAN USE NEARLY IDENTICAL MYSQL AND POSTGRESQL DATABASES
 
 Lets say you have a test app that can connect to nearly identical MySQL or
@@ -192,8 +212,8 @@ Then to use it:
 
     use My::ORM;
 
-    my $orm_mysql = orm('my_orm:mysql');
-    my $orm_pgsql = orm('my_orm:pgsql');
+    my $orm_mysql = qorm(orm => 'my_orm:mysql');
+    my $orm_pgsql = qorm(orm => 'my_orm:pgsql');
 
 Each ORM object is a complete and self-contained ORM with its own caching and
 db connection. One connects to MySQL and one connects to PostgreSQL. Both can

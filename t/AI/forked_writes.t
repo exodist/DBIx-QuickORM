@@ -91,7 +91,7 @@ do_for_all_dbs {
 
         like(
             dies { $orm->handle('example', where => {name => 'bulk1'})->forked->update({name => 'x'}) },
-            qr/Cannot do an async update without a specific row/,
+            qr/Cannot maintain the row cache for a bulk update without a specific row/,
             "a forked bulk update without a bound row croaks",
         );
     };

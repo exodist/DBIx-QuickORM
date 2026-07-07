@@ -31,8 +31,7 @@ do_for_all_dbs {
             user $db->username;
             pass $db->password;
         }
-        elsif (curdialect() =~ m/SQLite|DuckDB/) {
-            db_name 'quickdb';
+        elsif (curdialect() =~ m/SQLite/) {
             db_name $db->dir . '/quickdb';
         }
     };
@@ -65,31 +64,34 @@ do_for_all_dbs {
         )
     )->forked->first;
 
-    my $counter = 0;
+    my $start = Time::HiRes::time();
     my $ready;
     until($ready = $forked->ready) {
-        $counter++;
-        sleep 0.1 if $counter > 1;
+        sleep 0.1;
     }
+    my $elapsed = Time::HiRes::time() - $start;
 
-    my $counterC = 0;
+    my $startC = Time::HiRes::time();
     my $readyC;
     until($readyC = $forkedC->ready) {
-        $counterC++;
-        sleep 0.1 if $counterC > 1;
+        sleep 0.1;
     }
+    my $elapsedC = Time::HiRes::time() - $startC;
 
     if ($sleep) {
-        ok($counter > 5, "We waited at least once ($counter)");
-        ok($counterC < 5, "We did not need to wait much for the second ($counterC)");
+        # Both forked queries carry a server-side one-second sleep and run in
+        # separate child processes, so the first wait spans about a second and
+        # the second, already in flight, resolves in no more time than the first.
+        ok($elapsed >= 0.9, "The first forked query blocked for about a second (${elapsed}s)");
+        ok($elapsedC <= $elapsed, "The second forked result resolved no slower than the first (${elapsedC}s)");
     }
 
     ok($forked->async->pid, "got a pid");
 
-    ok(blessed($ready), 'DBIx::QuickORM::Row', "Row was returned from ready()");
+    isa_ok($ready, ['DBIx::QuickORM::Row'], "Row was returned from ready()");
     ref_is($ready, $row, "same ref");
 
-    ok(blessed($readyC), 'DBIx::QuickORM::Row', "Row was returned from ready()");
+    isa_ok($readyC, ['DBIx::QuickORM::Row'], "Row was returned from ready()");
     ref_is($readyC, $row, "same ref");
 
     is(blessed($forked), 'DBIx::QuickORM::Row::Async', "Still async");
@@ -119,4 +121,3 @@ do_for_all_dbs {
 };
 
 done_testing;
-

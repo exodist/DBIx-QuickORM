@@ -45,7 +45,10 @@ subtest commit_persists => sub {
         my $t = shift;
         ok($con->in_txn,      "in_txn true inside the action");
         ok($con->current_txn, "current_txn set inside the action");
-        is($con->current_txn, $t, "current_txn is the active txn object");
+        # Identity assertion (not a deep compare): a transaction now holds a
+        # (weak) back-reference to its connection, so a structural compare would
+        # recurse through the connection's transaction stack.
+        ref_is($con->current_txn, $t, "current_txn is the active txn object");
         ok(!$t->is_savepoint, "top-level txn is not a savepoint");
         is($t->state, 'active', "state is active inside the action");
         $con->handle('items')->insert({name => 'committed'});
@@ -89,7 +92,7 @@ subtest savepoint_nesting => sub {
         $con->txn(sub {
             my $inner = shift;
             ok($inner->is_savepoint, "nested txn is a savepoint");
-            isnt($inner, $outer, "inner txn is a distinct object");
+            ref_is_not($inner, $outer, "inner txn is a distinct object");
             $con->handle('items')->insert({name => 'inner_drop'});
             $inner->rollback;
         });
@@ -135,6 +138,18 @@ subtest callbacks_added_to_object => sub {
         $t->add_completion_callback(sub { $seen{completion}++ });
     });
     is(\%seen, {success => 1, completion => 1}, "add_*_callback success path");
+};
+
+subtest callbacks_added_to_object_fail => sub {
+    my %seen;
+    $con->txn(sub {
+        my $t = shift;
+        $t->add_success_callback(sub    { $seen{success}++ });
+        $t->add_fail_callback(sub       { $seen{fail}++ });
+        $t->add_completion_callback(sub { $seen{completion}++ });
+        $t->rollback;
+    });
+    is(\%seen, {fail => 1, completion => 1}, "add_fail_callback + add_completion_callback fire on rollback, success does not");
 };
 
 subtest state_rolled_back => sub {
@@ -191,6 +206,26 @@ subtest auto_retry_txn_persists => sub {
     isa_ok($txn, ['DBIx::QuickORM::Connection::Transaction'], "auto_retry_txn returns a txn object");
     is($txn->result, 1, "auto_retry_txn committed on success");
     is(disk_names(), [sort(@$before, 'via_retry')], "auto_retry_txn persisted the row");
+};
+
+subtest destroy_parent_before_child_savepoint_does_not_wedge => sub {
+    # Perl does not guarantee the destruction order of lexicals, so a parent
+    # transaction can be destroyed while a child savepoint is still live. That
+    # must not leave the root BEGIN open and permanently wedge the connection.
+    my $h = $con->handle('items');
+    {
+        local $SIG{__WARN__} = sub {};    # abandoned txns warn on rollback; expected here
+        my $inner;
+        { my $outer = $con->txn; $inner = $con->txn; }    # parent (root) destroyed first
+        undef $inner;                                     # then the orphaned child
+    }
+
+    ok(!$con->in_txn, "no transaction is left open after out-of-order destruction");
+    is(scalar(grep { defined } @{$con->transactions}), 0, "the transaction stack is empty");
+
+    ok(lives { $con->txn(sub { $h->insert({name => 'after_wedge'}) }) }, "a later transaction still runs");
+    ok(scalar(grep { $_ eq 'after_wedge' } @{disk_names()}), "and its work actually persists to disk");
+    ok(lives { $con->reconnect }, "reconnect is not blocked by a phantom active transaction");
 };
 
 $probe->disconnect;

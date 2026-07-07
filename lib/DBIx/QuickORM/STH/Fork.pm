@@ -10,7 +10,6 @@ with 'DBIx::QuickORM::Role::Async';
 
 use Carp qw/croak/;
 use POSIX qw/WNOHANG/;
-use Time::HiRes qw/sleep/;
 use Cpanel::JSON::XS qw/decode_json/;
 
 use Object::HashBase qw{
@@ -124,10 +123,6 @@ The pipe object messages are read from.
 
 Always true: a forked query can be cancelled by signalling the child.
 
-=item $dialect = $sth->dialect
-
-The dialect, lazily taken from the connection.
-
 =item $sth->clear
 
 Release the fork slot on the owning connection.
@@ -138,8 +133,7 @@ Release the fork slot on the owning connection.
 
 sub cancel_supported { 1 }
 
-sub dialect { $_[0]->{+DIALECT} //= $_[0]->{+CONNECTION}->dialect }
-sub clear   { $_[0]->{+CONNECTION}->clear_fork($_[0]) }
+sub clear { $_[0]->{+CONNECTION}->clear_fork($_[0]) }
 
 # }}} Role::STH / Role::Async interface
 
@@ -192,7 +186,15 @@ sub ready {
     return 1 if exists $self->{+GOT_RESULT};
 
     my $msg = $self->_read_message(0);    # non-blocking peek for the result message
-    return 0 unless defined $msg;
+    unless (defined $msg) {
+        # read_message returns undef both for "no complete frame yet" and for
+        # EOF. If the child died before sending its result the pipe is at EOF
+        # and no frame will ever arrive; report ready so the next result()/next()
+        # surfaces the truncation error instead of spinning forever (wait() and
+        # DESTROY both poll ready()).
+        return 1 if $self->{+PIPE} && $self->{+PIPE}->eof;
+        return 0;
+    }
 
     $self->{+GOT_RESULT} = $self->_decode_result($msg);
     return $self->{+READY} = 1;
@@ -253,8 +255,6 @@ sub cancel {
 Return the next row as a hashref, or undef once exhausted. With C<only_one>
 set, a second row is an error.
 
-=back
-
 =cut
 
 sub next {
@@ -272,119 +272,6 @@ sub next {
     }
 
     return $row;
-}
-
-=pod
-
-=head1 PRIVATE METHODS
-
-=over 4
-
-=item $row_hr = $sth->_next
-
-Read and decode the next row message from the pipe, finalizing when the child
-signals exhaustion.
-
-=cut
-
-sub _next {
-    my $self = shift;
-
-    return if $self->{+DONE};
-
-    $self->result unless exists $self->{+GOT_RESULT};
-
-    my $msg = $self->_read_message(1);    # blocking
-
-    unless (defined $msg) {
-        # EOF with no terminal frame: the child died before signalling
-        # completion, so the streamed rows are truncated.
-        $self->{+TERMINATED} = 1;
-        $self->{+CLEAN}      = 0;
-        $self->set_done;
-        croak "Forked query ended before the child signalled completion (result was truncated)";
-    }
-
-    my $frame = decode_json($msg);
-
-    if ($frame->{done}) {            # clean end of stream
-        $self->{+TERMINATED} = 1;
-        $self->{+CLEAN}      = 1;
-        $self->set_done;
-        return;
-    }
-
-    if (exists $frame->{error}) {    # the child reported a failure
-        $self->{+TERMINATED} = 1;
-        $self->{+CLEAN}      = 0;
-        $self->set_done;
-        $self->_croak_child_error($frame->{error});
-    }
-
-    return $frame->{row} if exists $frame->{row};
-
-    $self->{+TERMINATED} = 1;
-    $self->{+CLEAN}      = 0;
-    $self->set_done;
-    croak "Got invalid data from pipe: $msg";
-}
-
-=pod
-
-=item $msg = $sth->_read_message($blocking)
-
-Read one raw message from the pipe, blocking or not per the argument.
-
-=cut
-
-sub _read_message {
-    my $self = shift;
-    my ($blocking) = @_;
-
-    my $pipe = $self->{+PIPE} or return undef;
-    $pipe->read_blocking($blocking ? 1 : 0);
-    return $pipe->read_message;
-}
-
-=pod
-
-=item $result = $sth->_decode_result($msg)
-
-Decode the JSON result message and return its C<result> payload, croaking on
-invalid data.
-
-=cut
-
-sub _decode_result {
-    my $self = shift;
-    my ($msg) = @_;
-
-    my $data = defined($msg) ? decode_json($msg) : undef;
-    return $data->{result} if $data && exists $data->{result};
-
-    # An error frame or EOF arrived where the result frame was expected.
-    # Finalize so the child is reaped and the fork slot released, then surface
-    # the failure rather than hanging or returning bad data.
-    $self->{+TERMINATED} = 1;
-    $self->{+CLEAN}      = 0;
-    $self->set_done;
-    $self->_croak_child_error($data->{error}) if $data && exists $data->{error};
-    croak "Forked query produced no result before the child exited";
-}
-
-=pod
-
-=item $sth->_croak_child_error($message)
-
-Croak reporting an error the forked child sent back over the pipe.
-
-=cut
-
-sub _croak_child_error {
-    my $self = shift;
-    my ($err) = @_;
-    $err = 'unknown error' unless defined($err) && length($err);
-    croak "Forked query failed in the child process: $err";
 }
 
 =pod
@@ -440,9 +327,132 @@ sub set_done {
 
 =pod
 
-=head1 PRIVATE METHODS (cont.)
+=head1 PRIVATE METHODS
 
 =over 4
+
+=item $row_hr = $sth->_next
+
+Read and decode the next row message from the pipe, finalizing when the child
+signals exhaustion.
+
+=cut
+
+sub _next {
+    my $self = shift;
+
+    return if $self->{+DONE};
+
+    $self->result unless exists $self->{+GOT_RESULT};
+
+    my $msg = $self->_read_message(1);    # blocking
+
+    # EOF with no terminal frame: the child died before signalling completion,
+    # so the streamed rows are truncated.
+    $self->_fail_stream(message => "Forked query ended before the child signalled completion (result was truncated)")
+        unless defined $msg;
+
+    my $frame = decode_json($msg);
+
+    if ($frame->{done}) {            # clean end of stream
+        $self->{+TERMINATED} = 1;
+        $self->{+CLEAN}      = 1;
+        $self->set_done;
+        return;
+    }
+
+    $self->_fail_stream(error => $frame->{error}) if exists $frame->{error};
+
+    return $frame->{row} if exists $frame->{row};
+
+    $self->_fail_stream(message => "Got invalid data from pipe: $msg");
+}
+
+=pod
+
+=item $msg = $sth->_read_message($blocking)
+
+Read one raw message from the pipe, blocking or not per the argument.
+
+=cut
+
+sub _read_message {
+    my $self = shift;
+    my ($blocking) = @_;
+
+    # ready/result/next all funnel through here. An inherited copy in a forked
+    # child must not read (and steal) frames off the pipe the owner is draining.
+    croak "Cannot read a forked statement handle from a different process than the one that created it"
+        unless $self->in_owner_process;
+
+    my $pipe = $self->{+PIPE} or return undef;
+    $pipe->read_blocking($blocking ? 1 : 0);
+    return $pipe->read_message;
+}
+
+=pod
+
+=item $result = $sth->_decode_result($msg)
+
+Decode the JSON result message and return its C<result> payload, croaking on
+invalid data.
+
+=cut
+
+sub _decode_result {
+    my $self = shift;
+    my ($msg) = @_;
+
+    my $data = defined($msg) ? decode_json($msg) : undef;
+    return $data->{result} if $data && exists $data->{result};
+
+    # An error frame or EOF arrived where the result frame was expected.
+    # Finalize so the child is reaped and the fork slot released, then surface
+    # the failure rather than hanging or returning bad data.
+    $self->_fail_stream(error => $data->{error}) if $data && exists $data->{error};
+    $self->_fail_stream(message => "Forked query produced no result before the child exited");
+}
+
+=pod
+
+=item $sth->_fail_stream(message => $str)
+
+=item $sth->_fail_stream(error => $child_error)
+
+Mark the stream terminated without a clean completion, finalize the handle
+(reaping the child and releasing the fork slot), then croak: with C<error>
+reporting the child's error message, otherwise with the given C<message>.
+
+=cut
+
+sub _fail_stream {
+    my $self = shift;
+    my %params = @_;
+
+    $self->{+TERMINATED} = 1;
+    $self->{+CLEAN}      = 0;
+    $self->set_done;
+
+    $self->_croak_child_error($params{error}) if exists $params{error};
+    croak $params{message};
+}
+
+=pod
+
+=item $sth->_croak_child_error($message)
+
+Croak reporting an error the forked child sent back over the pipe.
+
+=cut
+
+sub _croak_child_error {
+    my $self = shift;
+    my ($err) = @_;
+    $err = 'unknown error' unless defined($err) && length($err);
+    croak "Forked query failed in the child process: $err";
+}
+
+=pod
 
 =item $sth->_drive_to_terminal
 

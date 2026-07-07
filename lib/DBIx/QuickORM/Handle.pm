@@ -1,7 +1,6 @@
 package DBIx::QuickORM::Handle;
 use strict;
 use warnings;
-use feature qw/state/;
 
 our $VERSION = '0.000028';
 
@@ -218,6 +217,10 @@ Validate and normalize attributes after construction. Resolves mutually
 exclusive options, derives the WHERE clause from a bound row, and reconciles
 C<fields> with C<omit>.
 
+=item $h->_check_row
+
+Validate that a bound row belongs to this handle's connection and source.
+
 =item $omit = $h->_normalize_omit($omit, $pk_fields)
 
 Coerce an C<omit> specification into a hashref and reject attempts to omit
@@ -254,7 +257,8 @@ sub init {
     }
 
     if (my $row = $self->{+ROW}) {
-        croak "Invalid row: $row" if $row && !$row->DOES('DBIx::QuickORM::Role::Row');
+        croak "Invalid row: $row" unless blessed($row) && $row->DOES('DBIx::QuickORM::Role::Row');
+        $self->_check_row($row);
 
         croak "You cannot provide both a 'row' and a 'where'" if $self->{+WHERE};
 
@@ -266,6 +270,12 @@ sub init {
     if (my $omit = $self->{+OMIT}) {
         croak "Cannot mix 'omit' and a non-arrayref field specification ('$fields')" if ref($fields) ne 'ARRAY';
 
+        # A wildcard fetch list means the columns are not enumerable (e.g. a
+        # derived-table/subquery source), so there is nothing to filter and the
+        # omit would silently no-op. Say so instead.
+        croak "Cannot omit fields on a source whose columns are not enumerable (its fetch list is '*')"
+            if @$fields == 1 && ($fields->[0] // '') eq '*';
+
         my $pk_fields = $source->primary_key;
         if ($omit = $self->_normalize_omit($omit, $pk_fields)) {
             my %seen;
@@ -276,6 +286,21 @@ sub init {
             delete $self->{+OMIT};
         }
     }
+}
+
+sub _check_row {
+    my $self = shift;
+    my ($row) = @_;
+
+    my $row_con = $row->connection;
+    my $con     = $self->{+CONNECTION};
+    croak "The row is bound to a different connection than this handle" unless $row_con == $con;
+
+    my $row_source = $row->source;
+    my $source     = $self->{+SOURCE};
+    return if $row_source->source_orm_name eq $source->source_orm_name;
+
+    croak "The row is from source '" . $row_source->source_orm_name . "', but this handle uses source '" . $source->source_orm_name . "'";
 }
 
 sub _normalize_omit {
@@ -332,7 +357,9 @@ sub _sql_builder {
 
 Create a join handle against the named link. Returns a new handle whose source
 is a L<DBIx::QuickORM::Join>; fetch methods then yield
-L<DBIx::QuickORM::Join::Row> objects.
+L<DBIx::QuickORM::Join::Row> objects. Like the immutators, C<join> and its
+directional shortcuts must be called in non-void context; calling one in void
+context croaks.
 
 =item $new_h = $h->left_join(@args)
 
@@ -380,6 +407,7 @@ link against the source and returns a clone whose source is the resulting join.
 
 sub _join {
     my $self = shift;
+    croak "Must not be called in void context" unless defined wantarray;
 
     # An odd argument count means the first argument is the positional link
     # (or table, for cross joins).
@@ -388,6 +416,14 @@ sub _join {
     else        { %params = @_; $link = delete $params{link} }
 
     my $source = $self->{+SOURCE};
+
+    # Joins are only implemented over table (or view) sources and already-built
+    # joins. A LiteralSource / derived-table source has no resolve_link and its
+    # moniker is a bind-ref that would be string-concatenated into broken SQL,
+    # so refuse early rather than failing deep in join construction.
+    croak "Cannot build a join from a " . (blessed($source) || ref($source) || 'non-object') . " source; joins require table sources"
+        unless blessed($source)
+        && ($source->isa('DBIx::QuickORM::Join') || $source->isa('DBIx::QuickORM::Schema::Table'));
 
     if (($params{type} // '') =~ m/^CROSS$/i) {
         # A cross join has no ON clause, so no link is needed; the argument
@@ -704,9 +740,23 @@ constructor to process.
 These allow custom handlers for unknown arguments. The defaults throw
 exceptions.
 
+=item -unknown => sub { my ($h, $arg) = @_; die ... }
+
+Umbrella for the three above: sets C<-unknown_object>, C<-unknown_ref>, and
+C<-unknown_arg> to the same handler in one call.
+
 =back
 
 =cut
+
+# The complete set of -flag names handle() accepts. A misspelled flag would
+# otherwise be stored silently and never consulted, quietly disabling whatever
+# protection the caller meant to configure.
+my %VALID_HANDLE_FLAG = map { $_ => 1 } qw{
+    allow_override bad_override row_and_where row_and_source
+    unknown_object unknown_ref unknown_arg unknown
+    array hash integer scalar
+};
 
 sub new { my $proto = shift; $proto->handle(@_) }
 
@@ -827,6 +877,7 @@ sub handle {
 
         if ($arg =~ m/^-(.+)$/) {
             my $flag = $1;
+            croak "Unknown handle flag '-$flag'" unless $VALID_HANDLE_FLAG{$flag};
             my $val = shift @_;
             $flags{$flag} = $val;
             if ($flag eq 'unknown') {
@@ -914,6 +965,8 @@ sub handle {
 
 These always return a new handle instance with a state that copies the original
 except where arguments would mutate it. The original handle is never modified.
+They must be called in non-void context; calling one in void context croaks
+(the new handle is the whole point, so discarding it is always a mistake).
 
 =over 4
 
@@ -950,11 +1003,14 @@ is executed in a forked process with a new db connection, the results will be
 returned to the parent.
 
 This can be used to emulate async operations on databases that do not support
-them, such as L<DBD::SQlite>.
+them, such as L<DBD::SQLite>.
 
 =item $new_h = $h->data_only()
 
+=item $new_h = $h->data_only($bool)
+
 The newly returned handle will return hashrefs instead of blessed row objects.
+Pass a boolean to toggle the flag in either direction.
 
 =item $new_h = $h->distinct()
 
@@ -965,8 +1021,8 @@ Pass a boolean to toggle the flag in either direction.
 
 =item $new_h = $h->all_fields()
 
-Make sure the handle selects all fields when fetching rows. Normally some rows
-may be omitted by default based on if they have an C<omit> flag set.
+Make sure the handle selects all fields when fetching rows. Normally some
+fields may be omitted by default based on if they have an C<omit> flag set.
 
 =item $new_h = $h->and($WHERE)
 
@@ -1071,7 +1127,7 @@ sub distinct {
 sub all_fields {
     my $self = shift;
     croak "Must not be called in void context" unless defined wantarray;
-    return $self->clone(FIELDS() => $self->{+SOURCE}->fields_list_all);
+    return $self->clone(FIELDS() => $self->{+SOURCE}->fields_list_all, OMIT() => undef);
 }
 
 sub internal_txns    { my $self = shift; $self->internal_transactions(@_) }
@@ -1096,11 +1152,13 @@ sub no_internal_transactions {
     no warnings 'once';
     *and = set_subname 'and' => sub {
         my $self = shift;
+        croak "Must not be called in void context" unless defined wantarray;
         return $self->clone(WHERE() => $self->sql_builder->qorm_and($self->{+WHERE}, @_));
     };
 
     *or = set_subname 'or' => sub {
         my $self = shift;
+        croak "Must not be called in void context" unless defined wantarray;
         return $self->clone(WHERE() => $self->sql_builder->qorm_or($self->{+WHERE}, @_));
     };
 }
@@ -1119,7 +1177,8 @@ sub no_internal_transactions {
 
 These are methods that return their value if called without arguments, but
 return a clone of the handle with the new value set when provided with an
-argument.
+argument. They must be called in non-void context; calling one in void context
+croaks.
 
 =over 4
 
@@ -1127,7 +1186,7 @@ argument.
 
 =item $new_h = $h->sql_builder($sql_builder)
 
-Can be used to get the SQL Builder that is already set, or create a clone fo
+Can be used to get the SQL Builder that is already set, or create a clone of
 the handle with a new sql_builder set.
 
 =item $connection = $h->connection()
@@ -1141,15 +1200,15 @@ handle that uses a new connection.
 
 =item $new_h = $h->source($source)
 
-Can be used to get the connection of a source, or to create a clone of the
-source that uses a new connection.
+Can be used to get the source of a handle, or to create a clone of the
+handle that uses a new source.
 
 =item $row = $h->row()
 
 =item $new_h = $h->row($row)
 
-Can be used to get the connection of a row, or to create a clone of the
-row that uses a new connection.
+Can be used to get the row bound to a handle, or to create a clone of the
+handle that uses a new row.
 
 =item $fields = $h->fields()
 
@@ -1273,7 +1332,8 @@ sub omit {
 
     return $self->clone(OMIT() => $_[0]) if @_ == 1 && ref($_[0]) eq 'ARRAY';
 
-    my @omit = @{$self->{+OMIT} // []};
+    my $cur = $self->{+OMIT};
+    my @omit = ref($cur) eq 'HASH' ? keys %$cur : @{$cur // []};
     push @omit => @_;
     return $self->clone(OMIT() => \@omit)
 }
@@ -1344,6 +1404,11 @@ Computed or literal output columns (e.g. C<COUNT(*)>) carry no metadata, so they
 come back untyped; the derived table exposes the inner statement's emitted
 column names.
 
+A subquery source is read-only: C<insert>, C<upsert>, C<update>, C<delete>, and
+C<cas> through a handle whose source is another handle all croak, as does
+C<omit> (a derived table's output columns are not enumerable). Query and refine
+it, but do not write through it.
+
 To refine an existing handle B<without> wrapping it in a subquery, call refining
 methods on the handle directly (e.g. C<< $recent->where(...) >>), which return a
 refined clone.
@@ -1400,6 +1465,9 @@ sub source_db_moniker {
 }
 
 sub source_orm_name { my $self = shift; return $self->{+SUBQUERY_ALIAS} // 'subquery' }
+
+# A derived table is read-only; writes through it must croak cleanly.
+sub is_writable { 0 }
 
 sub primary_key        { my $self = shift; return undef }
 sub row_class          { my $self = shift; return undef }
@@ -1586,8 +1654,8 @@ sub _do_binds {
             if (blessed($val) && $val->DOES('DBIx::QuickORM::Role::Type')) {
                 $val = $val->qorm_deflate(%conflate_args);
             }
-            elsif (my $type = $source->field_type($field)) {
-                $val = $type->qorm_deflate(%conflate_args);
+            elsif (my $field_type = $source->field_type($field)) {
+                $val = $field_type->qorm_deflate(%conflate_args);
             }
 
             if ($quote_bin && $affinity eq 'binary') {
@@ -1641,16 +1709,15 @@ sub _make_async_sth {
         $class = 'DBIx::QuickORM::STH::Async';
     }
 
-    my ($sth, $res) = $self->_execute($dbh, $sql, {$dialect->async_prepare_args});
+    my ($sth) = $self->_execute($dbh, $sql, {$dialect->async_prepare_args});
 
     my $out = $class->new(
         %params,
-        connection   => $con,
-        source       => $sql->{+SOURCE},
-        dbh          => $dbh,
-        sth          => $sth,
-        sql          => $sql,
-        async_result => $res,
+        connection => $con,
+        source     => $sql->{+SOURCE},
+        dbh        => $dbh,
+        sth        => $sth,
+        sql        => $sql,
     );
 
     $con->$meth($out);
@@ -1660,6 +1727,10 @@ sub _make_async_sth {
 sub _make_forked_sth {
     my $self = shift;
     my ($sql, %params) = @_;
+
+    # The child protocol closes over $sql and finalizes via terminal frames, so
+    # a forked handle uses neither the sql nor no_rows keys the read paths pass.
+    delete $params{no_rows};
 
     my $con = $self->{+CONNECTION};
 
@@ -1676,7 +1747,6 @@ sub _make_forked_sth {
             connection => $con,
             source     => $sql->{+SOURCE},
             pid        => $pid,
-            sql        => $sql,
             pipe       => $rh,
         );
 
@@ -1749,11 +1819,6 @@ sub _make_forked_sth {
 
 =over 4
 
-=item $txn = $h->_start_internal_txn(%params)
-
-Begin an internal transaction when allowed and not already inside one,
-otherwise warn/die per the supplied params.
-
 =item $result = $h->_internal_txn($cb, %params)
 
 Run the callback inside an internal transaction when allowed, otherwise warn or
@@ -1762,24 +1827,6 @@ die per params, or run it without one.
 =back
 
 =cut
-
-sub _start_internal_txn {
-    my $self = shift;
-    my (%params) = @_;
-
-    my $con = $self->{+CONNECTION};
-
-    # Already inside a txn
-    return undef if $con->in_txn;
-
-    # Internal TXNs are allowed, use one
-    return $con->txn if $self->{+INTERNAL_TRANSACTIONS};
-
-    carp "Internal transactions are disabled: $params{warn}" if $params{warn};
-    croak "Internal transactions are disabled: $params{die}" if $params{die};
-
-    return undef;
-}
 
 sub _internal_txn {
     my $self = shift;
@@ -1808,26 +1855,6 @@ sub _internal_txn {
 ########################
 # {{{ Results Fetchers #
 ########################
-
-=pod
-
-=head1 PRIVATE METHODS
-
-=over 4
-
-=item $h->_fixture_arg($arg)
-
-Store the argument as the handle's pending operation target.
-
-=back
-
-=cut
-
-sub _fixture_arg {
-    my $self = shift;
-    my ($arg) = @_;
-    $self->{+TARGET} = $arg;
-}
 
 =pod
 
@@ -1879,16 +1906,32 @@ sub by_id {
     my $pk_fields = $self->_has_pk or croak "Cannot call by_id() on a source that has no primary key";
 
     my $where;
+    my $cacheable = 1;
     my $ref = ref($id);
-    #<<<
-    if    ($ref eq 'HASH')  { $where = $id; $id = [ map { $where->{$_} } @$pk_fields ] }
-    elsif ($ref eq 'ARRAY') { $where = +{ mesh($pk_fields, $id) } }
-    elsif (!$ref)           { $id = [ $id ]; $where = +{ mesh($pk_fields, $id) } }
-    #>>>
+    if ($ref eq 'HASH') {
+        $where = $id;
+        croak "Missing primary key field '$_' in by_id() hash" for grep { !exists $where->{$_} } @$pk_fields;
+        $id = [ map { $where->{$_} } @$pk_fields ];
+        $cacheable = 0 if keys(%$where) != @$pk_fields;
+    }
+    elsif ($ref eq 'ARRAY') {
+        croak "Incorrect primary key field count in by_id(): expected " . scalar(@$pk_fields) . ", got " . scalar(@$id)
+            unless @$id == @$pk_fields;
+        $where = +{ mesh($pk_fields, $id) };
+    }
+    elsif (!$ref) {
+        croak "Scalar by_id() can only be used with a single-column primary key" unless @$pk_fields == 1;
+        $id = [ $id ];
+        $where = +{ mesh($pk_fields, $id) };
+    }
 
     croak "Unrecognized primary key format: $id" unless ref($id) eq 'ARRAY';
+    croak "Undefined primary key value in by_id()" if grep { !defined } @$id;
 
-    my $row = $self->{+CONNECTION}->state_cache_lookup($source, $id);
+    $self->{+CONNECTION}->pid_check;
+
+    my $row = $cacheable ? $self->{+CONNECTION}->state_cache_lookup($source, $id) : undef;
+    return $row->raw_fields if $row && $self->{+DATA_ONLY};
     return $row //= $self->where($where)->one();
 }
 
@@ -2108,11 +2151,36 @@ sub _insert_and_refresh {
     return $row;
 }
 
+sub _source_volatile_columns {
+    my $self = shift;
+    my $source = $self->{+SOURCE};
+    return () unless $source->can('columns');
+    return grep { $_->can('volatile') && $_->volatile } $source->columns;
+}
+
+# Columns that are BOTH volatile and omitted. A volatile value the caller sent
+# is trusted (kept) unless the column is also on the omit list, in which case the
+# omit+volatile contract clears it after the write so the next access lazily
+# re-fetches the real stored value. (A non-omitted volatile column that was NOT
+# sent is simply never in the stored data and lazily fetches on access; nothing
+# special to do for it here.)
+sub _omitted_volatile_field_names {
+    my $self = shift;
+    return map { $_->name } grep { $_->omit } $self->_source_volatile_columns;
+}
+
+sub _volatile_field_names {
+    my $self = shift;
+    return map { $_->name } $self->_source_volatile_columns;
+}
+
 sub _insert {
     my $self = shift;
     my %params = @_;
 
     my $upsert = $params{upsert};
+
+    croak "Cannot " . ($upsert ? 'upsert' : 'insert') . " through a derived-table (subquery) source" unless $self->{+SOURCE}->is_writable;
 
     croak "Cannot insert rows using a handle with data_only set"   if $self->{+DATA_ONLY};
     croak "Cannot insert rows using a handle with a limit set"     if defined $self->{+LIMIT};
@@ -2128,7 +2196,7 @@ sub _insert {
 
     if (my $row = $self->{+ROW}) {
         croak "Cannot provide both a row and data to insert()" if $data;
-        croak "Cannot insert a row that is already stored" if $row->in_storage;
+        croak "Cannot " . ($upsert ? 'upsert' : 'insert') . " a row that is already stored" if $row->in_storage;
         $data = $row->row_data_obj->pending_data or croak "Row has no pending data to insert";
     }
 
@@ -2156,6 +2224,7 @@ sub _insert {
     # Drop them silently so callers can pass a generic row hash without
     # having to know which columns the database owns.
     delete $data->{$_} for grep { $source->field_is_generated($_) } keys %$data;
+    croak "Refusing to insert an empty row" unless keys %$data;
 
     my $has_pk = $self->_has_pk;
     my $has_ret = $dialect->supports_returning_insert;
@@ -2167,10 +2236,25 @@ sub _insert {
 
     $builder_args->{insert} = $data;
 
+    # An omit+volatile column's sent value is cleared after the write (see the
+    # on_ready callback) so the next access lazily fetches the real stored value.
+    my @omit_volatile = $self->_omitted_volatile_field_names;
+
+    # RETURNING is computed before AFTER triggers run, so for a table with
+    # triggers it does not reflect a column a trigger changed. When that is the
+    # case we still use RETURNING for the primary key (identity/compound keys),
+    # but an auto_refresh reads the rest back with a follow-up refresh instead,
+    # so the in-memory result matches dialects without RETURNING.
+    my $ret_trusted = $dialect->returning_reflects_write($source);
+
     if ($has_ret && $has_pk) {
         my %seen;
         # @fields might omit some fields specified in $data, so we want to include any that were in data
-        $builder_args->{returning} = $self->{+AUTO_REFRESH} ? [ grep { !$seen{$_}++ } @$has_pk, @$fields, keys %$data ] : $has_pk;
+        $builder_args->{returning} = [
+            grep { !$seen{$_}++ }
+                @$has_pk,
+                ($ret_trusted && $self->{+AUTO_REFRESH} ? (@$fields, keys %$data) : ()),
+        ];
     }
 
     my $meth = $upsert ? 'qorm_upsert' : 'qorm_insert';
@@ -2182,20 +2266,19 @@ sub _insert {
             my ($dbh, $sth, $res, $sql) = @_;
 
             my $row_data;
+            my $fetched = {};
 
             # Add generated PKs, mixed with insert values
             if ($builder_args->{returning}) {
-                $row_data = {
-                    %$data,
-                    %{$self->sql_builder->qorm_row_to_orm($self->{+SOURCE}, $sth->fetchrow_hashref)},
-                };
+                $fetched  = $self->sql_builder->qorm_row_to_orm($self->{+SOURCE}, $sth->fetchrow_hashref);
+                $row_data = { %$data, %$fetched };
             }
             elsif($has_pk) {
-                my $kv = $dbh->last_insert_id(undef, undef, $self->{+SOURCE}->source_db_moniker);
-                $row_data = {
-                    %$data,
-                    $has_pk->[0] => $kv,
-                };
+                $row_data = { %$data };
+                unless (defined $row_data->{$has_pk->[0]}) {
+                    my $kv = $dbh->last_insert_id(undef, undef, $self->{+SOURCE}->source_db_moniker);
+                    $row_data->{$has_pk->[0]} = $kv;
+                }
             }
             else {
                 $row_data = { %$data };
@@ -2205,6 +2288,13 @@ sub _insert {
             # database-computed result. Drop any literal not returned so a later
             # read fetches it on demand.
             delete @{$row_data}{ grep { literal_write_value($row_data->{$_}) } keys %$row_data };
+
+            # An omit+volatile column: its sent value is neither trusted nor
+            # eagerly fetched. Drop it so the next access lazily fetches the real
+            # stored value. A non-omitted volatile value the caller sent is
+            # trusted (kept), and a non-omitted volatile column that was not sent
+            # is simply absent here and lazily fetches on access.
+            delete @{$row_data}{ @omit_volatile };
 
             my $sent = 0;
             return sub { $sent++ ? () : $row_data };
@@ -2219,11 +2309,18 @@ sub _insert {
         );
     }
 
-    return $self->{+CONNECTION}->state_insert_row(
+    my $row = $self->{+CONNECTION}->state_insert_row(
         source  => $source,
         fetched => $sth->next,
         row     => $self->{+ROW},
     );
+
+    # RETURNING carried only the primary key for a table whose triggers make it
+    # untrustworthy, so an auto_refresh row is not yet fully populated: read it
+    # back with a follow-up SELECT, exactly as on a dialect without RETURNING.
+    $row->refresh if blessed($row) && $self->{+AUTO_REFRESH} && $has_ret && !$ret_trusted;
+
+    return $row;
 }
 
 =pod
@@ -2333,6 +2430,8 @@ reported as a loss.
 sub delete {
     my $self = shift->_row_or_hashref(WHERE() => @_);
 
+    croak "Cannot delete through a derived-table (subquery) source" unless $self->{+SOURCE}->is_writable;
+
     croak "Cannot delete rows using a handle with data_only set" if $self->{+DATA_ONLY};
 
     # A bound row normally provides the WHERE clause via its primary key. With
@@ -2350,7 +2449,7 @@ sub delete {
     my $row          = $self->{+ROW};
     my $has_pk       = $self->_has_pk;
     my $builder_args = $self->_builder_args;
-    my $do_cache     = $con->state_does_cache;
+    my $do_cache     = $has_pk && $con->state_does_cache;
     my $has_ret      = $dialect->supports_returning_delete;
 
     $builder_args->{returning} = $has_pk if $do_cache && $has_ret && $has_pk;
@@ -2408,7 +2507,7 @@ sub delete {
         );
     }
     else {
-        croak "Cannot do an async delete without a specific row to delete on a database that does not support 'returning on delete'" unless $sync;
+        croak "Cannot maintain the row cache for a bulk delete without a specific row on a non-synchronous handle: the deleted rows must be identified, and on a database without 'returning on delete' that needs a synchronous SELECT-then-DELETE in an internal transaction, which an async, aside, or forked handle cannot run. Bind the handle to a specific row, or use a synchronous handle." unless $sync;
 
         $self->_internal_txn(
             sub {
@@ -2435,6 +2534,8 @@ sub update {
     my $con = $self->{+CONNECTION};
     $con->pid_and_async_check;
 
+    croak "Cannot update through a derived-table (subquery) source" unless $self->{+SOURCE}->is_writable;
+
     croak "update() with data_only set is not currently supported"        if $self->{+DATA_ONLY};
     croak "update() with a 'limit' clause is not currently supported"     if defined $self->{+LIMIT};
     croak "update() with an 'offset' clause is not currently supported"   if defined $self->{+OFFSET};
@@ -2448,12 +2549,10 @@ sub update {
         if $self->{+ROW} && !$self->_has_pk;
 
     my $row = $self->{+ROW};
-    if ($changes) {
-        if ($row) {
-            if (my $pending = $row->pending_data) {
-                croak "Attempt to update row with pending changes and additional changes"
-                    if $changes && $pending && keys(%$changes) && keys(%$pending);
-            }
+    if ($changes && $row) {
+        if (my $pending = $row->pending_data) {
+            croak "Attempt to update row with pending changes and additional changes"
+                if keys(%$changes) && keys(%$pending);
         }
     }
     elsif ($row) {
@@ -2483,11 +2582,25 @@ sub update {
     # database, so the cached row takes their value from the database: via
     # UPDATE ... RETURNING when the dialect supports it (no extra round trip),
     # otherwise via a refresh.
-    my @literal_fields    = grep { literal_write_value($changes->{$_}) } keys %$changes;
-    my $literal_returning = @literal_fields && $row && $sync && $pk_fields && @$pk_fields && $dialect->supports_returning_update;
-    if ($literal_returning) {
+    my @literal_fields = grep { literal_write_value($changes->{$_}) } keys %$changes;
+
+    # Volatile columns the database may set/change on this write (on-update
+    # columns, triggers). On update we do not trust their in-memory value: any
+    # not read back is dropped (in handle_row below) so the next access lazily
+    # fetches the real stored value.
+    my @volatile_names = $self->_volatile_field_names;
+
+    # Columns whose stored value must be recovered from the database within the
+    # write itself: literal (database-computed) writes.
+    my @readback_fields = @literal_fields;
+
+    # A table whose triggers may change a written column cannot trust RETURNING
+    # (it is computed before AFTER triggers), so fall back to the refresh path
+    # below, consistent with dialects that have no RETURNING.
+    my $db_returning = @readback_fields && $row && $sync && $pk_fields && @$pk_fields && $dialect->supports_returning_update && $dialect->returning_reflects_write($source);
+    if ($db_returning) {
         my %seen;
-        $builder_args->{returning} = [ grep { !$seen{$_}++ } @$pk_fields, @literal_fields ];
+        $builder_args->{returning} = [ grep { !$seen{$_}++ } @$pk_fields, @readback_fields ];
     }
 
     my $sql = $self->sql_builder->qorm_update(%$builder_args, update => $changes);
@@ -2505,13 +2618,26 @@ sub update {
             $fetched = { %$row, %$changes };
         }
 
+        my $got = $db_row ? $self->sql_builder->qorm_row_to_orm($source, $db_row) : {};
+
         # Take literal fields from the RETURNING row when we have it; the refresh
         # fallback (below) covers dialects without RETURNING-on-update.
         if (@literal_fields) {
             delete @{$fetched}{@literal_fields};
-            if ($db_row) {
-                my $got = $self->sql_builder->qorm_row_to_orm($source, $db_row);
-                $fetched->{$_} = $got->{$_} for grep { exists $got->{$_} } @literal_fields;
+            $fetched->{$_} = $got->{$_} for grep { exists $got->{$_} } @literal_fields;
+        }
+
+        # A volatile column's value after this write is untrusted: take it from
+        # the RETURNING row when we have it, otherwise drop it so the next access
+        # lazily re-fetches. This clears a volatile+omit column, and any volatile
+        # column on a dialect without RETURNING (the refresh fallback below then
+        # re-reads the non-omitted ones). Never drop a primary-key column.
+        if (@volatile_names) {
+            my %is_pk = map { $_ => 1 } @{$pk_fields || []};
+            for my $v (@volatile_names) {
+                next if $is_pk{$v};
+                if   (exists $got->{$v}) { $fetched->{$v} = $got->{$v} }
+                else                     { delete $fetched->{$v} }
             }
         }
 
@@ -2534,9 +2660,9 @@ sub update {
     unless ($do_cache) {
         my $sth = $self->_make_sth($sql, no_rows => 1);
         if ($row) {
-            my $db_row = $literal_returning ? $sth->sth->fetchrow_hashref : undef;
+            my $db_row = $db_returning ? $sth->sth->fetchrow_hashref : undef;
             $handle_row->($row, $db_row);
-            $row->refresh if @literal_fields && $sync && !$literal_returning;
+            $row->refresh if @literal_fields && $sync && !$db_returning;
         }
         return $sth unless $sync;
         return;
@@ -2556,7 +2682,7 @@ sub update {
         }
 
         if ($row) {
-            my $db_row = $literal_returning ? $sth->fetchrow_hashref : undef;
+            my $db_row = $db_returning ? $sth->fetchrow_hashref : undef;
             $handle_row->($row, $db_row);
             return;
         }
@@ -2576,7 +2702,7 @@ sub update {
         );
     }
     else {
-        croak "Cannot do an async update without a specific row to update" unless $sync;
+        croak "Cannot maintain the row cache for a bulk update without a specific row on a non-synchronous handle: the updated rows must be identified with a synchronous SELECT-then-UPDATE in an internal transaction, which an async, aside, or forked handle cannot run. Bind the handle to a specific row, or use a synchronous handle." unless $sync;
 
         $self->_internal_txn(
             sub {
@@ -2585,7 +2711,7 @@ sub update {
                 $rows = [ map { $self->sql_builder->qorm_row_to_orm($source, $_) } @{$row_sth->fetchall_arrayref({})} ];
                 $sth = $self->_make_sth($sql, on_ready => $finish, no_rows => 1);
             },
-            die => "Cannot update without a specific row on a when internal transactions are disabled",
+            die => "Cannot update without a specific row when internal transactions are disabled",
         );
     }
 
@@ -2595,7 +2721,7 @@ sub update {
 
     # A literal write on a dialect without RETURNING-on-update leaves the
     # computed columns unknown to the cache; re-read them.
-    $row->refresh if $row && @literal_fields && $sync && !$literal_returning;
+    $row->refresh if $row && @literal_fields && $sync && !$db_returning;
 
     return undef;
 }
@@ -2607,9 +2733,15 @@ sub cas {
     my $con = $self->{+CONNECTION};
     $con->pid_and_async_check;
 
+    croak "Cannot use cas() through a derived-table (subquery) source" unless $self->{+SOURCE}->is_writable;
+
     croak "cas() requires a changes hashref"           unless ref($changes) eq 'HASH';
     croak "cas() is not supported with data_only set"  if $self->{+DATA_ONLY};
     croak "cas() is not supported with forked handles" if $self->is_forked;
+    croak "cas() with a 'limit' clause is not currently supported"     if defined $self->{+LIMIT};
+    croak "cas() with an 'offset' clause is not currently supported"   if defined $self->{+OFFSET};
+    croak "cas() with an 'order_by' clause is not currently supported" if $self->{+ORDER_BY};
+    croak "cas() with distinct set is not currently supported"         if $self->{+DISTINCT};
 
     my $source    = $self->{+SOURCE};
     my $pk_fields = $self->_has_pk or croak "cas() requires a source with a primary key";
@@ -2673,6 +2805,19 @@ Return the guard column names (the keys of a hashref guard, or the raw field
 names minus any primary-key fields). Used to warn when C<cas> changes advance
 none of them.
 
+=item $value = $h->_cas_guard_value($guard_where, $field)
+
+Return the first plain guard value found for C<$field> in a hashref guard, or a
+reference when the guard shape is not a plain scalar comparison.
+
+=item $bool = $h->_find_cas_guard_value($node, $field, \$value)
+
+Recursive worker for C<_cas_guard_value>.
+
+=item $h->_collect_cas_guard_fields($node, \%seen, \@fields)
+
+Recursive worker for C<_cas_guard_fields>.
+
 =item $bool = $h->_cas_guard_advances($row, \%changes, \@guard_fields, $guard_where, $raw_fields)
 
 Return true when the changes give at least one guard column a value that differs
@@ -2686,6 +2831,11 @@ guard never changes.
 Build the combined primary-key-plus-guard where clause. Field-name guards are
 wrapped in L<DBIx::QuickORM::Raw> so their stored values bind as-is instead of
 being deflated a second time.
+
+=item $val = $h->_cas_raw_stored_guard($row, $field)
+
+Return a field-list guard's stored raw value, croaking if the row has not
+fetched that field.
 
 =item $resolver = $h->_cas_resolver($row, \%changes, $pk_fields)
 
@@ -2733,11 +2883,80 @@ sub _cas_guard_fields {
     my $self = shift;
     my ($guard_where, $raw_fields) = @_;
 
-    return keys %$guard_where if ref($guard_where) eq 'HASH';
+    if (ref($guard_where) eq 'HASH') {
+        my %seen;
+        my @fields;
+        $self->_collect_cas_guard_fields($guard_where, \%seen, \@fields);
+        return @fields;
+    }
 
     # Primary-key fields identify the row, they are not guards (see _cas_where).
     my %is_pk = map { $_ => 1 } @{$self->{+SOURCE}->primary_key // []};
     return grep { !$is_pk{$_} } @{$raw_fields // []};
+}
+
+sub _collect_cas_guard_fields {
+    my $self = shift;
+    my ($node, $seen, $fields) = @_;
+
+    my $source = $self->{+SOURCE};
+    my %is_pk  = map { $_ => 1 } @{$source->primary_key // []};
+
+    if (ref($node) eq 'HASH') {
+        for my $key (keys %$node) {
+            if ($source->has_field($key) && !$is_pk{$key} && !$seen->{$key}++) {
+                push @$fields => $key;
+                next;
+            }
+
+            next unless substr($key, 0, 1) eq '-';
+            $self->_collect_cas_guard_fields($node->{$key}, $seen, $fields);
+        }
+
+        return;
+    }
+
+    if (ref($node) eq 'ARRAY') {
+        $self->_collect_cas_guard_fields($_, $seen, $fields) for @$node;
+    }
+}
+
+sub _cas_guard_value {
+    my $self = shift;
+    my ($node, $field) = @_;
+
+    my $value;
+    return $value if $self->_find_cas_guard_value($node, $field, \$value);
+    return {};
+}
+
+sub _find_cas_guard_value {
+    my $self = shift;
+    my ($node, $field, $value) = @_;
+
+    return 0 unless ref($node);
+
+    if (ref($node) eq 'HASH') {
+        if (exists $node->{$field}) {
+            $$value = $node->{$field};
+            return 1;
+        }
+
+        for my $key (keys %$node) {
+            next unless substr($key, 0, 1) eq '-';
+            return 1 if $self->_find_cas_guard_value($node->{$key}, $field, $value);
+        }
+
+        return 0;
+    }
+
+    if (ref($node) eq 'ARRAY') {
+        for my $item (@$node) {
+            return 1 if $self->_find_cas_guard_value($item, $field, $value);
+        }
+    }
+
+    return 0;
 }
 
 sub _cas_guard_advances {
@@ -2760,7 +2979,7 @@ sub _cas_guard_advances {
         # A hashref guard may hold an operator or literal rather than a plain
         # value; if we cannot read a scalar guard value we cannot compare, so we
         # assume the guard advances rather than warn on something we misread.
-        my $old = $hash_guard ? $guard_where->{$field} : $row->raw_stored_field($field);
+        my $old = $hash_guard ? $self->_cas_guard_value($guard_where, $field) : $self->_cas_raw_stored_guard($row, $field);
         return 1 if ref($old);
 
         # compare_field is true when the values are equal; any difference advances
@@ -2791,11 +3010,22 @@ sub _cas_where {
         # The stored value is already in database form. Wrap it so the bind
         # path leaves it untouched instead of deflating it again; an undef
         # value becomes an IS NULL test rather than a bound NULL.
-        my $val = $row->raw_stored_field($field);
+        my $val = $self->_cas_raw_stored_guard($row, $field);
         $where{$field} = defined($val) ? {'-value' => DBIx::QuickORM::Raw->new($val)} : undef;
     }
 
     return \%where;
+}
+
+sub _cas_raw_stored_guard {
+    my $self = shift;
+    my ($row, $field) = @_;
+
+    my $stored = $row->stored_data;
+    croak "cas() guard field '$field' was not fetched for this row"
+        unless $stored && exists $stored->{$field};
+
+    return $row->raw_stored_field($field);
 }
 
 sub _cas_resolver {
@@ -2859,7 +3089,6 @@ sub _cas_warn_found_rows {
     my $self = shift;
     my $con  = $self->{+CONNECTION};
 
-    return unless $con->can('cas_count_reliable');
     return if $con->cas_count_reliable;
 
     carp "This connection reports rows changed rather than rows matched (found-rows is off); cas() may report a loss for an update that changes no values";
@@ -2883,6 +3112,12 @@ C<on_ready> yields one fetched hashref per call.
 
 sub _do_select {
     my $self = shift;
+
+    # A handle bound to a row whose table has no primary key has no derivable
+    # WHERE clause, so a read would silently scan the whole table (and return
+    # the wrong row). The write side already guards this; guard reads too.
+    croak "Cannot read a row bound to a handle when its table has no primary key (no WHERE clause can be derived to identify the row)"
+        if $self->{+ROW} && !$self->_has_pk;
 
     my $con = $self->{+CONNECTION};
     $con->pid_and_async_check;
@@ -2922,13 +3157,13 @@ Return a row matching the conditions on the handle, if any. Will return undef
 if there are no matching rows. Will throw an exception if the query returns
 more than 1 row.
 
-In dat_only mode this will return the hashref of the returned row.
+In data_only mode this will return the hashref of the returned row.
 
 =item $row = $h->first()
 
 Similar to one() above, but will not die if more than 1 row matches the query.
 
-In dat_only mode this will return the hashref of the returned row.
+In data_only mode this will return the hashref of the returned row.
 
 =item @rows = $h->all
 
@@ -3029,7 +3264,7 @@ sub first {
 sub all {
     my $self = shift->_row_or_hashref(WHERE() => @_);
 
-    croak "all() cannot be used asynchronously, use iterate() to get an async iterator instead"
+    croak "all() cannot be used asynchronously, use iterator() to get an async iterator instead"
         unless $self->is_sync;
 
     my $sth = $self->_do_select();

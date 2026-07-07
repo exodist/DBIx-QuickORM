@@ -199,6 +199,18 @@ sub init {
         croak "Manager '$manager' does not subclass 'DBIx::QuickORM::RowManager'"
             unless $manager->DOES('DBIx::QuickORM::RowManager');
 
+        # A blessed manager instance carries per-connection state (its connection
+        # and transaction stack). If it is still the live manager of a different,
+        # still-connected connection, rebinding it here would silently repoint
+        # that connection's row cache and transaction stack at us, so refuse. A
+        # manager whose previous connection has been disconnected is free to
+        # rebind: disconnecting the old connection first is the supported way to
+        # move a blessed manager to a new connection.
+        if (my $other = $manager->connection) {
+            croak "This row_manager instance is already in use by another live connection; one row_manager cannot be shared across connections. Pass a class name (each connection builds its own manager), pass a fresh instance per connection, or disconnect the other connection first."
+                if $other != $self && $other->manager && $other->manager == $manager && $other->connected;
+        }
+
         $manager->set_connection($self);
 
         # The HashBase setter stores a strong reference, which would create a
@@ -213,7 +225,21 @@ sub init {
     }
 
     if (my $autofill = $orm->autofill) {
-        my $schema = $self->{+DIALECT}->build_schema_from_db(autofill => $autofill);
+        # Tables asserted to have no volatile columns (so the introspection
+        # trigger warning is silenced): the autofill/quick assertion plus any
+        # table the declared schema marked no_volatile.
+        my %no_volatile;
+        if (my $nv = $autofill->no_volatile) {
+            if (ref($nv) eq 'ARRAY') { $no_volatile{$_} = 1 for @$nv }
+            else                     { $no_volatile{'*'} = 1 }
+        }
+        if (my $schema2 = $orm->schema) {
+            for my $tbl ($schema2->tables) {
+                $no_volatile{$tbl->name} = 1 if $tbl->can('no_volatile') && $tbl->no_volatile;
+            }
+        }
+
+        my $schema = $self->{+DIALECT}->build_schema_from_db(autofill => $autofill, no_volatile => \%no_volatile);
 
         if (my $schema2 = $orm->schema) {
             $self->{+SCHEMA} = $schema->merge($schema2);
@@ -298,10 +324,11 @@ sub clear_async {
     my $self = shift;
     my ($async) = @_;
 
-    croak "Not currently running an async query" unless $self->{+IN_ASYNC};
-
-    croak "Mismatch, we are in an async query, but not the one we are trying to clear"
-        unless $async == $self->{+IN_ASYNC};
+    # A reconnect drops the async registry; a handle that survived it (it ran on
+    # the now-dead handle) can still try to clear itself as it finalizes. Treat a
+    # missing or mismatched entry as an already-cleared no-op rather than an error.
+    my $current = $self->{+IN_ASYNC} or return;
+    return unless $async == $current;
 
     delete $self->{+IN_ASYNC};
 }
@@ -310,7 +337,9 @@ sub clear_aside {
     my $self = shift;
     my ($aside) = @_;
 
-    croak "Not currently running that aside query" unless $self->{+ASIDES}->{$aside};
+    # A reconnect drops the aside registry; a surviving handle can still clear
+    # itself as it finalizes, so a missing entry is an already-cleared no-op.
+    return unless $self->{+ASIDES}->{$aside};
 
     delete $self->{+ASIDES}->{$aside};
 }
@@ -319,7 +348,9 @@ sub clear_fork {
     my $self = shift;
     my ($fork) = @_;
 
-    croak "Not currently running that fork query" unless $self->{+FORKS}->{$fork};
+    # A reconnect drops the fork registry; a surviving handle can still clear
+    # itself as it finalizes, so a missing entry is an already-cleared no-op.
+    return unless $self->{+FORKS}->{$fork};
 
     delete $self->{+FORKS}->{$fork};
 }
@@ -392,11 +423,20 @@ needs (rows matched, not rows changed). See L<DBIx::QuickORM::DB/cas_count_relia
 
 Returns a completely new and independent C<$dbh> connected to the database.
 
+=item @names = $con->volatile_free_tables
+
+The sorted names of tables that have no volatile columns -- the tables whose
+written values can be trusted without a re-read. Delegates to the schema.
+
 =cut
 
 sub db { $_[0]->{+ORM}->db }
 sub cas_count_reliable { $_[0]->db->cas_count_reliable }
 sub aside_dbh { $_[0]->{+ORM}->db->new_dbh }
+
+# The sorted names of tables that have no volatile columns (see the volatile
+# column marker) -- the tables whose written values can be trusted as-is.
+sub volatile_free_tables { $_[0]->{+SCHEMA}->volatile_free_tables }
 
 ########################
 # }}} SIMPLE ACCESSORS #
@@ -408,6 +448,19 @@ sub aside_dbh { $_[0]->{+ORM}->db->new_dbh }
 
 =pod
 
+=item $bool = $con->connected
+
+True while this connection has a live database handle, false once it has been
+disconnected.
+
+=item $con->disconnect
+
+Disconnect the current dbh (if any) without establishing a new one. Croaks if
+any ORM-managed transactions are open. Any in-progress async query is abandoned
+and the aside/forked query registries are cleared, exactly as for C<reconnect>.
+After this the connection reports C<< connected >> false, and a blessed
+C<row_manager> it held can be rebound to a new connection.
+
 =item $con->reconnect
 
 Disconnect the current dbh (if any) and establish a fresh one, typically after
@@ -418,24 +471,64 @@ private connections but are no longer tracked by this connection.
 
 =cut
 
+sub connected {
+    my $self = shift;
+    return $self->{+DBH} ? 1 : 0;
+}
+
+sub _release_dbh {
+    my $self = shift;
+
+    if (my $dbh = delete $self->{+DBH}) {
+        if ($self->{+PID} == $$) {
+            # Our own handle: close it cleanly.
+            $dbh->disconnect;
+        }
+        else {
+            # Inherited across a fork: the socket is shared with the parent.
+            # DBI's InactiveDestroy suppresses the implicit disconnect at
+            # DESTROY, but NOT an explicit disconnect(), which would send a
+            # protocol-level terminate and tear down the parent's server
+            # session. Detach without disconnecting.
+            $dbh->{InactiveDestroy} = 1;
+        }
+    }
+
+    # The old handle is gone, so an in-progress async query on it can never
+    # complete. Mark a surviving async handle invalidated so an attempt to use
+    # it gives a clear error instead of a raw driver failure, and so its
+    # finalizer does not read the dead handle. (Aside/forked queries hold their
+    # own private connections and legitimately survive, so they are not
+    # invalidated; they belong to the pre-release (possibly pre-fork) state, so
+    # stop tracking them.)
+    if (my $async = $self->{+IN_ASYNC}) {
+        $async->mark_invalidated if $async->can('mark_invalidated');
+    }
+    delete $self->{+IN_ASYNC};
+    $self->{+ASIDES} = {};
+    $self->{+FORKS}  = {};
+
+    return;
+}
+
+sub disconnect {
+    my $self = shift;
+
+    croak "Cannot disconnect while there are active ORM-managed transactions"
+        if @{$self->{+TRANSACTIONS} // []};
+
+    $self->_release_dbh;
+
+    return;
+}
+
 sub reconnect {
     my $self = shift;
 
     croak "Cannot reconnect while there are active ORM-managed transactions"
         if @{$self->{+TRANSACTIONS} // []};
 
-    if (my $dbh = delete $self->{+DBH}) {
-        $dbh->{InactiveDestroy} = 1 unless $self->{+PID} == $$;
-        $dbh->disconnect;
-    }
-
-    # The old handle is gone, so an in-progress async query on it can never
-    # complete. Aside/forked queries hold their own private connections, but
-    # they belong to the pre-reconnect (possibly pre-fork) state, so stop
-    # tracking them.
-    delete $self->{+IN_ASYNC};
-    $self->{+ASIDES} = {};
-    $self->{+FORKS}  = {};
+    $self->_release_dbh;
 
     $self->{+PID} = $$;
     $self->{+DBH} = $self->{+ORM}->db->new_dbh;
@@ -545,6 +638,7 @@ sub txn {
 
     my $txn = DBIx::QuickORM::Connection::Transaction->new(
         id            => $self->{+_TXN_COUNTER}++,
+        connection    => $self,
         savepoint     => $sp,
         trace         => \@caller,
         on_fail       => $params{on_fail},
@@ -570,11 +664,12 @@ sub txn {
         QORM_TRANSACTION: { $cb->($txn) };
         1;
     };
+    my $err = $@;
 
     # The body threw - record the exception that forced the rollback.
-    $txn->set_exception($@) unless $ok;
+    $txn->set_exception($err) unless $ok;
 
-    $finalize->($txn, $ok, $@);
+    $finalize->($txn, $ok, $err);
 
     return $txn;
 }
@@ -666,21 +761,29 @@ sub auto_retry_txn {
     elsif (@_ == 2) {
         my $ref0 = ref($_[0]);
         my $ref1 = ref($_[1]);
+        my $count_like = !$ref0 && defined($_[0]) && $_[0] =~ /^\d+$/;
         if ($ref0 eq 'HASH' && $ref1 eq 'CODE') {
             %params = %{$_[0]};
             $params{action} = $_[1];
             $count = delete $params{count};
         }
-        elsif ($ref1 eq 'CODE') {
+        elsif ($count_like && $ref1 eq 'CODE') {
             $count = $_[0];
             $params{action} = $_[1];
         }
-        elsif ($ref1 eq 'HASH') {
+        elsif ($count_like && $ref1 eq 'HASH') {
             $count  = $_[0];
             %params = %{$_[1]};
         }
-        else {
+        elsif ($count_like) {
             croak "Not sure what to do with second argument '$_[1]'";
+        }
+        else {
+            # Flat key => value form, e.g. (action => sub {...}). A positional
+            # ($count, $cb) only matches the branches above, where the first
+            # argument actually looks like a count.
+            %params = @_;
+            $count  = delete $params{count};
         }
     }
     else {
@@ -1167,23 +1270,51 @@ sub _txn_finalizer {
         $txnx->throw("Cannot stop a transaction while there is an active async query")
             if $self->{+IN_ASYNC} && !$self->{+IN_ASYNC}->done;
 
-        $txnx->throw("Internal Error: Transaction stack mismatch")
-            unless @$txns && (($txnx->in_destroy && !$txns->[-1]) || $txns->[-1] == $txnx);
-
         $ran++;
-        pop @$txns;
 
         my $aborted = $txnx->aborted;
         my $res     = $ok && !$aborted;
 
-        if ($sp) {
-            if   ($res) { $dialect->commit_savepoint(savepoint => $sp) }
-            else        { $dialect->rollback_savepoint(savepoint => $sp) }
+        # Find our own entry by identity rather than assuming we are top of the
+        # stack. Perl does not guarantee the destruction order of lexicals, so a
+        # parent transaction can be destroyed while a child savepoint is still
+        # live on the stack; a blind pop there would remove the child and leave
+        # the root BEGIN open forever, wedging the connection. Weak entries
+        # anywhere may already be dead, so skip them.
+        my $idx;
+        for (my $i = $#$txns; $i >= 0; $i--) {
+            my $e = $txns->[$i];
+            next unless defined($e) && $e == $txnx;
+            $idx = $i;
+            last;
         }
-        else {
-            if   ($res) { $dialect->commit_txn }
-            else        { $dialect->rollback_txn }
+
+        if (defined $idx) {
+            # Live entries above us are inner transactions orphaned by our
+            # resolution (their enclosing transaction is closing). Resolving us
+            # at the dialect level already discards their work in the database,
+            # so neuter and roll back their objects here — their own DESTROY then
+            # becomes a no-op.
+            my @orphans = grep { defined } @{$txns}[$idx + 1 .. $#$txns];
+            splice(@$txns, $idx);
+
+            if ($sp) {
+                if   ($res) { $dialect->commit_savepoint(savepoint => $sp) }
+                else        { $dialect->rollback_savepoint(savepoint => $sp) }
+            }
+            else {
+                if   ($res) { $dialect->commit_txn }
+                else        { $dialect->rollback_txn }
+            }
+
+            for my $orphan (reverse @orphans) {
+                $orphan->set_finalize(undef);
+                $orphan->terminate(0, ["Enclosing transaction was resolved"]);
+            }
         }
+        # else: an enclosing transaction's finalizer already resolved and removed
+        # us; skip the dialect (avoid a double rollback) and just run our own
+        # termination bookkeeping below.
 
         my ($ok2, $err2) = $txnx->terminate($res, \@errors);
         unless ($ok2) {

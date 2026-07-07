@@ -33,6 +33,16 @@ subtest looks_like => sub {
     is($C->looks_like_uuid('not-a-uuid'), undef, "looks_like_uuid returns undef for a non-UUID");
     is($C->looks_like_uuid(''), undef, "looks_like_uuid returns undef for empty string");
 
+    # Function form (no invocant): a single argument IS the value. These are
+    # deliberate dual-call helpers (they take the value via pop), so they must
+    # work both as $class->looks_like_uuid($v) and as looks_like_uuid($v).
+    # This guards against "fixing" them into shift-based methods, which would
+    # break every function-form caller.
+    no warnings 'once';
+    is(DBIx::QuickORM::Type::UUID::looks_like_uuid($SAMPLE), $SAMPLE, "looks_like_uuid works called as a plain function (no invocant)");
+    is(DBIx::QuickORM::Type::UUID::looks_like_uuid(uc $SAMPLE), $SAMPLE, "function-form looks_like_uuid canonicalizes to lowercase");
+    is(DBIx::QuickORM::Type::UUID::looks_like_uuid('not-a-uuid'), undef, "function-form looks_like_uuid returns undef for a non-UUID");
+
     my $bin;
     UUID::parse($SAMPLE, $bin);
     {
@@ -41,6 +51,8 @@ subtest looks_like => sub {
     }
     is($C->looks_like_bin($bin), $SAMPLE, "looks_like_bin unparses 16 bytes back to the canonical string");
     is($C->looks_like_bin('short'), undef, "looks_like_bin returns undef for non-16-byte input");
+    is(DBIx::QuickORM::Type::UUID::looks_like_bin($bin), $SAMPLE, "looks_like_bin works called as a plain function (no invocant)");
+    is(DBIx::QuickORM::Type::UUID::looks_like_bin('short'), undef, "function-form looks_like_bin returns undef for non-16-byte input");
 };
 
 subtest affinity => sub {
@@ -122,6 +134,9 @@ subtest compare => sub {
     # Inflation canonicalizes to lowercase, so the same UUID written in upper
     # vs lower case compares equal.
     ok($C->qorm_compare($SAMPLE, uc $SAMPLE), "differing case compares equal (canonical lowercase)");
+
+    ok($C->qorm_compare('not-a-uuid', 'not-a-uuid'), "identical invalid values compare equal without croaking");
+    ok(!$C->qorm_compare('not-a-uuid', 'also-not-a-uuid'), "different invalid values compare unequal without croaking");
 };
 
 subtest autotype_registration => sub {

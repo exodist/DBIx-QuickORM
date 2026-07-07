@@ -218,8 +218,12 @@ sub clone {
     return bless(
         {
             %$self,
-            ORDER()      => [@{$self->{+ORDER}}],
-            LOOKUP()     => {%{$self->{+LOOKUP}}},
+            ORDER()  => [@{$self->{+ORDER}}],
+            # The LOOKUP values are arrayrefs of aliases that _join push()es
+            # onto; a shallow copy would share them, so extending the clone
+            # (a self-join / re-join of a table already present) would corrupt
+            # the original. Deep-copy each alias list.
+            LOOKUP()     => {map { $_ => [@{$self->{+LOOKUP}{$_}}] } keys %{$self->{+LOOKUP}}},
             COMPONENTS() => {%{$self->{+COMPONENTS}}},
             %params,
         },
@@ -295,7 +299,11 @@ field name. Croaks if the field cannot be resolved unless C<no_fatal> is set.
 sub _field_source {
     my $self = shift;
     my ($proto, %params) = @_;
-    my ($field, $from) = reverse split /\./, $proto;
+
+    # Split on the FIRST dot only, so this resolves the same way as Join::Row
+    # (which uses split ..., 2) for a field db-name or alias containing a dot.
+    my ($from, $field) = split(/\./, $proto, 2);
+    ($from, $field) = (undef, $from) unless defined $field;
 
     if (defined $from) {
         my $c = $self->{+COMPONENTS}->{$from};
@@ -306,12 +314,20 @@ sub _field_source {
         return ($from, $c->{table}, $field);
     }
 
+    # A bare (unqualified) field must be unambiguous: scan every component and
+    # refuse a silent first-match when more than one carries the field.
+    my @matches;
     for my $alias (@{$self->{+ORDER}}) {
         my $c = $self->{+COMPONENTS}->{$alias};
-        my $t = $c->{table};
-        next unless $t->has_field($field);
-        return ($alias, $t, $field);
+        push @matches => [$alias, $c->{table}] if $c->{table}->has_field($field);
     }
+
+    if (@matches > 1) {
+        return undef if $params{no_fatal};
+        croak "Field '$field' is ambiguous in this join (found in: " . join(', ' => map { $_->[0] } @matches) . "); qualify it as alias.$field";
+    }
+
+    return @{$matches[0]}[0, 1], $field if @matches;
 
     return undef if $params{no_fatal};
     croak "This join does not have a '$field' field";
@@ -423,6 +439,56 @@ sub links {
 
 =pod
 
+=item $aliases = $join->save_order
+
+An arrayref of component aliases ordered so a foreign-key parent precedes its
+child (safe insert/save order; reverse it for delete). Each non-primary
+component is joined from an earlier alias via a link whose C<unique> side is
+the "one" (parent) end: C<unique> means the joined component is the parent,
+otherwise the from-side is. The order is a topological sort of those edges,
+tie-broken by join order, falling back to join order on a foreign-key cycle.
+
+=cut
+
+sub save_order {
+    my $self = shift;
+
+    my $order = $self->{+ORDER};
+    my $comps = $self->{+COMPONENTS};
+
+    my %rank = map { $order->[$_] => $_ } 0 .. $#$order;
+
+    my (%after, %indeg);
+    $indeg{$_} = 0 for @$order;
+    for my $as (@$order) {
+        my $link = $comps->{$as}->{link} or next;
+        my $from = $comps->{$as}->{from};
+        next unless defined $from && exists $comps->{$from};
+        my ($parent, $child) = $link->unique ? ($as, $from) : ($from, $as);
+        next if $parent eq $child;
+        push @{$after{$parent}} => $child;
+        $indeg{$child}++;
+    }
+
+    my @out;
+    while (@out < @$order) {
+        my ($pick) = sort { $rank{$a} <=> $rank{$b} } grep { defined($indeg{$_}) && !$indeg{$_} } keys %indeg;
+        unless (defined $pick) {
+            # A foreign-key cycle (relational schemas avoid these): fall back to
+            # join order for the remainder so the fan-out stays deterministic.
+            push @out => sort { $rank{$a} <=> $rank{$b} } keys %indeg;
+            last;
+        }
+        push @out => $pick;
+        $indeg{$_}-- for @{$after{$pick} // []};
+        delete $indeg{$pick};
+    }
+
+    return \@out;
+}
+
+=pod
+
 =item $table = $join->from($alias_or_name)
 
 Resolve an alias or table name to its component table. Croaks when a table
@@ -491,6 +557,13 @@ sub _join {
     my $from = $params{from};
     my $type = $params{type};
 
+    # A caller-supplied alias is quoted as a SQL identifier (so spaces etc. are
+    # fine), but it is also the prefix in alias.field protos and fracture's
+    # row splitting, both of which split on a dot -- so a dot in the alias would
+    # resolve inconsistently. Reject only that.
+    croak "Join alias '$as' may not contain a '.' (it delimits alias.field references)"
+        if defined($as) && index($as, '.') >= 0;
+
     until ($as) {
         my $try = $self->{+JOIN_AS}++;
         next if $self->{+COMPONENTS}->{$try};
@@ -513,12 +586,20 @@ sub _join {
 
         unless ($from) {
             my $lt = $link->local_table;
-            if ($lt eq $self->{+PRIMARY_SOURCE}->name) {
-                $from = $self->{+ORDER}->[0];
+            my $n  = $self->{+LOOKUP}->{$lt};
+
+            # Consult the alias lookup first so an ambiguous table (e.g. the
+            # primary joined to itself) is caught even when it is the primary
+            # source; the primary shortcut only applies when the table has a
+            # single alias.
+            if ($n && @$n > 1) {
+                croak "Table '$lt' has been joined multiple times, you must specify which name to use in the join";
             }
-            elsif (my $n = $self->{+LOOKUP}->{$lt}) {
-                croak "Table '$lt' has been joined multiple times, you must specify which name to use in the join" if @$n > 1;
+            elsif ($n && @$n == 1) {
                 $from = $n->[0];
+            }
+            elsif ($lt eq $self->{+PRIMARY_SOURCE}->name) {
+                $from = $self->{+ORDER}->[0];
             }
             else {
                 croak "Table '$lt' is not yet in the join";
@@ -532,6 +613,8 @@ sub _join {
         # needed either, only the table being joined.
         my $table = $params{table} or croak "A 'table' is required for a link-less CROSS join";
         $joined = blessed($table) ? $table : $self->schema->table($table);
+        croak "A CROSS join table must be a table source, got a " . (blessed($joined) || ref($joined) || 'non-object')
+            unless blessed($joined) && $joined->isa('DBIx::QuickORM::Schema::Table');
         $from = undef;
     }
 

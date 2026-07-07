@@ -9,7 +9,6 @@ with 'DBIx::QuickORM::Role::Type';
 
 use DBIx::QuickORM::Util qw/parse_conflate_args/;
 
-use Scalar::Util qw/blessed/;
 use UUID qw/uuid7 parse unparse/;
 use Carp qw/croak/;
 
@@ -77,8 +76,8 @@ sub qorm_compare {
     my $class = shift;
     my ($a, $b) = @_;
 
-    $a = $class->qorm_inflate($a);
-    $b = $class->qorm_inflate($b);
+    $a = $class->looks_like_uuid($a) // $class->looks_like_bin($a) // $a if defined $a;
+    $b = $class->looks_like_uuid($b) // $class->looks_like_bin($b) // $b if defined $b;
 
     my $da = defined($a);
     my $db = defined($b);

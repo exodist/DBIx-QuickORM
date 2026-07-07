@@ -59,7 +59,7 @@ do_for_all_dbs {
         subtest async => sub {
             like(
                 dies { $h->async->all },
-                qr/all\(\) cannot be used asynchronously, use iterate\(\) to get an async iterator instead/,
+                qr/all\(\) cannot be used asynchronously, use iterator\(\) to get an async iterator instead/,
                 "all() cannot be used with async"
             );
         };
@@ -67,7 +67,7 @@ do_for_all_dbs {
         subtest aside => sub {
             like(
                 dies { $h->aside->all },
-                qr/all\(\) cannot be used asynchronously, use iterate\(\) to get an async iterator instead/,
+                qr/all\(\) cannot be used asynchronously, use iterator\(\) to get an async iterator instead/,
                 "all() cannot be used with aside"
             );
         };
@@ -75,7 +75,7 @@ do_for_all_dbs {
         subtest forked => sub {
             like(
                 dies { $h->forked->all },
-                qr/all\(\) cannot be used asynchronously, use iterate\(\) to get an async iterator instead/,
+                qr/all\(\) cannot be used asynchronously, use iterator\(\) to get an async iterator instead/,
                 "all() cannot be used with forked"
             );
         };
@@ -83,4 +83,3 @@ do_for_all_dbs {
 };
 
 done_testing;
-

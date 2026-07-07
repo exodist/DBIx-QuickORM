@@ -51,6 +51,28 @@ subtest update_guard => sub {
     is($h->count({name => 'z'}), 0, "no rows were updated");
 };
 
+subtest read_guard => sub {
+    # Reads must guard the same way writes do: without a primary key there is
+    # no WHERE to identify the bound row, so a read would scan the whole table
+    # (and could silently return the wrong row) instead of the bound one.
+    for my $method (qw/all first one iterator/) {
+        like(
+            dies { $con->handle($row2)->$method },
+            qr/no primary key/,
+            "row-bound $method() croaks when no WHERE can be derived",
+        );
+    }
+
+    like(
+        dies { $con->handle($row2)->data_only->first },
+        qr/no primary key/,
+        "row-bound data_only read croaks instead of returning the wrong row",
+    );
+
+    # Ordinary where-based reads are unaffected.
+    ok(lives { $h->where({name => 'a'})->all }, "where-based reads still work without a primary key");
+};
+
 subtest unbound_operations_still_work => sub {
     ok(lives { $h->where({name => 'b'})->update({name => 'bb'}) }, "where-based update still works without a pk")
         or note $@;
@@ -59,6 +81,19 @@ subtest unbound_operations_still_work => sub {
     ok(lives { $h->delete({name => 'bb'}) }, "where-based delete still works without a pk")
         or note $@;
     is($h->count, 2, "only the targeted row was deleted");
+};
+
+subtest cached_bulk_delete_without_pk => sub {
+    ok($con->state_does_cache, "connection is using the cached row manager");
+
+    $h->insert({name => 'd'});
+    $h->insert({name => 'e'});
+    is($h->count, 4, "reseeded rows for the bulk delete");
+
+    ok(lives { $h->where({name => {-in => ['d', 'e']}})->delete }, "bulk delete on a pk-less cached table does not enter the pk cache path")
+        or note $@;
+    is($h->count({name => {-in => ['d', 'e']}}), 0, "bulk delete removed the targeted pk-less rows");
+    is($h->count, 2, "bulk delete left the other pk-less rows alone");
 };
 
 done_testing;

@@ -47,7 +47,7 @@ BEGIN {
 
 {
     package Test::ORM;
-    use Test2::V0 qw/!pass !meta/, meta => {'-as' => 't2_meta'};
+    use Test2::V0 qw/!pass !meta/;
     use Scalar::Util qw/blessed/;
 
     use ok 'DBIx::QuickORM';
@@ -185,6 +185,22 @@ BEGIN {
     );
 
     $bld->top->{plugins} = [];
+
+    ok(
+        lives {
+            schema plugin_noop => sub {
+                plugin '+DBIx::QuickORM::Plugin';
+
+                table plugin_noop => sub {
+                    column id => sub {
+                        primary_key;
+                        affinity 'numeric';
+                    };
+                };
+            };
+        },
+        "Base plugin can participate in a build without overriding munge"
+    );
 
     like(
         dies { meta() },
@@ -1028,12 +1044,11 @@ BEGIN {
                 "Cannot have multiple hashes"
             );
 
-            like(
-                dies {
+            ok(
+                lives {
                     columns x => sub { }
                 },
-                qr/Not sure what to do with/,
-                "Cannot use a sub"
+                "columns() accepts a trailing builder"
             );
         };
     };
@@ -1046,7 +1061,6 @@ BEGIN {
                 omit     => 1,
                 nullable => 1,
                 identity => 1,
-                nullable => 1,
                 affinity => 'numeric',
                 type     => 'DBIx::QuickORM::Type::MyType',
             },
@@ -1292,7 +1306,7 @@ BEGIN {
         "Too many args",
     );
 
-    ok(type('DBIx::QuickORM::Type::MyType'), 'DBIx::QuickORM::Type::MyType', "Returns class in scalar context");
+    is(type('DBIx::QuickORM::Type::MyType'), 'DBIx::QuickORM::Type::MyType', "Returns class in scalar context");
 
     schema typetest => sub {
         table typetest => sub {

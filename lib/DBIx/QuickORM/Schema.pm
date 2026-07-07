@@ -128,6 +128,27 @@ sub maybe_table { return $_[0]->{+TABLES}->{$_[1]} // undef }
 
 =pod
 
+=item @names = $schema->volatile_free_tables
+
+The sorted names of the tables that have no volatile columns (every column is
+non-volatile) -- the tables whose written values can be trusted as-is.
+
+=cut
+
+sub volatile_free_tables {
+    my $self = shift;
+
+    my @out;
+    for my $tbl ($self->tables) {
+        next unless $tbl->can('has_volatile_columns');
+        push @out => $tbl->name unless $tbl->has_volatile_columns;
+    }
+
+    return sort @out;
+}
+
+=pod
+
 =item $schema->add_table($table_name, $table_ref)
 
 Add a table to the schema. Requires a table name and an
@@ -158,9 +179,8 @@ sub merge {
     my $self = shift;
     my ($other, %params) = @_;
 
-    $params{+TABLES}    //= merge_hash_of_objs($self->{+TABLES}, $other->{+TABLES});
-    $params{+NAME}      //= $self->{+NAME} if $self->{+NAME};
-    $params{+ROW_CLASS} //= $other->{+ROW_CLASS};
+    $params{+TABLES} //= merge_hash_of_objs($self->_rekey_tables($self->{+TABLES}, $other->{+TABLES}), $other->{+TABLES});
+    $params{+NAME}   //= $self->{+NAME} if $self->{+NAME};
 
     return ref($self)->new(%$self, %$other, %params);
 }
@@ -196,9 +216,58 @@ sub clone {
 
 Internal accessor that fetches and clears the pending raw link definitions.
 
+=item $tables = $schema->_rekey_tables(\%mine, \%theirs)
+
+Return a copy of the introspected tables hashref re-keyed so that a declared
+table which renames a physical table (via C<db_name>) lands under the declared
+ORM name instead of its database name. This lets a declared alias and the
+introspected source collapse into a single merged table rather than leaving two
+entries behind for one physical table.
+
 =cut
 
 sub _links { delete $_[0]->{+_LINKS} }
+
+sub _rekey_tables {
+    my $self = shift;
+    my ($mine, $theirs) = @_;
+
+    return $mine unless $mine && $theirs && keys %$mine && keys %$theirs;
+
+    my %by_db_name;
+    for my $key (keys %$mine) {
+        my $db_name = $mine->{$key}->db_name // $key;
+        $by_db_name{$db_name} //= $key;
+    }
+
+    my %rekey;
+    for my $orm_name (keys %$theirs) {
+        my $db_name = $theirs->{$orm_name}->db_name // $orm_name;
+        next if $db_name eq $orm_name;
+
+        my $intro_key = $by_db_name{$db_name} // next;
+        next if $intro_key eq $orm_name;
+
+        $rekey{$intro_key} = $orm_name;
+    }
+
+    return $mine unless %rekey;
+
+    my %out;
+    for my $key (keys %$mine) {
+        my $new = $rekey{$key} // $key;
+
+        # A db_name alias must not re-key an introspected table onto the name of
+        # a *different* real introspected table: that would silently drop one
+        # physical table (hash-order dependent). Croak on the genuine conflict.
+        confess "Cannot map declared table '$new' onto database table '$key': the name '$new' already belongs to another introspected table"
+            if exists $out{$new};
+
+        $out{$new} = $mine->{$key};
+    }
+
+    return \%out;
+}
 
 =pod
 
@@ -227,8 +296,13 @@ sub _resolve_links {
         my $local_table = $self->{+TABLES}->{$local_tname} or confess "Cannot find table '$local_tname' ($debug)";
         my $other_table = $self->{+TABLES}->{$other_tname} or confess "Cannot find table '$other_tname' ($debug)";
 
-        my $local_unique = $other_table->unique->{column_key(@{$other_cols})} ? 1 : 0;
-        my $other_unique = $local_table->unique->{column_key(@{$local_cols})} ? 1 : 0;
+        my $local_key    = column_key(@$other_cols);
+        my $other_key    = column_key(@$local_cols);
+        my $other_pk_key = $other_table->primary_key ? column_key(@{$other_table->primary_key}) : undef;
+        my $local_pk_key = $local_table->primary_key ? column_key(@{$local_table->primary_key}) : undef;
+
+        my $local_unique = ($other_table->unique->{$local_key} || (defined($other_pk_key) && $other_pk_key eq $local_key)) ? 1 : 0;
+        my $other_unique = ($local_table->unique->{$other_key} || (defined($local_pk_key) && $local_pk_key eq $other_key)) ? 1 : 0;
 
         push @{$local_table->links} => DBIx::QuickORM::Link->new(
             local_table   => $local_tname,

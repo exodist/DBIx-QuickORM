@@ -4,12 +4,8 @@ use warnings;
 
 use Carp qw/confess croak/;
 use Storable qw/dclone/;
-use List::Util qw/zip/;
 use Scalar::Util qw/blessed/;
-use DBIx::QuickORM::Util qw/column_key literal_write_value/;
-
-use DBIx::QuickORM::Affinity();
-use DBIx::QuickORM::Link();
+use DBIx::QuickORM::Util qw/literal_write_value/;
 
 our $VERSION = '0.000028';
 
@@ -121,11 +117,11 @@ sub stored_data   { $_[0]->row_data->{+STORED} }
 sub pending_data  { $_[0]->row_data->{+PENDING} }
 sub desynced_data { $_[0]->row_data->{+DESYNC} }
 
-sub is_invalid { $_[0]->{+ROW_DATA}->invalid // 0 }
+sub is_invalid { $_[0]->{+ROW_DATA}->invalid }
 sub is_valid   { $_[0]->{+ROW_DATA}->valid ? 1 : 0 }
 
 sub in_storage  { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
-sub is_stored   { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+STORED}  ? 1 : 0 }
+sub is_stored   { $_[0]->in_storage }
 sub is_desynced { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+DESYNC}  ? 1 : 0 }
 sub has_pending { my $a = $_[0]->{+ROW_DATA}->active(no_fatal => 1); $a && $a->{+PENDING} ? 1 : 0 }
 
@@ -280,11 +276,7 @@ sub force_sync {
 sub refresh {
     my $self = shift;
 
-    $self->check_pk;
-
-    croak "This row is not in the database yet" unless $self->is_stored;
-
-    my $row = $self->connection->handle($self)->one;
+    my $row = $self->_stored_handle->one;
     return $row if $row;
 
     $self->connection->state_invalidate(source => $self->source, row => $self, reason => "row no longer exists in the database");
@@ -303,21 +295,13 @@ sub discard {
 
 sub delete {
     my $self = shift;
-
-    $self->check_pk;
-
-    croak "This row is not in the database yet" unless $self->is_stored;
-    return $self->connection->handle($self)->delete;
+    return $self->_stored_handle->delete;
 }
 
 sub cas {
     my $self = shift;
     my ($input, $changes) = @_;
-
-    $self->check_pk;
-
-    croak "This row is not in the database yet" unless $self->is_stored;
-    return $self->connection->handle($self)->cas($input, $changes);
+    return $self->_stored_handle->cas($input, $changes);
 }
 
 sub update {
@@ -341,6 +325,31 @@ sub update {
     }
 
     $self->_check_stale;
+
+    # Validate desync BEFORE staging so that a croak never leaves
+    # the update's changes armed in PENDING.  The fields being
+    # updated are allowed to be desynced (they are about to be
+    # overwritten), but any *other* desynced field is an error.
+    if ($self->track_desync) {
+        if (my $desync = $self->row_data->{+DESYNC}) {
+            my %remaining = %$desync;
+            delete $remaining{$_} for keys %$changes;
+            croak <<"    EOT" if keys %remaining;
+
+This row is out of sync, this means it was refreshed while it had pending
+changes and the data retrieved from the database does not match what was in
+place when the pending changes were set.
+
+To fix such conditions you need to either use row->discard() to clear the
+pending changes, or you need to call ->force_sync() to clear the desync flags
+allowing you to save the row despite the discrepency.
+
+In addition it would be a good idea to call ->refresh() to have the most up to
+date data.
+
+    EOT
+        }
+    }
 
     # Stage the changes against the current transaction so a rollback
     # discards them along with the transaction's frame.
@@ -410,6 +419,12 @@ The various field views: C<fields> merges pending over stored; the
 C<stored_*> / C<pending_*> variants read only that view, and the C<raw_*>
 variants return deflated values instead of inflated ones.
 
+For a partially-fetched row the hash-returning variants (C<fields>,
+C<raw_fields>, C<stored_fields>, etc.) return only the fields that have been
+fetched so far. In contrast C<field($name)> (and the single-field accessors)
+will fetch a missing stored field from the database on demand, so use those
+if you need a column that may not yet be loaded.
+
 =item $bool = $row->field_is_desynced($name)
 
 True if the named field is marked out of sync.
@@ -451,6 +466,11 @@ sub field_is_desynced {
 
 =over 4
 
+=item $handle = $row->_stored_handle
+
+Assert the row has a primary key and is stored, then return a handle bound to
+it. Shared preamble for C<refresh> / C<delete> / C<cas>.
+
 =item $row = $row->_check_stale
 
 Croak when a transaction is open but this row's state predates the current
@@ -483,6 +503,13 @@ Return the deflated/raw value of C<$name> from data hash C<$from>.
 
 =cut
 
+sub _stored_handle {
+    my $self = shift;
+    $self->check_pk;
+    croak "This row is not in the database yet" unless $self->is_stored;
+    return $self->connection->handle($self);
+}
+
 sub _check_stale {
     my $self = shift;
 
@@ -502,7 +529,9 @@ You can do this with a call to ->refresh().
 sub _field {
     my $self  = shift;
     my $meth  = shift;
-    my $field = shift or croak "Must specify a field name";
+    croak "Must specify a field name" unless @_;
+    my $field = shift;
+    croak "Must specify a field name" unless defined $field && length $field;
 
     croak "This row does not have a '$field' field" unless $self->has_field($field);
 
@@ -532,7 +561,9 @@ sub _field {
                 croak "Cannot fetch field '$field': this row no longer exists in the database";
             }
 
-            $st->{$field} = $data->{$field};
+            $self->{+ROW_DATA}->change_state({TRANSACTION() => $self->connection->current_txn, STORED() => {$field => $data->{$field}}});
+            $row_data = $self->row_data;
+            $st       = $row_data->{+STORED};
         }
 
         return $self->$meth($st, $field);

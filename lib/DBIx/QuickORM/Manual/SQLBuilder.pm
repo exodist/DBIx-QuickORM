@@ -60,7 +60,7 @@ does the rest.
 
 =head1 THE BUILDER CONTRACT
 
-L<DBIx::QuickORM::Role::SQLBuilder> requires seven methods and provides one.
+L<DBIx::QuickORM::Role::SQLBuilder> requires seven methods and provides two.
 
 =head2 REQUIRED METHODS
 
@@ -170,11 +170,18 @@ operation; the relevant ones:
 
 =item source
 
-The source object (a table, view, join, or literal). Required for every build.
-It consumes L<DBIx::QuickORM::Role::Source>; the builder uses
+The source object (a table, view, join, literal, or a query handle used as a
+derived-table subquery). Required for every build. It consumes
+L<DBIx::QuickORM::Role::Source>; the builder uses
 C<< $source->source_db_moniker >> to name it in SQL, and (for upsert)
 C<< $source->primary_key >>. The source is also passed straight back out in the
 result so the handle can deflate binds against it.
+
+A L<DBIx::QuickORM::Handle> is itself a source: passing one as C<source> splices
+its query in as a derived table, C<< ( <inner query> ) AS <alias> >>, aliased
+C<subquery> by default or via C<< $h->subquery_alias('recent') >>. A builder
+sees this as an ordinary source whose C<source_db_moniker> is the parenthesized
+subquery; no special handling is required.
 
 =item where
 
@@ -191,6 +198,16 @@ Ordering, builder-specific format. Optional.
 =item limit
 
 A row limit. Optional. See L</LIMIT>.
+
+=item offset
+
+A row offset, emitted after the limit as C<OFFSET ?>. Optional, and requires a
+C<limit> - a bare offset croaks, since not every dialect allows one. See
+L</LIMIT>.
+
+=item distinct
+
+When true, turns a C<SELECT> into C<SELECT DISTINCT>. Optional.
 
 =item insert / update
 
@@ -269,6 +286,15 @@ A B<limit> bind carries a raw scalar bound as-is, with no field, no deflation:
         type  => 'limit',
     }
 
+An B<offset> bind is identical but C<< type => 'offset' >>, and follows the
+limit bind for C<OFFSET ?>:
+
+    {
+        param => 6,
+        value => $offset,
+        type  => 'offset',
+    }
+
 Any C<type> other than C<field> is bound verbatim. If your builder needs to
 emit a placeholder for something that must not go through column deflation
 (a computed value, a literal you have already prepared), give it a non-C<field>
@@ -278,8 +304,11 @@ type.
 
 The SQL::Abstract builder does not delegate C<LIMIT> to SQL::Abstract; it
 appends C<" LIMIT ?"> to the finished statement and pushes a C<limit> bind.
-A custom builder is free to handle limit however its backend prefers, as long
-as the placeholder count in the statement matches the bind specs.
+When an C<offset> param is present it then appends C<" OFFSET ?"> and an
+C<offset> bind; a bare offset with no limit croaks, since not every dialect
+allows C<OFFSET> without C<LIMIT>. A custom builder is free to handle limit
+and offset however its backend prefers, as long as the placeholder count in
+the statement matches the bind specs.
 
 =head1 UPSERT
 
@@ -324,7 +353,7 @@ practice; the shape:
 
 =item Construction
 
-C<new> forces SQL::Abstract's C<bindtype> to C<'columns'>, so SQL::Abstract
+C<new> defaults SQL::Abstract's C<bindtype> to C<'columns'>, so SQL::Abstract
 hands back each bind as a C<[$field, $value]> pair. That field name is exactly
 what the builder needs to label C<field> bind specs.
 

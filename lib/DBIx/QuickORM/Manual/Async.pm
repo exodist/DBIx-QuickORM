@@ -115,21 +115,35 @@ placeholder row that materializes once the insert result arrives.
 
 =head1 CANCELLATION
 
-If you no longer need an in-flight query you can cancel it:
+The iterator has no C<cancel> method. There are two real ways to stop an
+in-flight query:
 
-    $iter->cancel if $iter->can('cancel');
+=over 4
+
+=item Drop the iterator to finalize the underlying statement.
+
+When the L<DBIx::QuickORM::Iterator> from an C<async>/C<aside>/C<forked> query
+goes out of scope, the async statement handle it holds finalizes itself:
+cancelling the query if it can and no result has arrived yet, otherwise waiting
+for it to finish, and then releasing the slot it held on the connection. So
+letting the iterator fall out of scope is how you abandon a multi-row query.
+
+=item Call C<< $row->cancel >> on a single-row async result.
+
+C<one>, C<first>, and C<insert> on an async handle hand back a
+L<DBIx::QuickORM::Row::Async> placeholder. Calling C<< $row->cancel >> on it
+cancels the in-flight query (when no result has arrived yet) and marks the
+placeholder invalid. A placeholder dropped before it materializes is finalized
+the same way automatically.
+
+=back
 
 Whether an in-flight query can truly be cancelled depends on the mode and the
-dialect. Driver-level C<async> queries can be cancelled only when the dialect
-supports it; C<forked> queries can always be cancelled (the child process is
-signalled and reaped). When a query cannot be cancelled, finalizing it waits
-for it to finish instead.
-
-You normally do not have to clean up by hand. When an async statement handle
-goes out of scope it finalizes itself: cancelling the query if it can and the
-result has not arrived, otherwise waiting for it, and then releasing the slot
-it held on the connection. A single-row placeholder that is dropped before it
-materializes is likewise abandoned cleanly.
+dialect. Driver-level C<async> and C<aside> queries can be cancelled only when
+the dialect supports it; C<forked> queries can always be cancelled (the child
+process is signalled and reaped). When a query cannot be cancelled, finalizing
+it waits for it to finish instead. Either way you normally do not have to clean
+up by hand - scope-drop finalization handles it.
 
 =head1 RULES AND CONSTRAINTS
 
@@ -143,8 +157,9 @@ C<async> specifically, because it shares your primary connection.
 Because an C<async> query occupies the primary connection, you must finish (or
 cancel) it before running anything else on that connection. Starting a second
 query while an async query is still in flight throws an exception telling you
-the running query must be completed first. Drain the iterator, or call
-C<cancel>, before issuing the next query.
+the running query must be completed first. Drain the iterator (or drop it to
+finalize the query), or C<< $row->cancel >> a single-row placeholder, before
+issuing the next query.
 
 =item No transactions while an async query is active.
 

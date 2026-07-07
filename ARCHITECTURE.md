@@ -166,12 +166,15 @@ A `Connection` owns one live `DBI` handle and everything tied to it:
 
 ### Reconnect and fork safety
 
-`reconnect` disconnects the old handle and obtains a fresh one from
-`$orm->db->new_dbh`, updating `pid`. If the recorded `pid` differs from the
-current process (a fork happened), `InactiveDestroy` is set on the old
-handle before disconnect so a child does not tear down a parent's
-connection. `auto_retry` reconnects when `$dbh->ping` fails and retries the
-operation.
+`reconnect` releases the old handle and obtains a fresh one from
+`$orm->db->new_dbh`, updating `pid`. When the recorded `pid` matches the
+current process the old handle is disconnected cleanly. When it differs (a
+fork happened) the old handle is a copy of the parent's, sharing the
+parent's socket, so it is **not** disconnected: `InactiveDestroy` alone does
+not suppress an *explicit* `disconnect`, only the implicit one at `DESTROY`,
+and an explicit disconnect would tear down the parent's server session. The
+child instead sets `InactiveDestroy` and drops the reference. `auto_retry`
+reconnects when `$dbh->ping` fails and retries the operation.
 
 ### Query/mutation entry points
 
@@ -206,7 +209,10 @@ keys with another table.
 `Table` consumes `Role::Source` (§9): `source_db_moniker` returns `db_name`,
 `source_orm_name` returns `name`, and `field_type`/`field_affinity`/
 `has_field`/`fields_to_fetch`/`fields_to_omit`/`fields_list_all` delegate to
-its columns (with omitted columns excluded from the default fetch set).
+its columns (with omitted columns excluded from the default fetch set, and
+every field list ordered deterministically by each column's position — its
+`order` slot — so SELECT/RETURNING column order is stable run-to-run rather
+than hash order).
 
 ### `DBIx::QuickORM::Schema::Table::Column`
 
@@ -266,6 +272,7 @@ Inheritance tree:
 Dialect
 ├── Dialect::SQLite
 ├── Dialect::PostgreSQL
+├── Dialect::DuckDB
 └── Dialect::MySQL
     ├── Dialect::MySQL::MariaDB
     ├── Dialect::MySQL::Percona
@@ -302,9 +309,18 @@ cannot be resolved it warns and runs as the base `MySQL` dialect.
 
 ### Flavor notes
 
-- **SQLite:** full RETURNING; no async; standard savepoints.
+- **SQLite:** full RETURNING (requires `DBD::SQLite` 1.70+, the enforced
+  minimum, which is what guarantees RETURNING support); no async; standard
+  savepoints.
 - **PostgreSQL:** full RETURNING; full async (`pg_async`/`pg_ready`/
   `pg_result`/`pg_cancel`); native `UUID`; `BYTEA` binary.
+- **DuckDB:** embedded engine (mirrors SQLite); full RETURNING on all DML; no
+  async; **no savepoints** (so nested ORM transactions are unsupported).
+  Generated columns are detected by parsing the table's stored DDL for
+  `GENERATED ALWAYS AS`. It tracks its own in-transaction flag, clearing it
+  before issuing a COMMIT/ROLLBACK so a rejected statement cannot wedge the
+  flag on. `supports_type` maps `text`/`varchar` (plus `uuid`/`json`/
+  `timestamp`/`blob`) to native DuckDB types.
 - **MySQL (base):** no RETURNING; async prepare/ready but no cancel; socket
   field differs by driver (`mysql_socket`/`mariadb_socket`).
 - **MariaDB:** RETURNING on INSERT/DELETE but **not** UPDATE.
@@ -318,7 +334,8 @@ A "source" is anything queryable. `Role::Source` requires
 `primary_key`, `field_type`, `field_affinity`, `has_field`,
 `field_is_generated`, `fields_to_fetch`, `fields_to_omit`,
 `fields_list_all`. It provides `cachable` (true when the source has a
-non-empty primary key).
+non-empty primary key) and `is_writable` (default true; the `Handle`
+subquery source overrides it to false).
 
 Implementations:
 
@@ -334,7 +351,9 @@ Implementations:
   thread into the outer statement. `field_type` / `field_affinity` delegate to
   the inner source (real columns stay typed; computed columns are untyped),
   `has_field` is permissive, and the source has no primary key and is not
-  cachable. The alias defaults to `subquery`; `subquery_alias($alias)` returns a
+  cachable. A derived table is read-only: it overrides `is_writable` to false,
+  so `insert`/`upsert`/`update`/`delete`/`cas` and `omit()` through it croak.
+  The alias defaults to `subquery`; `subquery_alias($alias)` returns a
   clone with a chosen alias. `Connection->handle` always routes a handle
   argument through the constructor as the source; refining an existing handle
   without wrapping it is done by calling refining methods (e.g. `where`) on the
@@ -509,6 +528,13 @@ optional `qorm_register_type` hooks a type into the autotype system.
   UUID, `binary` for 16-byte binary); validates and normalizes both forms;
   `new` mints a uuid7; `qorm_sql_type` uses native `uuid` or `VARCHAR(36)`.
   Registers the `uuid` type name.
+- **`Type::DateTime`** — affinity `string`; inflates a database date/time
+  string to a lazy mask wrapping a `DateTime` (the `DateTime` is not built
+  until the value is actually used, and stringifying the mask returns the
+  original DB string); deflates a `DateTime`, mask, or plain string back to the
+  database string form via the dialect's `datetime_formatter`; `qorm_sql_type`
+  is `DATETIME`. Registers the `datetime`/`timestamp`/`timestamptz`/`date`/
+  `time`/`year` type names.
 
 Type/affinity flow into columns (§6), comparisons (§11), and field
 inflation on rows (§11).
@@ -653,7 +679,13 @@ database name is what SQL emits.
   reconciles an introspected column (keyed by database name) with a user column
   by matching `db_name`, producing one ORM-keyed column whose database-derived
   metadata fills gaps and whose ORM name and explicit overrides win; the primary
-  key is translated to ORM names.
+  key is translated to ORM names. The same reconciliation happens at the table
+  level: before merging, `Schema::merge` re-keys the introspected tables
+  (`_rekey_tables`) so a declared table that renames a physical table via its
+  own `db_name` is collapsed with its introspected twin into a single source
+  rather than leaving two entries for one physical table. A declared `db_name`
+  that points at a *different* real introspected table croaks instead of
+  silently dropping one physical table.
 
 - **Joins.** Joins translate aliased names through their `alias.field` protos:
   `field_db_name`/`field_orm_name` split the alias, translate the field against
@@ -857,3 +889,61 @@ at `->update` for changing a loaded row. Identity-only data and matching values
 are dropped silently, since nothing is lost. Internal callers reach the row
 layer through the private constructor and never trip this path; `Row::clone`
 strips the primary key before vivifying, so it always creates rather than hits.
+
+## Addendum: Volatile columns
+
+A column is **volatile** when the database may set or change its stored value
+during a write (generated/identity columns, server defaults, `ON UPDATE`,
+triggers), so the value the caller sent cannot be trusted as the in-memory
+truth. `DBIx::QuickORM::Schema::Table::Column` carries a `volatile` flag, set
+via the `volatile` DSL marker or auto-detected during introspection.
+
+Auto-detection is deliberately narrow: a dialect flags **generated** and
+**identity/sequence-backed** columns (`Dialect::column_is_volatile_by_metadata`),
+which are the database-owns-the-value cases detectable consistently across
+engines. Server-side `DEFAULT`s and `ON UPDATE` clauses are **not** auto-flagged
+— whether a default applies depends on whether the caller supplied the column,
+engines report defaults inconsistently (e.g. MySQL's implicit `DEFAULT NULL`),
+and an omitted default column already lazy-fetches — so they are left to explicit
+marking.
+
+Trigger effects are not statically resolvable in general. During introspection
+`Dialect::_apply_trigger_volatility` does a best-effort parse of each
+insert/update trigger (`NEW.col = …` / `UPDATE … SET col = …`), flags the columns
+it can see, and otherwise warns once per table. A table can be asserted
+volatile-free (the `no_volatile` DSL marker, `quick(no_volatile => …)`, or a
+declared-schema table so marked); that skips the trigger flagging and the
+warning but not the declarative generated/identity detection. Each dialect
+implements `triggers_for_table` (SQLite batches all triggers in one cached query
+per catalog to stay within the fixed introspection query budget; the base
+reports none).
+
+At write time (`Handle::_insert` / `Handle::update`), volatile columns are
+**lazy, not eager**: QuickORM does not keep a stale in-memory value for one, but
+it also does not add it to `RETURNING` — it lazily fetches the real value on next
+access (`auto_refresh` reads the whole row at once). A value the caller sends for
+a non-omitted column on insert is kept (a server default does not override it). A
+column both **volatile and omitted** has any sent value dropped after the write
+(the omit+volatile clear-and-lazy). On **update**, where an `ON UPDATE` or trigger
+may change a value, any volatile column not read back by a literal-write readback
+is dropped → lazily re-read. A primary-key column is never dropped. (An earlier
+eager design added non-omitted volatile columns to `RETURNING`; that broke a
+plain insert's "DB-set columns stay lazy" contract and dropped supplied `cas`
+guard values, so volatile is lazy.)
+
+`RETURNING` is computed before AFTER triggers run on every engine that supports
+it (SQLite, PostgreSQL), so it does not reflect a value an AFTER trigger changes.
+To keep results consistent across flavors, a table's triggers are detected
+during introspection and recorded as `Table::has_triggers`, and
+`Dialect::returning_reflects_write($source)` returns false for such a table
+(unless it is asserted volatile-free). The write then keeps `RETURNING` only for
+the primary key and reads everything else back with a follow-up fetch — a lazy
+fetch of the dropped volatile columns, and a full `refresh` under `auto_refresh`
+— exactly as on engines without `RETURNING` (MySQL/MariaDB). DuckDB has no
+triggers, so it always keeps the fast `RETURNING` path. `triggers_for_table` is
+implemented per dialect (SQLite `sqlite_master`, PostgreSQL `pg_catalog`, MySQL
+`information_schema.triggers`), each a single cached query.
+
+`Table::has_volatile_columns`, `Schema::volatile_free_tables`, and
+`Connection::volatile_free_tables` report which tables are free of volatile
+columns.

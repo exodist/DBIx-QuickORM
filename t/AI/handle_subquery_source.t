@@ -39,7 +39,7 @@ subtest round_trip_and_bind_order => sub {
     my $outer = $con->handle($sub)->where({kind => 'click'})->order_by('id');
 
     my $sql = $outer->sql_builder->qorm_select(%{$outer->_builder_args});
-    like($sql->{statement}, qr/FROM \( SELECT .* FROM events WHERE "ts" > \? \) AS recent/,
+    like($sql->{statement}, qr/FROM \( SELECT .* FROM "events" WHERE "ts" > \? \) AS recent/,
         "inner query is spliced in as a derived table");
     is(
         [map { $_->{value} } @{$sql->{bind}}],
@@ -104,7 +104,7 @@ subtest plain_handle_is_used_as_source => sub {
     ref_is_not($outer, $h, "passing a handle to handle() builds a new handle around it, not the same object");
 
     my $sql = $outer->sql_builder->qorm_select(%{$outer->_builder_args});
-    like($sql->{statement}, qr/FROM \( SELECT .* FROM events WHERE "kind" = \? \) AS subquery/,
+    like($sql->{statement}, qr/FROM \( SELECT .* FROM "events" WHERE "kind" = \? \) AS subquery/,
         "an unmarked handle is wrapped as a derived table aliased 'subquery'");
 
     is([map { $_->field('id') } $outer->order_by('id')->all], [1, 3, 4],
@@ -132,6 +132,44 @@ subtest handle_with_where_filters_the_subquery => sub {
         "the refined clone's WHERE replaced the original's (kind=click, no ts filter)");
     is([map { $_->field('id') } $inner->order_by('id')->all], [2, 3, 4],
         "the original handle is unchanged (still ts>15)");
+};
+
+subtest writes_through_a_subquery_source_croak => sub {
+    # A derived table is read-only; each write path should refuse it with a
+    # clear message rather than dying deep in statement construction (or, for
+    # insert, on a missing columns() method).
+    my $sub   = $con->handle('events')->where({kind => 'click'})->subquery_alias('w');
+    my $outer = $con->handle($sub);
+
+    like(
+        dies { $outer->insert({kind => 'x', ts => 1}) },
+        qr/Cannot insert through a derived-table \(subquery\) source/,
+        "insert through a subquery source croaks",
+    );
+    like(
+        dies { $outer->where({id => 3})->delete },
+        qr/Cannot delete through a derived-table \(subquery\) source/,
+        "delete through a subquery source croaks",
+    );
+    like(
+        dies { $outer->where({id => 3})->update({kind => 'y'}) },
+        qr/Cannot update through a derived-table \(subquery\) source/,
+        "update through a subquery source croaks",
+    );
+    like(
+        dies { $outer->where({id => 3})->cas({kind => 'click'}, {kind => 'y'}) },
+        qr/Cannot use cas\(\) through a derived-table \(subquery\) source/,
+        "cas through a subquery source croaks",
+    );
+};
+
+subtest omit_on_a_subquery_source_croaks => sub {
+    my $sub = $con->handle('events')->subquery_alias('o');
+    like(
+        dies { $con->handle($sub)->omit('ts')->all },
+        qr/Cannot omit fields on a source whose columns are not enumerable/,
+        "omit on a subquery source croaks instead of silently no-opping",
+    );
 };
 
 done_testing;

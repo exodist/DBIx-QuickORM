@@ -4,14 +4,14 @@ use warnings;
 
 our $VERSION = '0.000028';
 
-use DBD::SQLite 1.0;
+use DBD::SQLite 1.70;
 
 use Carp qw/croak/;
 use DBIx::QuickORM::Affinity qw/affinity_from_type/;
 use DBIx::QuickORM::Util qw/column_key/;
 
 use parent 'DBIx::QuickORM::Dialect';
-use Object::HashBase;
+use Object::HashBase qw{ +all_triggers };
 
 use DBIx::QuickORM::Schema;
 use DBIx::QuickORM::Schema::Table;
@@ -115,10 +115,6 @@ sub supports_returning_delete { 1 }
 
 sub async_supported        { 0 }
 sub async_cancel_supported { 0 }
-sub async_prepare_args     { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
-sub async_ready            { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
-sub async_result           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
-sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 
 sub db_version { my $self = shift; $self->dbh->{sqlite_version} }
 
@@ -126,56 +122,16 @@ sub db_version { my $self = shift; $self->dbh->{sqlite_version} }
 
 =pod
 
-=item $dialect->start_txn(%params)
-
-=item $dialect->commit_txn(%params)
-
-=item $dialect->rollback_txn(%params)
-
-=item $dialect->create_savepoint(%params)
-
-=item $dialect->commit_savepoint(%params)
-
-=item $dialect->rollback_savepoint(%params)
-
-Transaction and savepoint control via the SQLite driver. Each accepts an
-optional C<dbh> parameter, defaulting to the dialect's own handle; savepoint
-methods take a C<savepoint> name.
-
-=cut
-
-# {{{ Transactions and savepoints
-
-sub start_txn          { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->begin_work }
-sub commit_txn         { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->commit }
-sub rollback_txn       { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->rollback }
-sub create_savepoint   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($p{savepoint}); $dbh->do("SAVEPOINT $sp") }
-sub commit_savepoint   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($p{savepoint}); $dbh->do("RELEASE SAVEPOINT $sp") }
-sub rollback_savepoint { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; my $sp = $dbh->quote_identifier($p{savepoint}); $dbh->do("ROLLBACK TO SAVEPOINT $sp") }
-
-# }}} Transactions and savepoints
-
-=pod
-
 =item $dsn = $dialect->dsn($db)
 
-Builds a SQLite DSN string from a database config object.
+Builds a SQLite DSN string from a database config object. Transactions and
+savepoints use the inherited driver-level defaults.
 
 =back
 
 =cut
 
-sub dsn {
-    my $self_or_class = shift;
-    my ($db) = @_;
-
-    my $driver = $db->dbi_driver // $self_or_class->dbi_driver;
-    $driver =~ s/^DBD:://;
-
-    my $db_name = $db->db_name;
-
-    return "dbi:${driver}:dbname=${db_name}";
-}
+sub dsn { my $self_or_class = shift; $self_or_class->_dsn_dbname_only(@_) }
 
 ###############################################################################
 # {{{ Schema Builder Code
@@ -187,11 +143,14 @@ my %TABLE_TYPES = (
     'view'  => 'DBIx::QuickORM::Schema::View',
 );
 
-# Permanent and temporary schema catalogs, in shadowing-priority order for the
-# DDL lookup (a temp object shadows a permanent one of the same name, but
-# _table_ddl historically prefers the permanent DDL, so permanent is listed
-# first and wins the //= in _fetch_all_ddl).
+# Permanent and temporary schema catalogs. A temporary object shadows a
+# permanent one of the same name, so the pragma sweeps qualify each catalog by
+# its schema name ('main' vs 'temp') and key their results by (is_temp, name).
+# Without the schema qualifier the unqualified pragma table-functions resolve
+# temp-first, poisoning a shadowed permanent table with the temp object's
+# metadata.
 my @MASTERS = ('sqlite_master', 'sqlite_temp_master');
+my @SCHEMAS = ('main',          'temp');
 
 =pod
 
@@ -243,13 +202,13 @@ sub build_tables_from_db {
         next if $tname =~ m/^sqlite_/;
         next if $params{autofill}->skip(table => $tname);
 
-        # Key pre-fetched metadata by (is_temp, name): a temporary object shadows
-        # a permanent one of the same name, and the unqualified pragma calls in
-        # the sweeps resolve to the temp object, so both catalog sweeps would
-        # otherwise pile rows for a shadowed name under one key and double them.
+        # Pre-fetched metadata is keyed by (is_temp, name): a temporary object
+        # shadows a permanent one of the same name, so both catalogs may hold a
+        # table with the same name; keying by catalog keeps each one's columns,
+        # indexes, foreign keys, and DDL separate.
         my $xinfo        = $all_xinfo->{$temp}{$tname} // [];
         my @pk           = $self->_pk_from_xinfo($xinfo);
-        my $identity_col = $self->_rowid_alias_from($xinfo, $all_ddl->{$tname});
+        my $identity_col = $self->_rowid_alias_from($xinfo, $all_ddl->{$temp}{$tname});
 
         my $table = {name => $tname, db_name => $tname, is_temp => $temp};
         my $class = $TABLE_TYPES{lc($type)} // 'DBIx::QuickORM::Schema::Table';
@@ -293,18 +252,30 @@ sub build_table_keys_from_db {
 
     my %index;
     for my $row (@$index_rows) {
-        my $idx = $index{$row->{name}} //= {};
-        $idx->{type}   = $row->{origin};
-        $idx->{unique} = $row->{unique};
-        push @{$idx->{cols} //= []} => $row->{column};
+        my $idx = $index{$row->{name}} //= {cols => []};
+        $idx->{type}    = $row->{origin};
+        $idx->{unique}  = $row->{unique};
+        $idx->{partial} = $row->{partial};
+
+        # An expression index member (e.g. lower(a)) has no column name; record
+        # that the index has expression parts and skip it in the column list.
+        if (defined $row->{column}) {
+            push @{$idx->{cols}} => $row->{column};
+        }
+        else {
+            $idx->{has_expr} = 1;
+        }
     }
 
     # Only indexes flagged unique are unique constraints; a plain CREATE INDEX
     # must not be recorded as one. The flag (not the origin) is the signal:
-    # CREATE UNIQUE INDEX also has origin 'c'.
+    # CREATE UNIQUE INDEX also has origin 'c'. A partial unique index (WHERE
+    # clause) or one over expressions does not constrain the whole table, so it
+    # is not a table-wide unique key.
     for my $grp (sort keys %index) {
         my $idx = $index{$grp};
-        $unique{column_key(@{$idx->{cols}})} = $idx->{cols} if $idx->{unique};
+        $unique{column_key(@{$idx->{cols}})} = $idx->{cols}
+            if $idx->{unique} && !$idx->{partial} && !$idx->{has_expr};
         $pk = $idx->{cols} if $idx->{type} eq 'pk';
     }
 
@@ -407,13 +378,14 @@ sub build_columns_from_db {
         $col->{order}   = $res->{cid} + 1;
         $col->{identity}  = 1 if defined($identity_col) && $res->{name} eq $identity_col;
         $col->{generated} = 1 if $hidden >= 2;
+        $col->{volatile}  //= 1 if $self->column_is_volatile_by_metadata($col, default => $res->{dflt_value});
 
         my $type = $res->{type};
         $type =~ s/\(.*$//;
         $col->{type} = \$type;
 
         $col->{nullable} = $res->{notnull} ? 0 : 1;
-        $col->{affinity} //= affinity_from_type($type) // 'string';
+        $col->{affinity} //= $self->affinity_from_db_type($type);
 
         $params{autofill}->process_column($col);
         $params{autofill}->hook(post_column => {column => $col, table_name => $table, column_info => $res});
@@ -431,6 +403,12 @@ sub build_columns_from_db {
 
 Introspects a table's indexes and returns an arrayref of index specs.
 
+=item @triggers = $dialect->triggers_for_table($table)
+
+Returns the C<CREATE TRIGGER> statements defined on a table (permanent and temp
+catalogs), each as a C<< { event => 'INSERT'|'UPDATE'|'DELETE', body => $sql } >>
+hashref, for volatile-column detection.
+
 =back
 
 =cut
@@ -444,7 +422,9 @@ sub build_indexes_from_db {
     my %out;
     for my $row (@$rows) {
         my $idx = $out{$row->{name}} //= {name => $row->{name}, columns => [], unique => $row->{unique} ? 1 : 0};
-        push @{$idx->{columns}} => $row->{column};
+        # Expression index members have no column name; keep the index but leave
+        # the expression out of the column list.
+        push @{$idx->{columns}} => $row->{column} if defined $row->{column};
     }
 
     my @pk = $params{pk_fallback} ? @{$params{pk_fallback}} : $self->_primary_key($table);
@@ -453,6 +433,39 @@ sub build_indexes_from_db {
     }
 
     return [map { $params{autofill}->hook(index => {index => $out{$_}, table_name => $table}); $out{$_} } sort keys %out];
+}
+
+sub triggers_for_table {
+    my $self = shift;
+    my ($table) = @_;
+
+    my @out;
+    for my $sql (@{$self->_all_triggers->{$table} // []}) {
+        my $event = ($sql =~ m/\b(?:BEFORE|AFTER|INSTEAD\s+OF)\s+(INSERT|UPDATE|DELETE)\b/i) ? uc($1) : '';
+        push @out => {event => $event, body => $sql};
+    }
+
+    return @out;
+}
+
+# All triggers keyed by table name, fetched once per dialect (both catalogs) so
+# volatile-column detection does not add a query per table and stays within the
+# fixed-query-count introspection budget.
+sub _all_triggers {
+    my $self = shift;
+
+    return $self->{+ALL_TRIGGERS} if $self->{+ALL_TRIGGERS};
+
+    my %map;
+    for my $master (@MASTERS) {
+        my $rows = $self->dbh->selectall_arrayref("SELECT tbl_name, sql FROM $master WHERE type = 'trigger'", {Slice => {}});
+        for my $r (@$rows) {
+            next unless defined $r->{tbl_name} && defined $r->{sql};
+            push @{$map{$r->{tbl_name}}} => $r->{sql};
+        }
+    }
+
+    return $self->{+ALL_TRIGGERS} = \%map;
 }
 
 =pod
@@ -472,12 +485,17 @@ sub build_indexes_from_db {
 Sweep column (C<pragma_table_xinfo>), index (C<pragma_index_list> +
 C<pragma_index_info>), foreign-key (C<pragma_foreign_key_list>), and stored-DDL
 metadata for every table in a single statement per catalog. The pragma table
-functions are joined laterally against C<sqlite_master> / C<sqlite_temp_master>
-so one statement iterates all tables. C<_fetch_all_xinfo>,
-C<_fetch_all_index_info>, and C<_fetch_all_fks> return a hashref keyed by
-temp-flag (0 permanent, 1 temporary) then table name, so a temporary object
-never merges with a permanent one of the same name; C<_fetch_all_ddl> is keyed
-by table name (permanent DDL wins, matching C<_table_ddl>).
+functions are qualified by catalog schema (C<main> / C<temp>) and joined
+laterally against C<sqlite_master> / C<sqlite_temp_master> so one statement
+iterates all tables. All four sweeps return a hashref keyed by temp-flag
+(0 permanent, 1 temporary) then table name, so a temporary object never merges
+with (or shadows) a permanent one of the same name.
+
+=item $by_table = $dialect->_all_triggers
+
+All triggers keyed by table name, fetched once per dialect from both catalogs
+(cached), so volatile-column detection adds a fixed two queries rather than one
+per table.
 
 =item @cols = $dialect->_pk_from_xinfo($xinfo_rows)
 
@@ -510,10 +528,11 @@ sub _fetch_all_xinfo {
     my %by_table;
     for my $is_temp (0 .. $#MASTERS) {
         my $master = $MASTERS[$is_temp];
+        my $schema = $SCHEMAS[$is_temp];
         my $sth = $dbh->prepare(<<"        EOT");
             SELECT m.name AS qorm_tbl, x.*
               FROM $master m
-              JOIN pragma_table_xinfo(m.name) x
+              JOIN pragma_table_xinfo(m.name, '$schema') x
              WHERE m.type IN ('table', 'view')
           ORDER BY m.name, x.cid
         EOT
@@ -546,17 +565,18 @@ sub _fetch_all_index_info {
     my %by_table;
     for my $is_temp (0 .. $#MASTERS) {
         my $master = $MASTERS[$is_temp];
+        my $schema = $SCHEMAS[$is_temp];
         my $sth = $dbh->prepare(<<"        EOT");
-            SELECT m.name, il.name, il.`unique`, il.origin, ii.name
+            SELECT m.name, il.name, il.`unique`, il.origin, il.partial, ii.name
               FROM $master m
-              JOIN pragma_index_list(m.name)  AS il
-              JOIN pragma_index_info(il.name) AS ii
+              JOIN pragma_index_list(m.name, '$schema')  AS il
+              JOIN pragma_index_info(il.name, '$schema') AS ii
              WHERE m.type IN ('table', 'view')
           ORDER BY m.name, il.name, ii.seqno
         EOT
         $sth->execute();
-        while (my ($tbl, $name, $uniq, $origin, $col) = $sth->fetchrow_array) {
-            push @{$by_table{$is_temp}{$tbl} //= []} => {name => $name, unique => $uniq, origin => $origin, column => $col};
+        while (my ($tbl, $name, $uniq, $origin, $partial, $col) = $sth->fetchrow_array) {
+            push @{$by_table{$is_temp}{$tbl} //= []} => {name => $name, unique => $uniq, origin => $origin, partial => $partial, column => $col};
         }
     }
 
@@ -569,7 +589,7 @@ sub _query_index_info {
 
     my $dbh = $self->{+DBH};
     my $sth = $dbh->prepare(<<"    EOT");
-        SELECT il.name, il.`unique`, il.origin, ii.name
+        SELECT il.name, il.`unique`, il.origin, il.partial, ii.name
           FROM pragma_index_list(?)       AS il,
                pragma_index_info(il.name) AS ii
       ORDER BY il.name, ii.seqno
@@ -577,8 +597,8 @@ sub _query_index_info {
     $sth->execute($table);
 
     my @rows;
-    while (my ($name, $uniq, $origin, $col) = $sth->fetchrow_array) {
-        push @rows => {name => $name, unique => $uniq, origin => $origin, column => $col};
+    while (my ($name, $uniq, $origin, $partial, $col) = $sth->fetchrow_array) {
+        push @rows => {name => $name, unique => $uniq, origin => $origin, partial => $partial, column => $col};
     }
 
     return \@rows;
@@ -592,10 +612,11 @@ sub _fetch_all_fks {
     my %by_table;
     for my $is_temp (0 .. $#MASTERS) {
         my $master = $MASTERS[$is_temp];
+        my $schema = $SCHEMAS[$is_temp];
         my $sth = $dbh->prepare(<<"        EOT");
             SELECT m.name, fk.id, fk.`table`, fk.`from`, fk.`to`
               FROM $master m
-              JOIN pragma_foreign_key_list(m.name) AS fk
+              JOIN pragma_foreign_key_list(m.name, '$schema') AS fk
              WHERE m.type IN ('table', 'view')
           ORDER BY m.name, fk.id, fk.seq
         EOT
@@ -625,11 +646,12 @@ sub _fetch_all_ddl {
     my $dbh = $self->{+DBH};
 
     my %by_table;
-    for my $master (@MASTERS) {
+    for my $is_temp (0 .. $#MASTERS) {
+        my $master = $MASTERS[$is_temp];
         my $sth = $dbh->prepare("SELECT name, sql FROM $master WHERE type = 'table'");
         $sth->execute();
         while (my ($name, $sql) = $sth->fetchrow_array) {
-            $by_table{$name} //= $sql;
+            $by_table{$is_temp}{$name} = $sql;
         }
     }
 
@@ -700,30 +722,13 @@ sub _table_ddl {
 
     my $dbh = $self->dbh;
 
-    my ($ddl) = $dbh->selectrow_array("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", undef, $table);
-    ($ddl) = $dbh->selectrow_array("SELECT sql FROM sqlite_temp_master WHERE type = 'table' AND name = ?", undef, $table) unless defined $ddl;
+    # A temp table shadows a permanent one of the same name, and the
+    # unqualified pragma introspection resolves to the temp object, so prefer
+    # the temp DDL here to stay consistent.
+    my ($ddl) = $dbh->selectrow_array("SELECT sql FROM sqlite_temp_master WHERE type = 'table' AND name = ?", undef, $table);
+    ($ddl) = $dbh->selectrow_array("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", undef, $table) unless defined $ddl;
 
     return $ddl;
-}
-
-=pod
-
-=item $sql = $dialect->_strip_sql_noise($sql)
-
-Returns the SQL with string literals replaced by empty strings and comments
-removed, so keyword matching cannot false-positive on either.
-
-=cut
-
-sub _strip_sql_noise {
-    my $self = shift;
-    my ($sql) = @_;
-
-    # One left-to-right pass so a quote inside a comment (or a comment marker
-    # inside a string) cannot derail the other rule.
-    $sql =~ s{('(?:[^']|'')*')|(--[^\n]*)|(/\*.*?\*/)}{defined $1 ? "''" : " "}ges;
-
-    return $sql;
 }
 
 =pod

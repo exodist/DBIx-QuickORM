@@ -117,6 +117,8 @@ my %NATIVE_TYPE = (
     jsonb     => 'JSON',
     timestamp => 'TIMESTAMP',
     blob      => 'BLOB',
+    text      => 'TEXT',
+    varchar   => 'VARCHAR',
 );
 sub supports_type {
     my $self = shift;
@@ -127,10 +129,6 @@ sub supports_type {
 
 sub async_supported        { 0 }
 sub async_cancel_supported { 0 }
-sub async_prepare_args     { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
-sub async_ready            { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
-sub async_result           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
-sub async_cancel           { croak "Dialect '" . $_[0]->dialect_name . "' does not support async queries" }
 
 sub db_version {
     my $self = shift;
@@ -169,10 +167,35 @@ DuckDB does not support savepoints; these C<croak>.
 # the SQL transaction-control statements directly instead, which behave
 # correctly across sequential commits and rollbacks. DBI's AutoCommit flag stays
 # at its default, so track our own in-transaction state for in_txn().
+#
+# The flag is only meaningful for the dialect's own handle, so only touch it
+# when acting on that handle. On commit/rollback the flag is cleared before the
+# statement runs: if the engine rejects the COMMIT/ROLLBACK (leaving no open
+# transaction) the error still propagates, but the flag does not wedge on.
 
-sub start_txn    { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->do("BEGIN TRANSACTION"); $self->{+IN_TXN} = 1 }
-sub commit_txn   { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->do("COMMIT");            $self->{+IN_TXN} = 0 }
-sub rollback_txn { my ($self, %p) = @_; my $dbh = $p{dbh} // $self->dbh; $dbh->do("ROLLBACK");          $self->{+IN_TXN} = 0 }
+sub start_txn {
+    my ($self, %p) = @_;
+    my $own = !$p{dbh} || $p{dbh} == $self->dbh;
+    my $dbh = $p{dbh} // $self->dbh;
+    $dbh->do("BEGIN TRANSACTION");
+    $self->{+IN_TXN} = 1 if $own;
+}
+
+sub commit_txn {
+    my ($self, %p) = @_;
+    my $own = !$p{dbh} || $p{dbh} == $self->dbh;
+    my $dbh = $p{dbh} // $self->dbh;
+    $self->{+IN_TXN} = 0 if $own;
+    $dbh->do("COMMIT");
+}
+
+sub rollback_txn {
+    my ($self, %p) = @_;
+    my $own = !$p{dbh} || $p{dbh} == $self->dbh;
+    my $dbh = $p{dbh} // $self->dbh;
+    $self->{+IN_TXN} = 0 if $own;
+    $dbh->do("ROLLBACK");
+}
 
 # Our own transactions use raw BEGIN/COMMIT/ROLLBACK and do not flip DBI's
 # AutoCommit, so consult our flag first; then fall back to DBI's view to detect
@@ -203,17 +226,7 @@ Builds a DuckDB DSN string from a database config object.
 
 =cut
 
-sub dsn {
-    my $self_or_class = shift;
-    my ($db) = @_;
-
-    my $driver = $db->dbi_driver // $self_or_class->dbi_driver;
-    $driver =~ s/^DBD:://;
-
-    my $db_name = $db->db_name;
-
-    return "dbi:${driver}:dbname=${db_name}";
-}
+sub dsn { my $self_or_class = shift; $self_or_class->_dsn_dbname_only(@_) }
 
 ###############################################################################
 # {{{ Schema Builder Code
@@ -376,13 +389,14 @@ sub build_columns_from_db {
             if $res->{pk} && defined($res->{dflt_value}) && $res->{dflt_value} =~ /nextval/i;
 
         $col->{generated} = 1 if $generated->{lc $res->{name}};
+        $col->{volatile}  //= 1 if $self->column_is_volatile_by_metadata($col, default => $res->{dflt_value});
 
         my $type = $res->{type};
         $type =~ s/\(.*$//;
         $col->{type} = \$type;
 
         $col->{nullable} = $res->{notnull} ? 0 : 1;
-        $col->{affinity} //= affinity_from_type($type) // 'string';
+        $col->{affinity} //= $self->affinity_from_db_type($type);
 
         $params{autofill}->process_column($col);
         $params{autofill}->hook(post_column => {column => $col, table_name => $table, column_info => $res});
@@ -417,11 +431,20 @@ sub _parse_generated {
 
     return unless defined $ddl && length $ddl;
 
+    # Blank out string literals and comments first so a DEFAULT 'GENERATED
+    # ALWAYS AS (...)' literal cannot be mistaken for a real generated column.
+    $ddl = $self->_strip_sql_noise($ddl);
+
     my %out;
+    # The bridge between a column name and its GENERATED clause is paren-aware
+    # (`(?:[^,()]|\([^)]*\))*?`) so it crosses a type modifier like DECIMAL(10,2)
+    # without stopping at the comma inside the parentheses, while still stopping
+    # at a real column-separating comma.
+    #
     # The \b belongs inside the bare-word alternative: after a closing quote
     # there is no word boundary to match, so a trailing \b would reject every
     # quoted column name.
-    while ($ddl =~ /(?:^|[(,])\s*("[^"]+"|`[^`]+`|\w+\b)[^,]*?\bGENERATED\s+ALWAYS\s+AS\s*\(/sgi) {
+    while ($ddl =~ /(?:^|[(,])\s*("[^"]+"|`[^`]+`|\w+\b)(?:[^,()]|\([^)]*\))*?\bGENERATED\s+ALWAYS\s+AS\s*\(/sgi) {
         my $name = $1;
         $name =~ s/\A["`]|["`]\z//g;
         $out{lc $name} = 1;

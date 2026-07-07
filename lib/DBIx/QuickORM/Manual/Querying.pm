@@ -16,8 +16,8 @@ updating, and deleting rows with handles.
 =head1 DESCRIPTION
 
 A B<handle> is the object you use to build and run queries against a source
-(a table, view, or join). It is the rough equivalent of a ResultSet in other
-ORMs. This guide is a task-oriented tour of the handle. For the exhaustive
+(a table, view, join, or another query used as a subquery). It is the rough
+equivalent of a ResultSet in other ORMs. This guide is a task-oriented tour of the handle. For the exhaustive
 method-by-method reference see L<DBIx::QuickORM::Handle>.
 
 The mental model is small:
@@ -48,7 +48,7 @@ compose and pass them around freely.
 Every handle operates through a L<DBIx::QuickORM::Connection>. The connection
 itself is the easiest place to make one with C<< $con->handle(...) >>:
 
-    my $con = orm('my_orm');
+    my $con = qorm('my_orm');
 
     # A handle on the whole 'people' table (no query has run yet).
     my $people = $con->handle('people');
@@ -84,6 +84,25 @@ handle, so these shortcuts build a handle and immediately run it:
 
 Each is just C<< $con->handle(@args)->METHOD(...) >>. Reach for an explicit
 handle when you want to refine in stages or reuse the same base query.
+
+=head2 A HANDLE AS A SOURCE (SUBQUERIES)
+
+A handle is itself a valid source, so you can pass one to
+C<< $con->handle(...) >> to use it as a derived table (subquery). The inner
+handle's query is spliced in as C<< ( <inner query> ) AS subquery >> and the
+outer handle refines around it:
+
+    my $recent = $con->handle('events')->where({ts => {'>' => $cutoff}});
+
+    my @clicks = $con->handle($recent)->where({kind => 'click'})->all;
+    # SELECT * FROM ( SELECT ... FROM events WHERE ts > ? ) AS subquery
+    #   WHERE kind = ?
+
+The derived table is aliased C<subquery> by default;
+C<< $h->subquery_alias($alias) >> returns a clone with a different alias
+(needed when two subqueries share one statement). A subquery source is
+read-only: C<insert>, C<upsert>, C<update>, C<delete>, C<cas>, and C<omit>
+through it croak. See L<DBIx::QuickORM::Handle/subquery_alias>.
 
 =head1 THE IMMUTABLE BUILDER MODEL
 
@@ -144,14 +163,17 @@ This matters for types whose deflation is not idempotent (encoding a JSON string
 again would double-encode it), and it is the mechanism C<cas> uses for its
 field-name guards.
 
-=head2 ORDER BY and LIMIT
+=head2 ORDER BY, LIMIT, and OFFSET
 
     my $h = $con->handle('people')
         ->where({active => 1})
         ->order_by(['surname', 'first_name'])
-        ->limit(25);
+        ->limit(25)
+        ->offset(50);
 
-C<order_by> accepts a single field, a list of fields, or an arrayref.
+C<order_by> accepts a single field, a list of fields, or an arrayref. C<limit>
+caps the number of rows returned, and C<offset> skips that many matching rows
+first, so C<< ->limit(25)->offset(50) >> fetches the third page of 25.
 
 =head2 Choosing fields
 
@@ -169,6 +191,11 @@ example large blobs). C<all_fields> forces a handle to select every column
 regardless:
 
     my $h = $con->handle('people')->all_fields;
+
+C<distinct> makes the query select only distinct rows (a C<SELECT DISTINCT>),
+which is most useful when you have narrowed the field set:
+
+    my $h = $con->handle('people')->fields(['surname'])->distinct;
 
 =head1 FETCHING ROWS
 

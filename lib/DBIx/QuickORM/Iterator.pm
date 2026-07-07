@@ -163,7 +163,6 @@ Exhaust the generator and return every item.
 
 sub list {
     my $self = shift;
-    local $self->{+INDEX} = 0;
 
     my $set = $self->{+ITEMS};
     $self->_grow until $self->{+GENERATOR_DONE};

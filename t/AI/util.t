@@ -7,6 +7,7 @@ use Scalar::Util qw/blessed/;
 
 use DBIx::QuickORM::Util qw{
     column_key
+    literal_write_value
     load_class
     find_modules
     merge_hash_of_objs
@@ -26,7 +27,7 @@ use DBIx::QuickORM::Util qw{
 subtest exports => sub {
     can_ok(
         __PACKAGE__,
-        [qw/column_key load_class find_modules merge_hash_of_objs clone_hash_of_objs parse_conflate_args/],
+        [qw/column_key literal_write_value load_class find_modules merge_hash_of_objs clone_hash_of_objs parse_conflate_args/],
         "requested functions imported",
     );
 };
@@ -40,6 +41,20 @@ subtest column_key => sub {
 
     # Sorting is plain string sort.
     is(column_key('Z', 'a', 'B'), 'B, Z, a', "ASCII-betical sort");
+};
+
+subtest literal_write_value => sub {
+    # POD: a scalar ref of SQL, or an arrayref led by a scalar ref of SQL plus
+    # its bind values, is an intentional literal; everything else is data.
+    ok(literal_write_value(\'NOW()'),        "scalar ref of SQL is a literal");
+    ok(literal_write_value([\'col + ?', 1]), "arrayref led by a scalar ref is a literal");
+
+    ok(!literal_write_value('NOW()'),          "plain string is data");
+    ok(!literal_write_value(42),               "number is data");
+    ok(!literal_write_value(undef),            "undef is data");
+    ok(!literal_write_value({a => 1}),         "hashref is data");
+    ok(!literal_write_value([1, 2]),           "plain arrayref is data");
+    ok(!literal_write_value(bless {}, 't::Obj'), "blessed object is data");
 };
 
 subtest load_class => sub {
@@ -104,6 +119,15 @@ subtest merge_hash_of_objs => sub {
         ref_is_not($out->{a}, $second, "result array is a copy, not the same ref");
     };
 
+    subtest mixed_types_second_wins => sub {
+        # Dispatch on the winner ($b). A mixed-type merge used to crash because
+        # the branch was chosen by ref($a) while the value was built from $b.
+        is(merge_hash_of_objs({k => [1, 2]},        {k => 'scalar'})->{k}, 'scalar',      "array then scalar: scalar wins");
+        is(merge_hash_of_objs({k => 's'},           {k => [3, 4]})->{k},   [3, 4],         "scalar then array: array wins");
+        is(merge_hash_of_objs({k => {x => 1}},      {k => 'plain'})->{k},  'plain',        "hash then scalar: scalar wins");
+        is(merge_hash_of_objs({k => 'plain'},       {k => {y => 2}})->{k}, {y => 2},       "scalar then hash: hash wins");
+    };
+
     subtest blessed_both => sub {
         # Both sides blessed -> a->merge(b, %params) is invoked.
         my $a = t::Obj->new(n => 1);
@@ -130,12 +154,17 @@ subtest merge_hash_of_objs => sub {
     };
 
     subtest hashref_one_side => sub {
-        # Single-side hashref is deep-cloned via clone_hash_of_objs, which
-        # only keeps blessed/ARRAY/HASH values (plain scalars are dropped).
+        # Single-side hashref is deep-cloned via clone_hash_of_objs, preserving
+        # plain scalar values as well as blessed/ARRAY/HASH values.
         my $a = t::Obj->new(n => 1);
         my $out = merge_hash_of_objs({h => {o => $a, s => 'scalar'}}, {});
         is($out->{h}{o}{cloned}, 1, "nested blessed value cloned");
-        ok(!exists $out->{h}{s}, "plain scalar inside a nested hash is dropped by deep clone");
+        is($out->{h}{s}, 'scalar', "plain scalar inside a nested hash is preserved by deep clone");
+    };
+
+    subtest falsey_values => sub {
+        my $out = merge_hash_of_objs({zero => 9, empty => 'x', undef_v => 1}, {zero => 0, empty => '', undef_v => undef});
+        is($out, {zero => 0, empty => '', undef_v => undef}, "second hash wins even when its values are falsey");
     };
 };
 
@@ -153,14 +182,12 @@ subtest clone_hash_of_objs => sub {
 
         is($out->{h}, {n => [5]}, "nested hashref deep-cloned");
 
-        ok(!exists $out->{s}, "plain scalar values are dropped (only blessed/ARRAY/HASH kept)");
+        is($out->{s}, 'plain', "plain scalar values are preserved");
     };
 
-    subtest falsey_values_skipped => sub {
-        # The implementation uses `my $val = ... or next`, so any falsey
-        # value (0, '', undef) is skipped entirely.
+    subtest falsey_values_preserved => sub {
         my $out = clone_hash_of_objs({zero => 0, empty => '', undef_v => undef, real => [1]});
-        is([sort keys %$out], ['real'], "falsey-valued keys are skipped");
+        is($out, {zero => 0, empty => '', undef_v => undef, real => [1]}, "falsey-valued keys are preserved");
     };
 
     subtest empty => sub {
@@ -221,6 +248,34 @@ subtest parse_conflate_args => sub {
             "no determinable value croaks",
         );
     };
+
+    subtest type_instance_invocant => sub {
+        # $Type->qorm_inflate($raw) and $instance->qorm_inflate($raw) reach
+        # parse_conflate_args as (class-or-instance, $raw). Both must be parsed
+        # as (class => invocant, value => $raw), not rejected.
+        require DBIx::QuickORM::Type::JSON;
+
+        my $by_class = parse_conflate_args('DBIx::QuickORM::Type::JSON', '{"x":1}');
+        is($by_class->{class}, 'DBIx::QuickORM::Type::JSON', "class-name invocant kept as class");
+        is($by_class->{value}, '{"x":1}',                    "the following argument is the value");
+
+        my $inst = bless {}, 'DBIx::QuickORM::Type::JSON';
+        my $by_inst = parse_conflate_args($inst, '{"y":2}');
+        ref_is($by_inst->{class}, $inst, "blessed type instance kept as the class/invocant");
+        is($by_inst->{value}, '{"y":2}', "and its following argument is the value");
+    };
+};
+
+subtest merge_hash_of_objs_explicit_undef => sub {
+    # Regression: an explicit undef in the second hash must win (second wins)
+    # without dereferencing the undef, even when the first hash holds a ref.
+    my $out;
+    ok(
+        lives { $out = merge_hash_of_objs({k => [1, 2], h => {a => 1}}, {k => undef, h => undef}) },
+        "explicit-undef second value does not crash the ref branches",
+    ) or note $@;
+    ok(!defined $out->{k}, "array-vs-undef: second (undef) wins");
+    ok(!defined $out->{h}, "hash-vs-undef: second (undef) wins");
 };
 
 done_testing;

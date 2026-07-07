@@ -7,7 +7,11 @@ our $VERSION = '0.000028';
 use Data::Dumper;
 use Scalar::Util qw/blessed/;
 use Carp qw/croak confess/;
+use Role::Tiny ();
 
+# Module::Pluggable installs a public search_path sub into this package. Alias
+# it to the internal _find_paths name and delete it from the package stash so
+# it is neither mistaken for nor exportable as a Util function.
 use Module::Pluggable sub_name => '_find_mods';
 BEGIN {
     *_find_paths = \&search_path;
@@ -102,22 +106,27 @@ sub merge_hash_of_objs {
     for my $name (keys %$hash_a, keys %$hash_b) {
         next if $seen{$name}++;
 
-        my $a = $hash_a->{$name};
-        my $b = $hash_b->{$name};
+        my $has_a = exists $hash_a->{$name};
+        my $has_b = exists $hash_b->{$name};
+        my $a     = $hash_a->{$name};
+        my $b     = $hash_b->{$name};
 
-        if ($a && $b) {
-            my $r = ref($a);
-            my $bl = blessed($a);
-
-            if    ($bl)           { $out{$name} = $a->merge($b, %$merge_params) }
-            elsif ($r eq 'HASH')  { $out{$name} = {%$a, %$b} }
-            elsif ($r eq 'ARRAY') { $out{$name} = [@$b] }                           # Second array wins
-            else                  { $out{$name} = $b }                              # Second value wins
+        if ($has_a && $has_b) {
+            # "Second wins": dispatch on $b (the winner), not $a. Building an
+            # ARRAY/HASH result off $b while branching on ref($a) crashed on a
+            # mixed-type merge (e.g. a user override replacing an introspected
+            # scalar-ref with a blessed type, or vice versa). Only fall back to
+            # $a->merge when both sides are blessed and can be merged.
+            if    (!defined $b)          { $out{$name} = $b }                             # Explicit undef in second wins
+            elsif (blessed($b))          { $out{$name} = blessed($a) ? $a->merge($b, %$merge_params) : $b->clone(%$merge_params) }
+            elsif (ref($b) eq 'HASH')    { $out{$name} = ref($a) eq 'HASH' ? {%$a, %$b} : {%$b} }
+            elsif (ref($b) eq 'ARRAY')   { $out{$name} = [@$b] }                          # Second array wins
+            else                         { $out{$name} = $b }                             # Second value wins
 
             next;
         }
 
-        my $v  = $a // $b;
+        my $v  = $has_a ? $a : $b;
         my $r  = ref($v);
         my $bl = blessed($v);
         if    ($bl)           { $out{$name} = $v->clone(%$merge_params) }
@@ -138,7 +147,7 @@ sub clone_hash_of_objs {
     my %seen;
 
     for my $name (keys %$hash) {
-        my $val = $hash->{$name} or next;
+        my $val = $hash->{$name};
         if (blessed($val)) {
             $out{$name} = $hash->{$name}->clone(%$clone_params);
             next;
@@ -150,6 +159,9 @@ sub clone_hash_of_objs {
         }
         elsif ($r eq 'HASH') {
             $out{$name} = clone_hash_of_objs($val, $clone_params);
+        }
+        else {
+            $out{$name} = $val;
         }
     }
 
@@ -181,7 +193,10 @@ sub parse_conflate_args {
     my ($proto, %params);
     $proto = shift if @_ % 2;
 
-    if (!blessed($_[0]) && eval { $_[0]->does('DBIx::QuickORM::Role::Type') ? 1 : 0 }) {
+    if (@_ > 1 && defined($_[0]) && Role::Tiny::does_role($_[0], 'DBIx::QuickORM::Role::Type')) {
+        # A type class name OR a blessed type instance followed by a value:
+        # $Type->qorm_inflate($raw) and $instance->qorm_inflate($raw) both mean
+        # (class/instance => class, value => $raw).
         (@params{qw/class value/}) = (shift(@_), shift(@_));
         %params = (%params, @_);
     }
@@ -299,6 +314,14 @@ True if C<$thing> is a mask.
 
 Returns the wrapped object (building it if needed) for a mask, or C<$thing>
 unchanged otherwise.
+
+=item $bool = literal_write_value($val)
+
+True when a write value (an insert/update/cas/upsert column value) is an
+intentional SQL literal rather than data to bind: a scalar ref of SQL such
+as C<\'NOW()'>, or an arrayref whose first element is a scalar ref of SQL
+plus its bind values such as C<[\'col + ?', $n]>. Everything else (plain
+scalars, C<undef>, hashrefs, plain arrayrefs, blessed objects) is data.
 
 =back
 

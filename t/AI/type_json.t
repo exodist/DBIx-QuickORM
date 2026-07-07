@@ -27,6 +27,9 @@ subtest inflate => sub {
         "decoded JSON array string",
     );
 
+    is($C->qorm_inflate(class => $C, value => '"hello"'), 'hello', "decoded JSON string scalar");
+    is($C->qorm_inflate(class => $C, value => '42'),      42,      "decoded JSON numeric scalar");
+
     is($C->qorm_inflate(class => $C, value => undef), undef, "undef inflates to undef");
 
     # An already-inflated ref passes straight through (the row layer can
@@ -50,10 +53,21 @@ subtest deflate => sub {
 
     is($C->qorm_deflate(class => $C, value => undef, affinity => 'string'), undef, "undef deflates to undef");
 
-    like(
-        dies { $C->qorm_deflate(class => $C, value => {x => 1}) },
-        qr/Could not determine affinity/,
-        "deflate croaks without an affinity",
+    is(
+        $C->qorm_deflate(class => $C, value => 'hello', affinity => 'string'),
+        '"hello"',
+        "encoded a string scalar to a JSON string",
+    );
+
+    is(
+        $C->qorm_inflate(class => $C, value => $C->qorm_deflate(class => $C, value => 42, affinity => 'string')),
+        42,
+        "numeric scalar round-trips through deflate and inflate",
+    );
+
+    ok(
+        lives { $C->qorm_deflate(class => $C, value => {x => 1}) },
+        "deflate does not require an affinity (it never uses one)",
     );
 };
 
@@ -71,6 +85,18 @@ subtest blessed_ref_deflation => sub {
         $C->qorm_deflate(class => $C, value => $array_obj, affinity => 'string'),
         '[4,5,6]',
         "blessed arrayref deflates to a plain JSON array",
+    );
+
+    {
+        package Some::JSON::Object;
+        sub TO_JSON { return {from_to_json => $_[0]->{value}} }
+    }
+
+    my $to_json = bless {value => 42}, 'Some::JSON::Object';
+    is(
+        $C->qorm_deflate(class => $C, value => $to_json, affinity => 'string'),
+        '{"from_to_json":42}',
+        "blessed objects with TO_JSON delegate to the JSON encoder",
     );
 };
 
@@ -141,6 +167,14 @@ subtest round_trip_through_sqlite => sub {
     $dbh->disconnect;
     like($raw, qr/^\{.*\}$/, "stored value is a JSON document string");
     is(Cpanel::JSON::XS::decode_json($raw), $struct, "raw stored JSON decodes back to the struct");
+};
+
+subtest deflate_without_affinity => sub {
+    # JSON deflate does not use the affinity, so it must not croak when one
+    # cannot be determined (e.g. a bare qorm_deflate(value => ...) call).
+    my $out;
+    ok(lives { $out = DBIx::QuickORM::Type::JSON->qorm_deflate(value => {a => 1}) }, "qorm_deflate works without an affinity") or note $@;
+    is($out, '{"a":1}', "and still produces the JSON");
 };
 
 done_testing;

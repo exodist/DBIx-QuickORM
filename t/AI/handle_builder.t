@@ -228,6 +228,10 @@ subtest omit => sub {
     ok(!(grep { $_ eq 'bio' } @{$omitted->fields}), "the omitted field is dropped from fields");
     ok((grep { $_ eq 'id' } @{$omitted->fields}), "the primary key is still fetched");
 
+    my $appended = $omitted->omit('first_name');
+    is($appended->omit, {bio => 1, first_name => 1}, "additive omit() appends to an already-normalized omit set");
+    ok(!(grep { $_ eq 'first_name' } @{$appended->fields}), "the appended omit field is dropped from fields");
+
     # Primary key fields cannot be omitted.
     like(dies { my $h = $base->omit(['id']) },
         qr/Cannot omit primary key field 'id'/,
@@ -240,6 +244,10 @@ subtest all_fields => sub {
         [sort @{$con->handle('people')->source->fields_list_all}],
         "all_fields selects the source's full field list",
     );
+
+    my $full = $base->omit(['bio'])->all_fields;
+    is($full->omit, undef, "all_fields clears an existing omit set");
+    ok((grep { $_ eq 'bio' } @{$full->fields}), "all_fields restores an omitted field");
 };
 
 subtest data_only => sub {

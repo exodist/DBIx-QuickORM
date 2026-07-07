@@ -118,6 +118,8 @@ primitive. If you find existing code doing it, replace with
   - `my $self  = shift;` (or `my $class = shift;`)
   - `my ($self, ...) = @_;` (or `($class, ...)`)
   - return a literal constant (`sub TABLE { 'users' }`, `sub defaults { {...} }`, `sub json_fields { qw{a b c} }`) — argless declarative-metadata methods are fine because callers invoke them as `$obj->name`.
+  - be a no-op stub whose body is empty or a bare `return` (`sub cache { }`, `sub uncache { return }`). A stub that ignores its arguments and returns nothing behaves identically no matter how it is called, so forcing it to shift an unused invocant buys nothing; leave it as the shortest form.
+  - be a deliberate dual-call helper that reads its argument positionally (typically via `pop`) so the same sub works both as a plain function (`looks_like_uuid($v)`) and as a method (`$class->looks_like_uuid($v)`). Mark the intent with a comment above the sub. These are rare; use them only when a helper genuinely needs both call forms.
 
   Wrong (function inside object module):
 
