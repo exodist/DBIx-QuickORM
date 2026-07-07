@@ -6,7 +6,7 @@ use Carp qw/croak confess carp/;
 use Scalar::Util qw/blessed/;
 use DBI();
 
-our $VERSION = '0.000028';
+our $VERSION = '0.000029';
 
 use DBIx::QuickORM::Util qw/load_class/;
 

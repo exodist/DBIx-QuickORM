@@ -2,7 +2,7 @@ package DBIx::QuickORM::Schema::Autofill;
 use strict;
 use warnings;
 
-our $VERSION = '0.000028';
+our $VERSION = '0.000029';
 
 use Carp qw/croak/;
 use DBIx::QuickORM::Util qw/load_class/;

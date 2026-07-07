@@ -2,7 +2,7 @@ package DBIx::QuickORM::RowManager::Cached;
 use strict;
 use warnings;
 
-our $VERSION = '0.000028';
+our $VERSION = '0.000029';
 
 use Scalar::Util qw/weaken/;
 

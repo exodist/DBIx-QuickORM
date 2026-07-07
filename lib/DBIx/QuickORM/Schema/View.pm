@@ -2,7 +2,7 @@ package DBIx::QuickORM::Schema::View;
 use strict;
 use warnings;
 
-our $VERSION = '0.000028';
+our $VERSION = '0.000029';
 
 use parent 'DBIx::QuickORM::Schema::Table';
 use Object::HashBase;

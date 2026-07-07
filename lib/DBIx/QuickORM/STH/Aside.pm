@@ -2,7 +2,7 @@ package DBIx::QuickORM::STH::Aside;
 use strict;
 use warnings;
 
-our $VERSION = '0.000028';
+our $VERSION = '0.000029';
 
 # Roles (Role::STH, Role::Async) arrive via the parent STH::Async. Re-composing
 # them here would reinstall the roles' croaking default cancel/cancel_supported

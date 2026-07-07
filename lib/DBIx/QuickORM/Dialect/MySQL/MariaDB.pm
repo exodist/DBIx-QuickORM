@@ -2,7 +2,7 @@ package DBIx::QuickORM::Dialect::MySQL::MariaDB;
 use strict;
 use warnings;
 
-our $VERSION = '0.000028';
+our $VERSION = '0.000029';
 
 use Carp qw/croak/;
 

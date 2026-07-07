@@ -7,7 +7,7 @@ use Storable qw/dclone/;
 use Scalar::Util qw/blessed/;
 use DBIx::QuickORM::Util qw/literal_write_value/;
 
-our $VERSION = '0.000028';
+our $VERSION = '0.000029';
 
 use DBIx::QuickORM::Connection::RowData qw{
     STORED

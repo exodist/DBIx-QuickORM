@@ -2,7 +2,7 @@ package DBIx::QuickORM::Handle;
 use strict;
 use warnings;
 
-our $VERSION = '0.000028';
+our $VERSION = '0.000029';
 
 use Carp qw/confess croak carp/;
 use Sub::Util qw/set_subname/;
